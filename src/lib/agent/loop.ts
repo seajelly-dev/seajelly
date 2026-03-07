@@ -55,6 +55,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       : "";
     if (!messageText) throw new Error("No message text in payload");
 
+    const command = messageText.startsWith("/")
+      ? messageText.split(/[\s@]/)[0].toLowerCase()
+      : null;
+
     // ── Resolve channel from event payload ──
     const platformUid =
       ((event.payload as Record<string, unknown>).platform_uid as string) ||
@@ -133,6 +137,67 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     const sessionVersion = session.version as number;
+
+    // ── Handle bot commands (no AI needed) ──
+    if (command) {
+      const bot = await getBotForAgent(typedAgent.id);
+
+      if (command === "/new") {
+        await supabase
+          .from("sessions")
+          .update({ messages: [], version: sessionVersion + 1 })
+          .eq("id", session.id);
+        await bot.api.sendMessage(chatId, "✨ New session started.");
+        return { success: true, reply: "✨ New session started.", traceId };
+      }
+
+      if (command === "/help") {
+        const helpText =
+          `📋 *${typedAgent.name} — Commands*\n\n` +
+          "/new — Start a new session\n" +
+          "/whoami — Show your identity profile\n" +
+          "/status — Show session status\n" +
+          "/help — Show this message\n\n" +
+          "Send any text to chat.";
+        await bot.api.sendMessage(chatId, helpText, { parse_mode: "Markdown" });
+        return { success: true, reply: helpText, traceId };
+      }
+
+      if (command === "/status") {
+        const msgCount = Array.isArray(session.messages)
+          ? (session.messages as unknown[]).length
+          : 0;
+        const statusText =
+          `📊 *Status*\n\n` +
+          `*Agent:* ${typedAgent.name}\n` +
+          `*Model:* \`${typedAgent.model}\`\n` +
+          `*Access Mode:* ${typedAgent.access_mode}\n` +
+          `*Session Messages:* ${msgCount}`;
+        await bot.api.sendMessage(chatId, statusText, { parse_mode: "Markdown" });
+        return { success: true, reply: statusText, traceId };
+      }
+
+      if (command === "/whoami") {
+        const whoamiText = channel
+          ? `👤 *Who Am I*\n\n` +
+            `*Platform UID:* \`${channel.platform_uid}\`\n` +
+            `*Display Name:* ${channel.display_name || "N/A"}\n` +
+            `*Allowed:* ${channel.is_allowed ? "✅" : "⛔"}\n\n` +
+            `*User Soul:*\n${channel.user_soul || "(empty)"}`
+          : "No channel record found.";
+        await bot.api.sendMessage(chatId, whoamiText, { parse_mode: "Markdown" });
+        return { success: true, reply: whoamiText, traceId };
+      }
+
+      if (command === "/start") {
+        await bot.api.sendMessage(
+          chatId,
+          `👋 Hi! I'm *${typedAgent.name}*. Send me a message or type /help for commands.`,
+          { parse_mode: "Markdown" }
+        );
+        return { success: true, reply: "start", traceId };
+      }
+    }
 
     const history: ChatMessage[] = Array.isArray(session.messages)
       ? (session.messages as ChatMessage[])

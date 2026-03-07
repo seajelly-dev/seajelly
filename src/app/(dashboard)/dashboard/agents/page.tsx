@@ -608,7 +608,7 @@ export default function AgentsPage() {
                   {agent.system_prompt || t("agents.noSystemPrompt")}
                 </p>
                 {(agent as Agent & { has_bot_token?: boolean }).has_bot_token && (
-                  <div className="flex items-center gap-2 rounded-md border p-2">
+                  <div className="flex items-center gap-2 rounded-md border p-2 overflow-hidden">
                     <Webhook className="size-4 shrink-0 text-muted-foreground" />
                     {(() => {
                       const info = webhookStatus[agent.id];
@@ -627,7 +627,7 @@ export default function AgentsPage() {
 
                       if (isSet) {
                         return (
-                          <div className="flex flex-1 items-center justify-between gap-2">
+                          <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
                             <div className="min-w-0 flex-1">
                               <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
                                 <CheckCircle2 className="size-3" />
@@ -640,6 +640,7 @@ export default function AgentsPage() {
                             <Button
                               variant="outline"
                               size="xs"
+                              className="shrink-0"
                               onClick={() => handleSetWebhook(agent.id)}
                               disabled={isSetting}
                             >
@@ -650,7 +651,7 @@ export default function AgentsPage() {
                       }
 
                       return (
-                        <div className="flex flex-1 items-center justify-between gap-2">
+                        <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
                           <span className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400">
                             <XCircle className="size-3" />
                             {t("agents.webhookNotSet")}
@@ -658,6 +659,7 @@ export default function AgentsPage() {
                           <Button
                             variant="default"
                             size="xs"
+                            className="shrink-0"
                             onClick={() => handleSetWebhook(agent.id)}
                             disabled={isSetting}
                           >
