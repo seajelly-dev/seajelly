@@ -97,17 +97,18 @@ CREATE POLICY "channels_public_rw" ON public.channels FOR ALL USING (true);
 -- 5. sessions
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.sessions (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  chat_id     bigint NOT NULL,
-  agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
-  channel_id  uuid REFERENCES public.channels(id) ON DELETE SET NULL,
-  messages    jsonb NOT NULL DEFAULT '[]',
-  metadata    jsonb NOT NULL DEFAULT '{}',
-  version     int NOT NULL DEFAULT 1,
-  updated_at  timestamptz NOT NULL DEFAULT now()
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  platform_chat_id  text NOT NULL,
+  agent_id          uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  channel_id        uuid REFERENCES public.channels(id) ON DELETE SET NULL,
+  messages          jsonb NOT NULL DEFAULT '[]',
+  metadata          jsonb NOT NULL DEFAULT '{}',
+  version           int NOT NULL DEFAULT 1,
+  is_active         boolean NOT NULL DEFAULT true,
+  updated_at        timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS sessions_chat_agent ON public.sessions(chat_id, agent_id);
-CREATE INDEX IF NOT EXISTS sessions_chat_id ON public.sessions(chat_id);
+CREATE INDEX IF NOT EXISTS sessions_active ON public.sessions(platform_chat_id, agent_id) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS sessions_platform_chat ON public.sessions(platform_chat_id);
 CREATE INDEX IF NOT EXISTS sessions_channel_id ON public.sessions(channel_id);
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "sessions_admin_all" ON public.sessions;
@@ -182,11 +183,11 @@ CREATE POLICY "cron_jobs_admin_all" ON public.cron_jobs FOR ALL USING (public.is
 -- 9. events
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.events (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source          text NOT NULL CHECK (source IN ('telegram','cron','webhook','manual')),
-  agent_id        uuid REFERENCES public.agents(id) ON DELETE SET NULL,
-  chat_id         bigint,
-  dedup_key       text UNIQUE,
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source            text NOT NULL CHECK (source IN ('telegram','cron','webhook','manual')),
+  agent_id          uuid REFERENCES public.agents(id) ON DELETE SET NULL,
+  platform_chat_id  text,
+  dedup_key         text UNIQUE,
   payload         jsonb NOT NULL DEFAULT '{}',
   status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','processed','failed','dead')),
   locked_until    timestamptz,

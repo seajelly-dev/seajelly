@@ -53,12 +53,13 @@ export interface ChatMessage {
 
 export interface Session {
   id: string;
-  chat_id: number;
+  platform_chat_id: string;
   agent_id: string;
   channel_id: string | null;
   messages: ChatMessage[];
   metadata: Record<string, unknown>;
   version: number;
+  is_active: boolean;
   updated_at: string;
 }
 
@@ -117,7 +118,7 @@ export interface AgentEvent {
   id: string;
   source: EventSource;
   agent_id: string | null;
-  chat_id: number | null;
+  platform_chat_id: string | null;
   dedup_key: string | null;
   payload: Record<string, unknown>;
   status: EventStatus;

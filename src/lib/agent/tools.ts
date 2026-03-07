@@ -285,17 +285,18 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
 
         const chatIdResult = await supabase
           .from("sessions")
-          .select("chat_id")
+          .select("platform_chat_id")
           .eq("agent_id", agentId)
+          .eq("is_active", true)
           .order("updated_at", { ascending: false })
           .limit(1)
           .single();
 
-        if (!chatIdResult.data?.chat_id) {
+        if (!chatIdResult.data?.platform_chat_id) {
           return { success: false, error: "No active chat session found" };
         }
 
-        const chatId = chatIdResult.data.chat_id;
+        const chatId = chatIdResult.data.platform_chat_id;
 
         const bodyObj: Record<string, unknown> = {
           task_type,

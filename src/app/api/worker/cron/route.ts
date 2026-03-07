@@ -25,9 +25,10 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { task_type, agent_id, chat_id, ...rest } = body;
+    const { task_type, agent_id, chat_id, platform_chat_id: pci, ...rest } = body;
+    const platformChatId = String(pci || chat_id || "");
 
-    if (!agent_id || !chat_id) {
+    if (!agent_id || !platformChatId) {
       return NextResponse.json(
         { error: "Missing agent_id or chat_id" },
         { status: 400 }
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
     }
 
     const type = task_type || "reminder";
+    const tgChatId = Number(platformChatId);
 
     switch (type) {
       case "reminder": {
@@ -47,9 +49,9 @@ export async function POST(request: Request) {
         }
         const bot = await getBotForAgent(agent_id);
         await bot.api
-          .sendMessage(chat_id, `🔔 ${message}`, { parse_mode: "Markdown" })
+          .sendMessage(tgChatId, `🔔 ${message}`, { parse_mode: "Markdown" })
           .catch(async () => {
-            await bot.api.sendMessage(chat_id, `🔔 ${message}`);
+            await bot.api.sendMessage(tgChatId, `🔔 ${message}`);
           });
         break;
       }
@@ -66,11 +68,11 @@ export async function POST(request: Request) {
           id: crypto.randomUUID(),
           source: "cron",
           agent_id,
-          chat_id,
+          platform_chat_id: platformChatId,
           dedup_key: null,
           payload: {
             message: { text: prompt },
-            platform_uid: String(chat_id),
+            platform_uid: platformChatId,
           },
           status: "processing",
           locked_until: null,

@@ -43,8 +43,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     const typedAgent = agent as Agent;
-    const chatId = event.chat_id;
-    if (!chatId) throw new Error("No chat_id on event");
+    const platformChatId = event.platform_chat_id;
+    if (!platformChatId) throw new Error("No platform_chat_id on event");
+    const telegramChatId = Number(platformChatId);
 
     const msgPayload = (event.payload as Record<string, unknown>).message as
       | Record<string, unknown>
@@ -105,23 +106,25 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
 
-    // ── Session ──
+    // ── Session (find active or create) ──
     let { data: session } = await supabase
       .from("sessions")
       .select("*")
-      .eq("chat_id", chatId)
+      .eq("platform_chat_id", platformChatId)
       .eq("agent_id", typedAgent.id)
+      .eq("is_active", true)
       .single();
 
     if (!session) {
       const { data: newSession, error: insertErr } = await supabase
         .from("sessions")
         .insert({
-          chat_id: chatId,
+          platform_chat_id: platformChatId,
           agent_id: typedAgent.id,
           channel_id: channel?.id || null,
           messages: [],
           version: 1,
+          is_active: true,
         })
         .select()
         .single();
@@ -146,9 +149,19 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       if (command === "/new") {
         await supabase
           .from("sessions")
-          .update({ messages: [], version: sessionVersion + 1 })
+          .update({ is_active: false })
           .eq("id", session.id);
-        await bot.api.sendMessage(chatId, "✨ New session started.");
+        await supabase
+          .from("sessions")
+          .insert({
+            platform_chat_id: platformChatId,
+            agent_id: typedAgent.id,
+            channel_id: channel?.id || null,
+            messages: [],
+            version: 1,
+            is_active: true,
+          });
+        await bot.api.sendMessage(telegramChatId, "✨ New session started.");
         return { success: true, reply: "✨ New session started.", traceId };
       }
 
@@ -160,7 +173,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           "/status — Show session status\n" +
           "/help — Show this message\n\n" +
           "Send any text to chat.";
-        await bot.api.sendMessage(chatId, helpText, { parse_mode: "Markdown" });
+        await bot.api.sendMessage(telegramChatId, helpText, { parse_mode: "Markdown" });
         return { success: true, reply: helpText, traceId };
       }
 
@@ -174,7 +187,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           `*Model:* \`${typedAgent.model}\`\n` +
           `*Access Mode:* ${typedAgent.access_mode}\n` +
           `*Session Messages:* ${msgCount}`;
-        await bot.api.sendMessage(chatId, statusText, { parse_mode: "Markdown" });
+        await bot.api.sendMessage(telegramChatId, statusText, { parse_mode: "Markdown" });
         return { success: true, reply: statusText, traceId };
       }
 
@@ -186,13 +199,13 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             `*Allowed:* ${channel.is_allowed ? "✅" : "⛔"}\n\n` +
             `*User Soul:*\n${channel.user_soul || "(empty)"}`
           : "No channel record found.";
-        await bot.api.sendMessage(chatId, whoamiText, { parse_mode: "Markdown" });
+        await bot.api.sendMessage(telegramChatId, whoamiText, { parse_mode: "Markdown" });
         return { success: true, reply: whoamiText, traceId };
       }
 
       if (command === "/start") {
         await bot.api.sendMessage(
-          chatId,
+          telegramChatId,
           `👋 Hi! I'm *${typedAgent.name}*. Send me a message or type /help for commands.`,
           { parse_mode: "Markdown" }
         );
@@ -296,9 +309,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     );
 
     const bot = await getBotForAgent(typedAgent.id);
-    await bot.api.sendChatAction(chatId, "typing").catch(() => {});
+    await bot.api.sendChatAction(telegramChatId, "typing").catch(() => {});
     const typingInterval = setInterval(() => {
-      bot.api.sendChatAction(chatId, "typing").catch(() => {});
+      bot.api.sendChatAction(telegramChatId, "typing").catch(() => {});
     }, 4000);
 
     let result;
@@ -320,9 +333,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const reply = result.text || "[No response generated]";
 
     await bot.api
-      .sendMessage(chatId, reply, { parse_mode: "Markdown" })
+      .sendMessage(telegramChatId, reply, { parse_mode: "Markdown" })
       .catch(async () => {
-        await bot.api.sendMessage(chatId, reply);
+        await bot.api.sendMessage(telegramChatId, reply);
       });
 
     const userContent = imageDownloaded
@@ -365,11 +378,11 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const errMsg = err instanceof Error ? err.message : "Unknown error";
     console.error(`Agent loop failed (trace: ${traceId}):`, errMsg);
 
-    if (event.chat_id) {
+    if (event.platform_chat_id) {
       try {
         const bot = await getBotForAgent(event.agent_id!);
         await bot.api.sendMessage(
-          event.chat_id,
+          Number(event.platform_chat_id),
           `Sorry, I encountered an error. Please try again later.`
         );
       } catch {

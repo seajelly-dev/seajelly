@@ -83,7 +83,7 @@ export async function POST(
     await supabase.from("events").insert({
       source: "telegram",
       agent_id: agentId,
-      chat_id: chatId,
+      platform_chat_id: String(chatId),
       dedup_key: dedupKey,
       payload: {
         update_id: updateId,

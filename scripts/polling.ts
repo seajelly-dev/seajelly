@@ -130,12 +130,13 @@ async function startBotForAgent(agent: AgentRow) {
 
   // ── /status ──
   bot.command("status", async (ctx) => {
-    const chatId = ctx.chat.id;
+    const platformChatId = String(ctx.chat.id);
     const { data: session } = await supabase
       .from("sessions")
       .select("id, messages, version")
-      .eq("chat_id", chatId)
+      .eq("platform_chat_id", platformChatId)
       .eq("agent_id", agent.id)
+      .eq("is_active", true)
       .single();
 
     const msgCount =
@@ -155,12 +156,21 @@ async function startBotForAgent(agent: AgentRow) {
 
   // ── /new ──
   bot.command("new", async (ctx) => {
-    const chatId = ctx.chat.id;
+    const platformChatId = String(ctx.chat.id);
     await supabase
       .from("sessions")
-      .update({ messages: [] })
-      .eq("chat_id", chatId)
-      .eq("agent_id", agent.id);
+      .update({ is_active: false })
+      .eq("platform_chat_id", platformChatId)
+      .eq("agent_id", agent.id)
+      .eq("is_active", true);
+
+    await supabase.from("sessions").insert({
+      platform_chat_id: platformChatId,
+      agent_id: agent.id,
+      messages: [],
+      version: 1,
+      is_active: true,
+    });
 
     console.log(
       `[${new Date().toISOString()}] [${agent.name}] /new from ${ctx.from?.first_name}`
@@ -200,22 +210,26 @@ async function startBotForAgent(agent: AgentRow) {
         return;
       }
 
+      const platformChatId = String(chatId);
+
       let { data: session } = await supabase
         .from("sessions")
         .select("*")
-        .eq("chat_id", chatId)
+        .eq("platform_chat_id", platformChatId)
         .eq("agent_id", agent.id)
+        .eq("is_active", true)
         .single();
 
       if (!session) {
         const { data: newSession } = await supabase
           .from("sessions")
           .insert({
-            chat_id: chatId,
+            platform_chat_id: platformChatId,
             agent_id: agent.id,
             channel_id: channel.id,
             messages: [],
             version: 1,
+            is_active: true,
           })
           .select()
           .single();

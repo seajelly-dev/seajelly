@@ -37,9 +37,10 @@ interface ChatMessage {
 
 interface SessionRow {
   id: string;
-  chat_id: number;
+  platform_chat_id: string;
   agent_id: string;
   version: number;
+  is_active: boolean;
   updated_at: string;
   messages: ChatMessage[];
   agents: { name: string } | null;
@@ -101,7 +102,7 @@ export default function SessionsPage() {
                   <TableHead>{t("sessions.chatId")}</TableHead>
                   <TableHead>{t("sessions.agent")}</TableHead>
                   <TableHead>{t("sessions.messages")}</TableHead>
-                  <TableHead>{t("sessions.version")}</TableHead>
+                  <TableHead>{t("sessions.status")}</TableHead>
                   <TableHead>{t("sessions.lastUpdated")}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -113,7 +114,7 @@ export default function SessionsPage() {
                     onClick={() => setSelected(s)}
                   >
                     <TableCell className="font-mono text-sm">
-                      {s.chat_id}
+                      {s.platform_chat_id}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">
@@ -123,7 +124,11 @@ export default function SessionsPage() {
                     <TableCell className="tabular-nums">
                       {s.messages.length}
                     </TableCell>
-                    <TableCell className="tabular-nums">{s.version}</TableCell>
+                    <TableCell>
+                      <Badge variant={s.is_active ? "default" : "secondary"}>
+                        {s.is_active ? t("sessions.active") : t("sessions.archived")}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {new Date(s.updated_at).toLocaleString()}
                     </TableCell>
@@ -158,7 +163,7 @@ export default function SessionsPage() {
             {selected && (
               <SheetDescription>
                 {t("sessions.chatInfo", {
-                  chatId: selected.chat_id,
+                  chatId: selected.platform_chat_id,
                   agent: selected.agents?.name ?? t("sessions.unknown"),
                   count: selected.messages.length,
                 })}
