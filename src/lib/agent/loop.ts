@@ -4,6 +4,7 @@ import { getModel } from "./provider";
 import { createAgentTools } from "./tools";
 import { AGENT_LIMITS } from "./limits";
 import { getBotForAgent } from "@/lib/telegram/bot";
+import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
 
 interface LoopResult {
@@ -23,6 +24,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
   );
 
   const startTime = Date.now();
+  let mcpResult: MCPResult | null = null;
 
   try {
     if (!event.agent_id) {
@@ -146,11 +148,23 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     messages.push({ role: "user" as const, content: messageText });
 
     const model = await getModel(typedAgent.model);
-    const tools = createAgentTools({
+    const builtinTools = createAgentTools({
       agentId: typedAgent.id,
       namespace: typedAgent.memory_namespace,
       channelId: channel?.id,
     });
+
+    // ── MCP tools ──
+    let tools = builtinTools;
+    const mcpIds = typedAgent.mcp_server_ids ?? [];
+    if (mcpIds.length > 0) {
+      try {
+        mcpResult = await connectMCPServers(mcpIds);
+        tools = { ...builtinTools, ...mcpResult.tools } as typeof builtinTools;
+      } catch (err) {
+        console.warn("MCP tools loading failed, using builtin only:", err);
+      }
+    }
 
     // ── System prompt with soul injection ──
     let systemPrompt = typedAgent.system_prompt || "";
@@ -228,6 +242,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       );
     }
 
+    if (mcpResult) await mcpResult.cleanup().catch(() => {});
     return { success: true, reply, traceId };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : "Unknown error";
@@ -245,6 +260,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
 
+    if (mcpResult) await mcpResult.cleanup().catch(() => {});
     return { success: false, error: errMsg, traceId };
   }
 }

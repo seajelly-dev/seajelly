@@ -15,6 +15,7 @@ import { getModel } from "@/lib/agent/provider";
 import { createAgentTools } from "@/lib/agent/tools";
 import { AGENT_LIMITS } from "@/lib/agent/limits";
 import { BOT_COMMANDS } from "@/lib/telegram/commands";
+import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import type { ChatMessage, Channel } from "@/types/database";
 
 config({ path: resolve(process.cwd(), ".env.local") });
@@ -75,6 +76,7 @@ interface AgentRow {
   access_mode: string;
   ai_soul: string;
   telegram_bot_token: string;
+  mcp_server_ids: string[];
 }
 
 async function startBotForAgent(agent: AgentRow) {
@@ -241,11 +243,23 @@ async function startBotForAgent(agent: AgentRow) {
       ];
 
       const model = await getModel(agent.model);
-      const tools = createAgentTools({
+      const builtinTools = createAgentTools({
         agentId: agent.id,
         namespace: agent.memory_namespace || "default",
         channelId: channel.id,
       });
+
+      let mcpResult: MCPResult | null = null;
+      let tools = builtinTools;
+      const mcpIds = agent.mcp_server_ids ?? [];
+      if (mcpIds.length > 0) {
+        try {
+          mcpResult = await connectMCPServers(mcpIds);
+          tools = { ...builtinTools, ...mcpResult.tools } as typeof builtinTools;
+        } catch (err) {
+          console.warn("MCP tools loading failed:", err);
+        }
+      }
 
       let systemPrompt = agent.system_prompt || "";
       if (agent.ai_soul) {
@@ -274,6 +288,7 @@ async function startBotForAgent(agent: AgentRow) {
         });
       } finally {
         clearInterval(typingInterval);
+        if (mcpResult) await mcpResult.cleanup().catch(() => {});
       }
 
       const reply = result.text || "[No response]";
@@ -314,7 +329,7 @@ async function main() {
 
   const { data: agents, error } = await supabase
     .from("agents")
-    .select("id, name, model, system_prompt, memory_namespace, access_mode, ai_soul, telegram_bot_token")
+    .select("id, name, model, system_prompt, memory_namespace, access_mode, ai_soul, telegram_bot_token, mcp_server_ids")
     .not("telegram_bot_token", "is", null);
 
   if (error) {

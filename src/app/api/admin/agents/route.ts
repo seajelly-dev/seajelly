@@ -40,7 +40,7 @@ export async function POST(request: Request) {
 
   const db = await createAdminClient();
   const body = await request.json();
-  const { name, system_prompt, model, tools_config, access_mode, ai_soul, telegram_bot_token } = body;
+  const { name, system_prompt, model, tools_config, access_mode, ai_soul, telegram_bot_token, mcp_server_ids } = body;
 
   if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -53,6 +53,7 @@ export async function POST(request: Request) {
     tools_config: tools_config || {},
     access_mode: access_mode || "open",
     ai_soul: ai_soul || "",
+    mcp_server_ids: mcp_server_ids || [],
   };
 
   if (telegram_bot_token) {

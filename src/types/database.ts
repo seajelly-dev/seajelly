@@ -27,6 +27,7 @@ export interface Agent {
   access_mode: AccessMode;
   ai_soul: string;
   telegram_bot_token: string | null;
+  mcp_server_ids: string[];
   created_at: string;
 }
 
@@ -136,6 +137,18 @@ export interface Skill {
   content: string;
   tool_schema: Record<string, unknown> | null;
   source_url: string | null;
+  created_at: string;
+}
+
+export type McpTransport = "http" | "sse";
+
+export interface McpServer {
+  id: string;
+  name: string;
+  url: string;
+  transport: McpTransport;
+  headers: Record<string, string>;
+  enabled: boolean;
   created_at: string;
 }
 

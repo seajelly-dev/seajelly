@@ -33,7 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Lock, Globe, Bot } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import type { Agent } from "@/types/database";
+import type { Agent, McpServer } from "@/types/database";
 import { getAvailableModels, MODEL_CATALOG, type ModelDef } from "@/lib/models";
 
 export default function AgentsPage() {
@@ -48,11 +48,13 @@ export default function AgentsPage() {
     access_mode: "open" as "open" | "whitelist",
     ai_soul: "",
     telegram_bot_token: "",
+    mcp_server_ids: [] as string[],
   });
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [availableModels, setAvailableModels] =
     useState<ModelDef[]>(MODEL_CATALOG);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -86,10 +88,21 @@ export default function AgentsPage() {
     }
   }, []);
 
+  const fetchMcpServers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/mcp");
+      const data = await res.json();
+      if (res.ok) setMcpServers((data.servers ?? []).filter((s: McpServer) => s.enabled));
+    } catch {
+      // non-critical
+    }
+  }, []);
+
   useEffect(() => {
     fetchAgents();
     fetchModels();
-  }, [fetchAgents, fetchModels]);
+    fetchMcpServers();
+  }, [fetchAgents, fetchModels, fetchMcpServers]);
 
   const openCreate = () => {
     setEditingAgent(null);
@@ -100,6 +113,7 @@ export default function AgentsPage() {
       access_mode: "open",
       ai_soul: "",
       telegram_bot_token: "",
+      mcp_server_ids: [],
     });
     setDialogOpen(true);
   };
@@ -113,6 +127,7 @@ export default function AgentsPage() {
       access_mode: agent.access_mode || "open",
       ai_soul: agent.ai_soul || "",
       telegram_bot_token: "",
+      mcp_server_ids: agent.mcp_server_ids ?? [],
     });
     setDialogOpen(true);
   };
@@ -275,6 +290,40 @@ export default function AgentsPage() {
                   placeholder="You are a helpful AI assistant..."
                 />
               </div>
+              {mcpServers.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <Label>MCP Servers</Label>
+                  <div className="flex flex-wrap gap-2 rounded-md border p-2">
+                    {mcpServers.map((s) => {
+                      const selected = form.mcp_server_ids.includes(s.id);
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() =>
+                            setForm((f) => ({
+                              ...f,
+                              mcp_server_ids: selected
+                                ? f.mcp_server_ids.filter((id) => id !== s.id)
+                                : [...f.mcp_server_ids, s.id],
+                            }))
+                          }
+                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs transition-colors ${
+                            selected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border hover:bg-muted"
+                          }`}
+                        >
+                          {s.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Click to toggle. Selected MCP tools will be available to this agent.
+                  </p>
+                </div>
+              )}
               <div className="flex flex-col gap-1.5">
                 <Label>AI Soul</Label>
                 <Textarea

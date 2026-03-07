@@ -425,6 +425,7 @@ CREATE TABLE IF NOT EXISTS public.agents (
   access_mode       text NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','whitelist')),
   ai_soul           text NOT NULL DEFAULT '',
   telegram_bot_token text,
+  mcp_server_ids    uuid[] NOT NULL DEFAULT '{}',
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE public.agents ENABLE ROW LEVEL SECURITY;
@@ -575,6 +576,21 @@ DROP POLICY IF EXISTS "agent_skills_admin_all" ON public.agent_skills;
 CREATE POLICY "agent_skills_admin_all" ON public.agent_skills FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "agent_skills_public_select" ON public.agent_skills;
 CREATE POLICY "agent_skills_public_select" ON public.agent_skills FOR SELECT USING (true);
+
+CREATE TABLE IF NOT EXISTS public.mcp_servers (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        text NOT NULL,
+  url         text NOT NULL,
+  transport   text NOT NULL DEFAULT 'http' CHECK (transport IN ('http','sse')),
+  headers     jsonb NOT NULL DEFAULT '{}',
+  enabled     boolean NOT NULL DEFAULT true,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.mcp_servers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "mcp_servers_admin_all" ON public.mcp_servers;
+CREATE POLICY "mcp_servers_admin_all" ON public.mcp_servers FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "mcp_servers_public_select" ON public.mcp_servers;
+CREATE POLICY "mcp_servers_public_select" ON public.mcp_servers FOR SELECT USING (true);
 
 -- Ensure Supabase API roles can reach schema objects (RLS still applies row-level checks)
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
