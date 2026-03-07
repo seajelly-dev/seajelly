@@ -177,10 +177,40 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
     }),
 
     get_current_time: tool({
-      description: "Get the current date and time in ISO format.",
-      inputSchema: z.object({}),
-      execute: async () => {
-        return { time: new Date().toISOString() };
+      description:
+        "Get the current date and time. Returns UTC time and, if a timezone is provided, " +
+        "the local time in that timezone. Always call this before creating scheduled tasks " +
+        "so you can correctly convert the user's local time to a UTC cron expression.\n\n" +
+        "IMPORTANT: Check the user's soul (injected in system prompt under '## About This User') " +
+        "for a saved timezone FIRST. If no timezone is found there, ASK the user for their timezone, " +
+        "then IMMEDIATELY save it via `user_soul_update` (NOT memory_write) so it persists across sessions. " +
+        "Timezone belongs in user_soul because it's needed every time, not in memories which require search.",
+      inputSchema: z.object({
+        timezone: z
+          .string()
+          .optional()
+          .describe(
+            "IANA timezone string, e.g. 'Asia/Shanghai', 'America/New_York', 'Europe/London'. " +
+            "Read from user_soul first. If not available, ask the user and save via user_soul_update."
+          ),
+      }),
+      execute: async ({ timezone }: { timezone?: string }) => {
+        const now = new Date();
+        const result: Record<string, string> = {
+          utc: now.toISOString(),
+          utc_readable: now.toUTCString(),
+        };
+        if (timezone) {
+          try {
+            result.local = now.toLocaleString("zh-CN", { timeZone: timezone });
+            result.timezone = timezone;
+            const utcOffset = getUtcOffset(now, timezone);
+            result.utc_offset = utcOffset;
+          } catch {
+            result.timezone_error = `Invalid timezone: ${timezone}`;
+          }
+        }
+        return result;
       },
     }),
 
@@ -341,6 +371,71 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
       },
     }),
 
+    get_weather: tool({
+      description:
+        "Get current weather and today's forecast for a given city or location. " +
+        "Returns temperature, humidity, wind speed, weather condition, and daily high/low. " +
+        "Use when the user asks about weather, what to wear, or whether to bring an umbrella. " +
+        "City names can be in any language (e.g. '北京', 'Tokyo', 'New York').",
+      inputSchema: z.object({
+        city: z.string().describe("City name, e.g. '上海', 'London', 'San Francisco'"),
+      }),
+      execute: async ({ city }: { city: string }) => {
+        try {
+          const geoRes = await fetch(
+            `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=zh`
+          );
+          const geoData = await geoRes.json();
+          if (!geoData.results?.length) {
+            return { success: false, error: `City "${city}" not found` };
+          }
+
+          const { latitude, longitude, name, country } = geoData.results[0];
+
+          const weatherRes = await fetch(
+            `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
+            `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m` +
+            `&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max` +
+            `&timezone=auto&forecast_days=1`
+          );
+          const weather = await weatherRes.json();
+
+          const WMO_CODES: Record<number, string> = {
+            0: "晴天", 1: "大部晴朗", 2: "多云", 3: "阴天",
+            45: "雾", 48: "雾凇", 51: "小毛毛雨", 53: "毛毛雨",
+            55: "大毛毛雨", 61: "小雨", 63: "中雨", 65: "大雨",
+            71: "小雪", 73: "中雪", 75: "大雪", 77: "雪粒",
+            80: "小阵雨", 81: "中阵雨", 82: "大阵雨",
+            85: "小阵雪", 86: "大阵雪",
+            95: "雷暴", 96: "雷暴伴小冰雹", 99: "雷暴伴大冰雹",
+          };
+
+          const current = weather.current;
+          const daily = weather.daily;
+
+          return {
+            success: true,
+            location: `${name}, ${country}`,
+            current: {
+              temperature: `${current.temperature_2m}°C`,
+              feels_like: `${current.apparent_temperature}°C`,
+              humidity: `${current.relative_humidity_2m}%`,
+              wind_speed: `${current.wind_speed_10m} km/h`,
+              condition: WMO_CODES[current.weather_code] || `code ${current.weather_code}`,
+            },
+            today: {
+              high: `${daily.temperature_2m_max[0]}°C`,
+              low: `${daily.temperature_2m_min[0]}°C`,
+              condition: WMO_CODES[daily.weather_code[0]] || `code ${daily.weather_code[0]}`,
+              rain_probability: `${daily.precipitation_probability_max[0]}%`,
+            },
+          };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Weather fetch failed" };
+        }
+      },
+    }),
+
     run_sql: tool({
       description:
         "Execute a read-only SQL query against the Supabase database via Management API. " +
@@ -373,4 +468,16 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
     return { ...baseTools, ...buildSoulTools(channelId) };
   }
   return baseTools;
+}
+
+function getUtcOffset(date: Date, timezone: string): string {
+  const utcStr = date.toLocaleString("en-US", { timeZone: "UTC" });
+  const localStr = date.toLocaleString("en-US", { timeZone: timezone });
+  const diffMs = new Date(localStr).getTime() - new Date(utcStr).getTime();
+  const diffHours = diffMs / 3600000;
+  const sign = diffHours >= 0 ? "+" : "-";
+  const abs = Math.abs(diffHours);
+  const h = Math.floor(abs);
+  const m = Math.round((abs - h) * 60);
+  return `UTC${sign}${h}${m > 0 ? `:${String(m).padStart(2, "0")}` : ""}`;
 }
