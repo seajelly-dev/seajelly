@@ -27,7 +27,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -157,11 +156,11 @@ export default function SkillsPage() {
             <RefreshCw className="mr-2 size-4" />
             Refresh
           </Button>
+          <Button size="sm" onClick={openNew}>
+            <Plus className="mr-2 size-4" />
+            Add Skill
+          </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger render={<Button size="sm" onClick={openNew} />}>
-              <Plus className="mr-2 size-4" />
-              Add Skill
-            </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
                 <DialogTitle>

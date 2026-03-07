@@ -105,7 +105,7 @@ export default function EventsPage() {
             value={statusFilter}
             onValueChange={(v) => setStatusFilter(v ?? "all")}
           >
-            <SelectTrigger className="w-36">
+            <SelectTrigger id="events-status-filter-trigger" className="w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

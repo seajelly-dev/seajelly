@@ -95,6 +95,7 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
       <SidebarFooter className="border-t p-3">
         <DropdownMenu>
           <DropdownMenuTrigger
+            id="dashboard-user-menu-trigger"
             render={
               <Button
                 variant="ghost"
