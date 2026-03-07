@@ -168,15 +168,19 @@ async function startBotForAgent(agent: AgentRow) {
     await ctx.reply("✨ New session started.");
   });
 
-  // ── message handler ──
-  bot.on("message:text", async (ctx) => {
+  type ChatAction = "typing" | "upload_photo" | "record_video" | "upload_video" | "record_voice" | "upload_voice" | "upload_document" | "choose_sticker" | "find_location" | "record_video_note" | "upload_video_note";
+
+  async function handleMessage(
+    ctx: { chat: { id: number }; from: { id: number; first_name: string }; reply: (text: string) => Promise<unknown>; replyWithChatAction: (action: ChatAction) => Promise<unknown> },
+    text: string,
+    photoFileId: string | null
+  ) {
     const chatId = ctx.chat.id;
-    const text = ctx.message.text;
     const from = ctx.from;
     const platformUid = String(from.id);
 
     console.log(
-      `[${new Date().toISOString()}] [${agent.name}] ${from?.first_name}: ${text}`
+      `[${new Date().toISOString()}] [${agent.name}] ${from?.first_name}: ${photoFileId ? "[Image] " : ""}${text}`
     );
 
     try {
@@ -232,6 +236,10 @@ async function startBotForAgent(agent: AgentRow) {
         ? (session.messages as ChatMessage[])
         : [];
 
+      type MsgPart =
+        | { type: "text"; text: string }
+        | { type: "image"; image: string; mimeType: string };
+
       const messages = [
         ...history
           .slice(-AGENT_LIMITS.MAX_SESSION_MESSAGES)
@@ -239,8 +247,41 @@ async function startBotForAgent(agent: AgentRow) {
             role: m.role as "user" | "assistant",
             content: m.content,
           })),
-        { role: "user" as const, content: text },
       ];
+
+      let imageDownloaded = false;
+      if (photoFileId) {
+        try {
+          const botToken = decrypt(agent.telegram_bot_token);
+          const fileRes = await fetch(
+            `https://api.telegram.org/bot${botToken}/getFile?file_id=${photoFileId}`
+          );
+          const fileData = await fileRes.json();
+          if (fileData.ok && fileData.result.file_path) {
+            const dlUrl = `https://api.telegram.org/file/bot${botToken}/${fileData.result.file_path}`;
+            const imgRes = await fetch(dlUrl);
+            if (imgRes.ok) {
+              const buf = Buffer.from(await imgRes.arrayBuffer());
+              const ext = fileData.result.file_path.split(".").pop()?.toLowerCase() || "jpg";
+              const mimeMap: Record<string, string> = {
+                jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+                gif: "image/gif", webp: "image/webp",
+              };
+              const parts: MsgPart[] = [
+                { type: "image", image: buf.toString("base64"), mimeType: mimeMap[ext] || "image/jpeg" },
+                { type: "text", text: text || "Please describe or analyze this image." },
+              ];
+              messages.push({ role: "user" as const, content: parts } as never);
+              imageDownloaded = true;
+            }
+          }
+        } catch (err) {
+          console.warn("Photo download failed:", err);
+        }
+      }
+      if (!imageDownloaded) {
+        messages.push({ role: "user" as const, content: text });
+      }
 
       const model = await getModel(agent.model);
       const builtinTools = createAgentTools({
@@ -313,9 +354,13 @@ async function startBotForAgent(agent: AgentRow) {
 
       await ctx.reply(reply);
 
+      const userContent = imageDownloaded
+        ? `[Image]${text ? ` ${text}` : ""}`
+        : text;
+
       const updatedMessages: ChatMessage[] = [
         ...history,
-        { role: "user" as const, content: text, timestamp: new Date().toISOString() },
+        { role: "user" as const, content: userContent, timestamp: new Date().toISOString() },
         { role: "assistant" as const, content: reply, timestamp: new Date().toISOString() },
       ].slice(-AGENT_LIMITS.MAX_SESSION_MESSAGES);
 
@@ -330,6 +375,27 @@ async function startBotForAgent(agent: AgentRow) {
       console.error(`[${agent.name}] Error:`, err);
       await ctx.reply("Sorry, something went wrong.");
     }
+  }
+
+  // Text messages
+  bot.on("message:text", async (ctx) => {
+    await handleMessage(ctx, ctx.message.text, null);
+  });
+
+  // Photo messages
+  bot.on("message:photo", async (ctx) => {
+    const photos = ctx.message.photo;
+    const fileId = photos[photos.length - 1].file_id;
+    const caption = ctx.message.caption || "";
+    await handleMessage(ctx, caption, fileId);
+  });
+
+  // Document (image files sent as documents)
+  bot.on("message:document", async (ctx) => {
+    const doc = ctx.message.document;
+    if (!doc.mime_type?.startsWith("image/")) return;
+    const caption = ctx.message.caption || "";
+    await handleMessage(ctx, caption, doc.file_id);
   });
 
   bot.start({

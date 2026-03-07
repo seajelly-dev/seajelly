@@ -10,10 +10,18 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     const message = body.message || body.edited_message;
-    if (!message?.text) {
+    if (!message) {
       return NextResponse.json({ ok: true });
     }
 
+    const hasText = !!message.text;
+    const hasPhoto = Array.isArray(message.photo) && message.photo.length > 0;
+    const hasDocument = message.document?.mime_type?.startsWith("image/");
+    if (!hasText && !hasPhoto && !hasDocument) {
+      return NextResponse.json({ ok: true });
+    }
+
+    const text = message.text || message.caption || "";
     const chatId = message.chat.id;
     const updateId = body.update_id;
     const dedupKey = `tg:${chatId}:${updateId}`;
@@ -43,7 +51,6 @@ export async function POST(request: Request) {
 
     const agentId = defaultAgent?.id ?? null;
 
-    // ── Gateway check ──
     if (agentId && platformUid) {
       const { data: channel } = await supabase
         .from("channels")
@@ -62,6 +69,13 @@ export async function POST(request: Request) {
       }
     }
 
+    let photoFileId: string | null = null;
+    if (hasPhoto) {
+      photoFileId = message.photo[message.photo.length - 1].file_id;
+    } else if (hasDocument) {
+      photoFileId = message.document.file_id;
+    }
+
     await supabase.from("events").insert({
       source: "telegram",
       agent_id: agentId,
@@ -72,10 +86,11 @@ export async function POST(request: Request) {
         platform_uid: platformUid,
         message: {
           message_id: message.message_id,
-          text: message.text,
+          text,
           from: message.from,
           chat: message.chat,
           date: message.date,
+          photo_file_id: photoFileId,
         },
       },
       status: "pending",

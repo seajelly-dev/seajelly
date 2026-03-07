@@ -4,6 +4,7 @@ import { getModel } from "./provider";
 import { createAgentTools } from "./tools";
 import { AGENT_LIMITS } from "./limits";
 import { getBotForAgent } from "@/lib/telegram/bot";
+import { downloadTelegramPhoto } from "@/lib/telegram/photo";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
 
@@ -45,15 +46,15 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const chatId = event.chat_id;
     if (!chatId) throw new Error("No chat_id on event");
 
-    const messageText = (event.payload as Record<string, unknown>).message
-      ? (
-          (event.payload as Record<string, unknown>).message as Record<
-            string,
-            unknown
-          >
-        ).text as string
-      : "";
-    if (!messageText) throw new Error("No message text in payload");
+    const msgPayload = (event.payload as Record<string, unknown>).message as
+      | Record<string, unknown>
+      | undefined;
+    const messageText = (msgPayload?.text as string) || "";
+    const photoFileId = (msgPayload?.photo_file_id as string) || null;
+
+    if (!messageText && !photoFileId) {
+      throw new Error("No message text or image in payload");
+    }
 
     const command = messageText.startsWith("/")
       ? messageText.split(/[\s@]/)[0].toLowerCase()
@@ -210,7 +211,38 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         content: m.content,
       }));
 
-    messages.push({ role: "user" as const, content: messageText });
+    // Build multimodal user message if image is present
+    let imageDownloaded = false;
+    if (photoFileId && event.agent_id) {
+      const photo = await downloadTelegramPhoto(event.agent_id, photoFileId);
+      if (photo) {
+        imageDownloaded = true;
+        const parts: Array<
+          | { type: "text"; text: string }
+          | { type: "image"; image: string; mimeType: string }
+        > = [];
+        parts.push({
+          type: "image",
+          image: photo.base64,
+          mimeType: photo.mimeType,
+        });
+        if (messageText) {
+          parts.push({ type: "text", text: messageText });
+        } else {
+          parts.push({
+            type: "text",
+            text: "Please describe or analyze this image.",
+          });
+        }
+        messages.push({
+          role: "user" as const,
+          content: parts,
+        } as ModelMessage);
+      }
+    }
+    if (!imageDownloaded) {
+      messages.push({ role: "user" as const, content: messageText });
+    }
 
     const model = await getModel(typedAgent.model);
     const builtinTools = createAgentTools({
@@ -293,11 +325,15 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         await bot.api.sendMessage(chatId, reply);
       });
 
+    const userContent = imageDownloaded
+      ? `[Image]${messageText ? ` ${messageText}` : ""}`
+      : messageText;
+
     const updatedMessages: ChatMessage[] = [
       ...history,
       {
         role: "user" as const,
-        content: messageText,
+        content: userContent,
         timestamp: new Date().toISOString(),
       },
       {
