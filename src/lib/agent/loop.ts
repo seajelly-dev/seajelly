@@ -4,7 +4,7 @@ import { getModel } from "./provider";
 import { createAgentTools } from "./tools";
 import { AGENT_LIMITS } from "./limits";
 import { getBot } from "@/lib/telegram/bot";
-import type { Agent, AgentEvent, ChatMessage } from "@/types/database";
+import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
 
 interface LoopResult {
   success: boolean;
@@ -16,9 +16,10 @@ interface LoopResult {
 export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
   const traceId = event.trace_id;
 
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    serviceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
   const startTime = Date.now();
@@ -43,10 +44,61 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     if (!chatId) throw new Error("No chat_id on event");
 
     const messageText = (event.payload as Record<string, unknown>).message
-      ? ((event.payload as Record<string, unknown>).message as Record<string, unknown>).text as string
+      ? (
+          (event.payload as Record<string, unknown>).message as Record<
+            string,
+            unknown
+          >
+        ).text as string
       : "";
     if (!messageText) throw new Error("No message text in payload");
 
+    // ── Resolve channel from event payload ──
+    const platformUid =
+      ((event.payload as Record<string, unknown>).platform_uid as string) ||
+      null;
+
+    let channel: Channel | null = null;
+    if (platformUid) {
+      const { data: existingChannel } = await supabase
+        .from("channels")
+        .select("*")
+        .eq("agent_id", typedAgent.id)
+        .eq("platform", "telegram")
+        .eq("platform_uid", platformUid)
+        .single();
+
+      if (existingChannel) {
+        channel = existingChannel as Channel;
+      } else if (typedAgent.access_mode !== "whitelist") {
+        const fromData = (
+          (event.payload as Record<string, unknown>).message as Record<
+            string,
+            unknown
+          >
+        ).from as Record<string, unknown> | undefined;
+
+        const { data: newChannel } = await supabase
+          .from("channels")
+          .insert({
+            agent_id: typedAgent.id,
+            platform: "telegram",
+            platform_uid: platformUid,
+            display_name: (fromData?.first_name as string) || null,
+            is_allowed: true,
+          })
+          .select()
+          .single();
+
+        channel = newChannel as Channel | null;
+      }
+
+      if (channel && !channel.is_allowed) {
+        return { success: true, reply: "[blocked]", traceId };
+      }
+    }
+
+    // ── Session ──
     let { data: session } = await supabase
       .from("sessions")
       .select("*")
@@ -60,6 +112,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         .insert({
           chat_id: chatId,
           agent_id: typedAgent.id,
+          channel_id: channel?.id || null,
           messages: [],
           version: 1,
         })
@@ -70,6 +123,11 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         throw new Error(`Failed to create session: ${insertErr?.message}`);
       }
       session = newSession;
+    } else if (channel && !session.channel_id) {
+      await supabase
+        .from("sessions")
+        .update({ channel_id: channel.id })
+        .eq("id", session.id);
     }
 
     const sessionVersion = session.version as number;
@@ -88,17 +146,39 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     messages.push({ role: "user" as const, content: messageText });
 
     const model = await getModel(typedAgent.model);
-    const tools = createAgentTools(typedAgent.id, typedAgent.memory_namespace);
+    const tools = createAgentTools({
+      agentId: typedAgent.id,
+      namespace: typedAgent.memory_namespace,
+      channelId: channel?.id,
+    });
+
+    // ── System prompt with soul injection ──
+    let systemPrompt = typedAgent.system_prompt || "";
+    if (typedAgent.ai_soul) {
+      systemPrompt += `\n\n## Your Identity (AI Soul)\n${typedAgent.ai_soul}`;
+    }
+    if (channel?.user_soul) {
+      systemPrompt += `\n\n## About This User\n${channel.user_soul}`;
+    }
 
     const deadline = startTime + AGENT_LIMITS.MAX_WALL_TIME_MS;
     const abortController = new AbortController();
-    const timer = setTimeout(() => abortController.abort(), deadline - Date.now());
+    const timer = setTimeout(
+      () => abortController.abort(),
+      deadline - Date.now()
+    );
+
+    const bot = await getBot();
+    await bot.api.sendChatAction(chatId, "typing").catch(() => {});
+    const typingInterval = setInterval(() => {
+      bot.api.sendChatAction(chatId, "typing").catch(() => {});
+    }, 4000);
 
     let result;
     try {
       result = await generateText({
         model,
-        system: typedAgent.system_prompt || undefined,
+        system: systemPrompt || undefined,
         messages,
         tools,
         stopWhen: stepCountIs(AGENT_LIMITS.MAX_STEPS),
@@ -106,20 +186,30 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         abortSignal: abortController.signal,
       });
     } finally {
+      clearInterval(typingInterval);
       clearTimeout(timer);
     }
 
     const reply = result.text || "[No response generated]";
 
-    const bot = await getBot();
-    await bot.api.sendMessage(chatId, reply, { parse_mode: "Markdown" }).catch(async () => {
-      await bot.api.sendMessage(chatId, reply);
-    });
+    await bot.api
+      .sendMessage(chatId, reply, { parse_mode: "Markdown" })
+      .catch(async () => {
+        await bot.api.sendMessage(chatId, reply);
+      });
 
     const updatedMessages: ChatMessage[] = [
       ...history,
-      { role: "user" as const, content: messageText, timestamp: new Date().toISOString() },
-      { role: "assistant" as const, content: reply, timestamp: new Date().toISOString() },
+      {
+        role: "user" as const,
+        content: messageText,
+        timestamp: new Date().toISOString(),
+      },
+      {
+        role: "assistant" as const,
+        content: reply,
+        timestamp: new Date().toISOString(),
+      },
     ].slice(-AGENT_LIMITS.MAX_SESSION_MESSAGES);
 
     const { error: updateErr } = await supabase
@@ -132,7 +222,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       .eq("version", sessionVersion);
 
     if (updateErr) {
-      console.warn(`Session update conflict (trace: ${traceId}):`, updateErr.message);
+      console.warn(
+        `Session update conflict (trace: ${traceId}):`,
+        updateErr.message
+      );
     }
 
     return { success: true, reply, traceId };

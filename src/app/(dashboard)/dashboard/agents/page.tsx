@@ -40,6 +40,8 @@ export default function AgentsPage() {
     name: "",
     system_prompt: "",
     model: "",
+    access_mode: "open" as "open" | "whitelist",
+    ai_soul: "",
   });
   const [saving, setSaving] = useState(false);
   const [availableModels, setAvailableModels] = useState<ModelDef[]>(MODEL_CATALOG);
@@ -75,7 +77,7 @@ export default function AgentsPage() {
 
   const openCreate = () => {
     setEditingAgent(null);
-    setForm({ name: "", system_prompt: "", model: availableModels[0]?.id ?? "" });
+    setForm({ name: "", system_prompt: "", model: availableModels[0]?.id ?? "", access_mode: "open", ai_soul: "" });
     setDialogOpen(true);
   };
 
@@ -85,6 +87,8 @@ export default function AgentsPage() {
       name: agent.name,
       system_prompt: agent.system_prompt,
       model: agent.model,
+      access_mode: agent.access_mode || "open",
+      ai_soul: agent.ai_soul || "",
     });
     setDialogOpen(true);
   };
@@ -181,15 +185,54 @@ export default function AgentsPage() {
                 </Select>
               </div>
               <div className="flex flex-col gap-2">
+                <Label>Access Mode</Label>
+                <Select
+                  value={form.access_mode}
+                  onValueChange={(v) => setForm((f) => ({ ...f, access_mode: (v ?? f.access_mode) as "open" | "whitelist" }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">
+                      Open
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        Anyone can chat, auto-register
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="whitelist">
+                      Whitelist
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        Only approved channels
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2">
                 <Label>System Prompt</Label>
                 <Textarea
-                  rows={8}
+                  rows={6}
                   value={form.system_prompt}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, system_prompt: e.target.value }))
                   }
                   placeholder="You are a helpful AI assistant..."
                 />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>AI Soul</Label>
+                <Textarea
+                  rows={3}
+                  value={form.ai_soul}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, ai_soul: e.target.value }))
+                  }
+                  placeholder="Name: 宋承宪. Role: personal assistant. Tone: warm."
+                />
+                <p className="text-xs text-muted-foreground">
+                  AI identity profile. Users can update this via chat. Shared across all users.
+                </p>
               </div>
               <Button onClick={handleSave} disabled={saving}>
                 {saving ? "Saving..." : "Save"}
@@ -221,8 +264,11 @@ export default function AgentsPage() {
                         <Badge variant="secondary">Default</Badge>
                       )}
                     </CardTitle>
-                    <CardDescription className="mt-1">
+                    <CardDescription className="mt-1 flex items-center gap-2">
                       {agent.model}
+                      <Badge variant={agent.access_mode === "whitelist" ? "destructive" : "outline"}>
+                        {agent.access_mode === "whitelist" ? "🔒 Whitelist" : "🌐 Open"}
+                      </Badge>
                     </CardDescription>
                   </div>
                   <div className="flex gap-1">

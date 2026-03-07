@@ -15,6 +15,7 @@ export async function POST(request: Request) {
     const chatId = message.chat.id;
     const updateId = body.update_id;
     const dedupKey = `tg:${chatId}:${updateId}`;
+    const platformUid = message.from?.id ? String(message.from.id) : null;
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,12 +34,31 @@ export async function POST(request: Request) {
 
     const { data: defaultAgent } = await supabase
       .from("agents")
-      .select("id")
+      .select("id, access_mode")
       .eq("is_default", true)
       .limit(1)
       .single();
 
     const agentId = defaultAgent?.id ?? null;
+
+    // ── Gateway check ──
+    if (agentId && platformUid) {
+      const { data: channel } = await supabase
+        .from("channels")
+        .select("is_allowed")
+        .eq("agent_id", agentId)
+        .eq("platform", "telegram")
+        .eq("platform_uid", platformUid)
+        .single();
+
+      if (channel && !channel.is_allowed) {
+        return NextResponse.json({ ok: true, blocked: true });
+      }
+
+      if (!channel && defaultAgent?.access_mode === "whitelist") {
+        return NextResponse.json({ ok: true, blocked: true });
+      }
+    }
 
     await supabase.from("events").insert({
       source: "telegram",
@@ -47,6 +67,7 @@ export async function POST(request: Request) {
       dedup_key: dedupKey,
       payload: {
         update_id: updateId,
+        platform_uid: platformUid,
         message: {
           message_id: message.message_id,
           text: message.text,

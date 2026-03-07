@@ -2,34 +2,107 @@ import { tool } from "ai";
 import { z } from "zod/v4";
 import { createClient } from "@supabase/supabase-js";
 
-function extractKeywords(text: string): string[] {
-  return text
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/)
-    .filter((w) => w.length >= 2);
+function bigrams(text: string): Set<string> {
+  const clean = text.replace(/\s+/g, "");
+  const set = new Set<string>();
+  for (let i = 0; i < clean.length - 1; i++) {
+    set.add(clean[i] + clean[i + 1]);
+  }
+  return set;
 }
 
-export function createAgentTools(agentId: string, namespace: string) {
+function bigramSimilarity(a: string, b: string): number {
+  const sa = bigrams(a);
+  const sb = bigrams(b);
+  if (sa.size === 0 || sb.size === 0) return 0;
+  let overlap = 0;
+  for (const g of sa) {
+    if (sb.has(g)) overlap++;
+  }
+  return overlap / Math.min(sa.size, sb.size);
+}
+
+function getSupabase() {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const supabase = createClient(
+  return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     serviceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
+}
 
-  return {
+interface ToolsOptions {
+  agentId: string;
+  namespace: string;
+  channelId?: string;
+}
+
+export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions) {
+  const supabase = getSupabase();
+
+  function buildSoulTools(cid: string) {
+    return {
+      user_soul_update: tool({
+        description:
+          "Update the HUMAN USER's identity profile. Use for: real name, nickname/preferred address, " +
+          "personality traits, language preference, biographical info about the HUMAN. " +
+          "This REPLACES the entire user soul — always provide the complete, latest version.",
+        inputSchema: z.object({
+          content: z
+            .string()
+            .describe(
+              "Complete user identity document in natural language. " +
+              "Example: 'Name: 刘德华. Preferred address: 老刘. Language: Chinese. Personality: humorous.'"
+            ),
+        }),
+        execute: async ({ content }: { content: string }) => {
+          const { error } = await supabase
+            .from("channels")
+            .update({ user_soul: content })
+            .eq("id", cid);
+          if (error) return { success: false, error: error.message };
+          return { success: true, message: "User soul updated" };
+        },
+      }),
+
+      ai_soul_update: tool({
+        description:
+          "Update YOUR OWN (the AI's) identity profile. Use when the user gives you a name, " +
+          "persona, role, or character trait. This is shared across ALL users of this agent. " +
+          "This REPLACES the entire AI soul — always provide the complete, latest version.",
+        inputSchema: z.object({
+          content: z
+            .string()
+            .describe(
+              "Complete AI identity document in natural language. " +
+              "Example: 'Name: 宋承宪. Role: personal assistant. Tone: warm and professional.'"
+            ),
+        }),
+        execute: async ({ content }: { content: string }) => {
+          const { error } = await supabase
+            .from("agents")
+            .update({ ai_soul: content })
+            .eq("id", agentId);
+          if (error) return { success: false, error: error.message };
+          return { success: true, message: "AI soul updated" };
+        },
+      }),
+    };
+  }
+
+  const baseTools = {
     memory_write: tool({
       description:
-        "Save a fact/preference/decision to long-term memory. " +
-        "This tool automatically deduplicates: if an existing memory in the same " +
-        "category shares significant overlap with the new content, it will be replaced. " +
-        "Always provide the COMPLETE and LATEST version of the information.",
+        "Save a fact, decision, or summary to long-term memory. " +
+        "Use this for KNOWLEDGE — things the user told you, decisions made, conversation summaries. " +
+        "Do NOT use this for identity info — use user_soul_update or ai_soul_update instead. " +
+        "Auto-deduplicates similar entries in the same category.",
       inputSchema: z.object({
         category: z
           .enum(["fact", "preference", "decision", "summary", "other"])
           .describe("Category of the memory"),
         content: z
           .string()
-          .describe("The full, up-to-date memory content. Must be self-contained."),
+          .describe("The memory content. Must be self-contained."),
       }),
       execute: async ({
         category,
@@ -45,21 +118,17 @@ export function createAgentTools(agentId: string, namespace: string) {
           .eq("namespace", namespace)
           .eq("category", category);
 
+        let replaced = 0;
         if (existing && existing.length > 0) {
-          const newKw = new Set(extractKeywords(content.toLowerCase()));
           const toDelete: string[] = [];
-
           for (const mem of existing) {
-            const oldKw = extractKeywords((mem.content as string).toLowerCase());
-            if (oldKw.length === 0) continue;
-            const overlap = oldKw.filter((w) => newKw.has(w)).length;
-            if (overlap / oldKw.length >= 0.4) {
+            if (bigramSimilarity(content, mem.content as string) >= 0.35) {
               toDelete.push(mem.id);
             }
           }
-
           if (toDelete.length > 0) {
             await supabase.from("memories").delete().in("id", toDelete);
+            replaced = toDelete.length;
           }
         }
 
@@ -71,18 +140,20 @@ export function createAgentTools(agentId: string, namespace: string) {
         });
         if (error) return { success: false, error: error.message };
 
-        const replaced = existing && existing.length > 0 ? " (auto-deduplicated)" : "";
-        return { success: true, message: `Memory saved${replaced}` };
+        const msg =
+          replaced > 0
+            ? `Memory saved (replaced ${replaced} older entries)`
+            : "Memory saved";
+        return { success: true, message: msg };
       },
     }),
 
     memory_search: tool({
       description:
-        "Search long-term memories for relevant information. Use this to recall facts about the user or previous decisions.",
+        "Search long-term memories for relevant information. " +
+        "Use this to recall facts, decisions, or summaries from past conversations.",
       inputSchema: z.object({
-        query: z
-          .string()
-          .describe("Search query to find relevant memories"),
+        query: z.string().describe("Search query to find relevant memories"),
       }),
       execute: async ({ query }: { query: string }) => {
         const { data, error } = await supabase
@@ -107,4 +178,9 @@ export function createAgentTools(agentId: string, namespace: string) {
       },
     }),
   };
+
+  if (channelId) {
+    return { ...baseTools, ...buildSoulTools(channelId) };
+  }
+  return baseTools;
 }

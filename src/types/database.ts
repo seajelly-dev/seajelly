@@ -14,6 +14,8 @@ export interface Secret {
   updated_at: string;
 }
 
+export type AccessMode = "open" | "whitelist";
+
 export interface Agent {
   id: string;
   name: string;
@@ -22,7 +24,23 @@ export interface Agent {
   memory_namespace: string;
   model: string;
   is_default: boolean;
+  access_mode: AccessMode;
+  ai_soul: string;
   created_at: string;
+}
+
+export type Platform = "telegram" | "discord" | "slack" | "web";
+
+export interface Channel {
+  id: string;
+  agent_id: string;
+  platform: Platform;
+  platform_uid: string;
+  display_name: string | null;
+  user_soul: string;
+  is_allowed: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ChatMessage {
@@ -35,6 +53,7 @@ export interface Session {
   id: string;
   chat_id: number;
   agent_id: string;
+  channel_id: string | null;
   messages: ChatMessage[];
   metadata: Record<string, unknown>;
   version: number;

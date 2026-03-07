@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 const NAV_ITEMS = [
   { title: "Overview", href: "/dashboard", icon: "📊" },
   { title: "Agents", href: "/dashboard/agents", icon: "🤖" },
+  { title: "Channels", href: "/dashboard/channels", icon: "📱" },
   { title: "Secrets", href: "/dashboard/secrets", icon: "🔑" },
   { title: "Sessions", href: "/dashboard/sessions", icon: "💬" },
   { title: "Events", href: "/dashboard/events", icon: "📡" },

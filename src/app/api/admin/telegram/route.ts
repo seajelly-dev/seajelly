@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getBot, resetBot } from "@/lib/telegram/bot";
+import { BOT_COMMANDS } from "@/lib/telegram/commands";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -25,10 +26,25 @@ export async function POST(request: Request) {
       resetBot();
       const bot = await getBot();
       await bot.api.setWebhook(webhook_url);
+      await bot.api.setMyCommands(BOT_COMMANDS);
       return NextResponse.json({ success: true, webhook_url });
     } catch (err) {
       return NextResponse.json(
         { error: err instanceof Error ? err.message : "Failed to set webhook" },
+        { status: 500 }
+      );
+    }
+  }
+
+  if (action === "register-commands") {
+    try {
+      resetBot();
+      const bot = await getBot();
+      await bot.api.setMyCommands(BOT_COMMANDS);
+      return NextResponse.json({ success: true, commands: BOT_COMMANDS });
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Failed to register commands" },
         { status: 500 }
       );
     }
