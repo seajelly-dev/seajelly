@@ -1,36 +1,27 @@
 import { NextResponse } from "next/server";
-import { getBotForAgent } from "@/lib/telegram/bot";
+import { POST as cronHandler } from "@/app/api/worker/cron/route";
 
+/**
+ * Legacy compatibility endpoint.
+ * Old pg_cron jobs may still target /api/worker/remind.
+ * Injects task_type:"reminder" and forwards to the generalized cron worker.
+ */
 export async function POST(request: Request) {
-  const cronSecret = request.headers.get("x-cron-secret");
-  const expectedSecret = process.env.CRON_SECRET || "opencrab-cron";
-
-  if (cronSecret !== expectedSecret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   try {
     const body = await request.json();
-    const { agent_id, chat_id, message } = body;
+    const enriched = { ...body, task_type: "reminder" };
 
-    if (!agent_id || !chat_id || !message) {
-      return NextResponse.json(
-        { error: "Missing agent_id, chat_id, or message" },
-        { status: 400 }
-      );
-    }
+    const enrichedRequest = new Request(request.url, {
+      method: "POST",
+      headers: request.headers,
+      body: JSON.stringify(enriched),
+    });
 
-    const bot = await getBotForAgent(agent_id);
-    await bot.api
-      .sendMessage(chat_id, `🔔 ${message}`, { parse_mode: "Markdown" })
-      .catch(async () => {
-        await bot.api.sendMessage(chat_id, `🔔 ${message}`);
-      });
-
-    return NextResponse.json({ success: true });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    console.error("Remind worker error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return cronHandler(enrichedRequest);
+  } catch {
+    return NextResponse.json(
+      { error: "Failed to forward to cron worker" },
+      { status: 500 }
+    );
   }
 }

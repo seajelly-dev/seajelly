@@ -18,6 +18,9 @@ export const metadata: Metadata = {
   title: "OpenCrab -- Cloud-Native AI Agent",
   description:
     "Let everyone have a cloud AI Agent in 5 minutes -- no server, no Docker, no SSH.",
+  icons: {
+    icon: { url: "/crab.svg", type: "image/svg+xml" },
+  },
 };
 
 export default function RootLayout({

@@ -10,7 +10,10 @@
       "maxDuration": 30
     },
     "src/app/api/worker/remind/route.ts": {
-      "maxDuration": 15
+      "maxDuration": 60
+    },
+    "src/app/api/worker/cron/route.ts": {
+      "maxDuration": 60
     },
     "src/app/api/admin/setup/route.ts": {
       "maxDuration": 60

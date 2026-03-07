@@ -9,6 +9,7 @@ import {
   KeyRound,
   MessageSquare,
   Radio,
+  Clock,
   LogOut,
 } from "lucide-react";
 import { CrabLogo } from "@/components/crab-logo";
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
   { title: "Channels", href: "/dashboard/channels", icon: Users },
   { title: "Secrets", href: "/dashboard/secrets", icon: KeyRound },
   { title: "Sessions", href: "/dashboard/sessions", icon: MessageSquare },
+  { title: "Tasks", href: "/dashboard/tasks", icon: Clock },
   { title: "Events", href: "/dashboard/events", icon: Radio },
 ];
 

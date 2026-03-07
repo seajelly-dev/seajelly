@@ -184,14 +184,14 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
       },
     }),
 
-    schedule_reminder: tool({
+    schedule_task: tool({
       description:
-        "Schedule a recurring or one-time reminder. The user says things like " +
-        "'remind me to X every day at 2pm' or 'remind me in 30 minutes'. " +
-        "Converts the request into a cron expression and schedules a pg_cron job " +
-        "that sends a Telegram message at the specified time. " +
-        "Use standard cron syntax: minute hour day month weekday. " +
-        "Timezone is UTC — adjust accordingly.",
+        "Schedule a recurring or one-time task via pg_cron. Supports two modes:\n" +
+        "1. reminder — send a fixed text message at the scheduled time.\n" +
+        "2. agent_invoke — run a full agentic loop with the given prompt at the scheduled time " +
+        "(useful for tasks needing external data like weather, summaries, etc.).\n" +
+        "Use standard cron syntax: minute hour day month weekday. Timezone is UTC.\n" +
+        "Set once=true for one-shot tasks (e.g. 'remind me in 30 minutes').",
       inputSchema: z.object({
         job_name: z
           .string()
@@ -204,19 +204,48 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
             "Cron expression. e.g. '0 6 * * *' for daily 6:00 UTC. " +
             "Format: minute hour day month weekday"
           ),
+        task_type: z
+          .enum(["reminder", "agent_invoke"])
+          .describe(
+            "reminder = send fixed text; agent_invoke = run agentic loop with prompt"
+          ),
         message: z
           .string()
-          .describe("The reminder message to send to the user"),
+          .optional()
+          .describe("For reminder: the text message to send"),
+        prompt: z
+          .string()
+          .optional()
+          .describe(
+            "For agent_invoke: the prompt to trigger the agent (e.g. 'check today weather and tell user')"
+          ),
+        once: z
+          .boolean()
+          .optional()
+          .describe("If true, auto-unschedule after first execution"),
       }),
       execute: async ({
         job_name,
         cron_expression,
+        task_type,
         message,
+        prompt,
+        once,
       }: {
         job_name: string;
         cron_expression: string;
-        message: string;
+        task_type: "reminder" | "agent_invoke";
+        message?: string;
+        prompt?: string;
+        once?: boolean;
       }) => {
+        if (task_type === "reminder" && !message) {
+          return { success: false, error: "message is required for reminder tasks" };
+        }
+        if (task_type === "agent_invoke" && !prompt) {
+          return { success: false, error: "prompt is required for agent_invoke tasks" };
+        }
+
         const appUrl =
           process.env.NEXT_PUBLIC_APP_URL ||
           (process.env.VERCEL_URL
@@ -236,29 +265,44 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
           return { success: false, error: "No active chat session found" };
         }
 
-        const body = JSON.stringify({
-          agent_id: agentId,
-          chat_id: chatIdResult.data.chat_id,
-          message,
-        }).replace(/'/g, "''");
+        const chatId = chatIdResult.data.chat_id;
 
-        const command = `SELECT net.http_post(url := '${appUrl}/api/worker/remind', headers := '{"Content-Type":"application/json","x-cron-secret":"${cronSecret}"}'::jsonb, body := '${body}'::jsonb)`;
+        const bodyObj: Record<string, unknown> = {
+          task_type,
+          agent_id: agentId,
+          chat_id: chatId,
+          job_name,
+        };
+        if (task_type === "reminder") bodyObj.message = message;
+        if (task_type === "agent_invoke") bodyObj.prompt = prompt;
+        if (once) bodyObj.once = true;
+
+        const bodyStr = JSON.stringify(bodyObj).replace(/'/g, "''");
+
+        const command = `SELECT net.http_post(url := '${appUrl}/api/worker/cron', headers := '{"Content-Type":"application/json","x-cron-secret":"${cronSecret}"}'::jsonb, body := '${bodyStr}'::jsonb)`;
 
         const result = await scheduleCronJob(job_name, cron_expression, command);
         if (!result.success) {
           return { success: false, error: result.error };
         }
 
+        const taskConfig: Record<string, unknown> = { job_name, chat_id: chatId };
+        if (message) taskConfig.message = message;
+        if (prompt) taskConfig.prompt = prompt;
+        if (once) taskConfig.once = true;
+
         await supabase.from("cron_jobs").insert({
           agent_id: agentId,
           schedule: cron_expression,
-          task_type: "reminder",
-          task_config: { job_name, message, chat_id: chatIdResult.data.chat_id },
+          task_type,
+          task_config: taskConfig,
         });
 
+        const desc = task_type === "reminder" ? message : prompt;
         return {
           success: true,
-          message: `Reminder "${job_name}" scheduled: ${cron_expression}`,
+          message: `Task "${job_name}" (${task_type}) scheduled: ${cron_expression}${once ? " [one-shot]" : ""}`,
+          details: desc,
         };
       },
     }),
