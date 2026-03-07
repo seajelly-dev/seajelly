@@ -89,9 +89,7 @@ export async function PUT(request: Request) {
 
   const updates: Record<string, unknown> = { ...rest };
 
-  if (telegram_bot_token === "") {
-    updates.telegram_bot_token = null;
-  } else if (telegram_bot_token && telegram_bot_token !== "••••••") {
+  if (telegram_bot_token && telegram_bot_token !== "••••••") {
     updates.telegram_bot_token = encrypt(telegram_bot_token);
   }
 
