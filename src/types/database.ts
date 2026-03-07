@@ -26,6 +26,7 @@ export interface Agent {
   is_default: boolean;
   access_mode: AccessMode;
   ai_soul: string;
+  telegram_bot_token: string | null;
   created_at: string;
 }
 
@@ -144,7 +145,6 @@ export const SECRET_KEYS = [
   "ANTHROPIC_API_KEY",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "DEEPSEEK_API_KEY",
-  "TELEGRAM_BOT_TOKEN",
   "EMBEDDING_API_KEY",
 ] as const;
 

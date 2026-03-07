@@ -44,7 +44,6 @@ export default function SetupPage() {
     ANTHROPIC_API_KEY: "",
     GOOGLE_GENERATIVE_AI_API_KEY: "",
     DEEPSEEK_API_KEY: "",
-    TELEGRAM_BOT_TOKEN: "",
     EMBEDDING_API_KEY: "",
   });
 
@@ -53,6 +52,7 @@ export default function SetupPage() {
     "You are a helpful AI assistant. Be concise, friendly, and proactive."
   );
   const [model, setModel] = useState("");
+  const [botToken, setBotToken] = useState("");
   const [availableModels, setAvailableModels] = useState<
     ReturnType<typeof getAvailableModels>
   >([]);
@@ -116,10 +116,6 @@ export default function SetupPage() {
       toast.error("Supabase Service Role Key is required");
       return;
     }
-    if (!secrets.TELEGRAM_BOT_TOKEN) {
-      toast.error("Telegram Bot Token is required");
-      return;
-    }
     const hasLLMKey =
       secrets.OPENAI_API_KEY ||
       secrets.ANTHROPIC_API_KEY ||
@@ -156,6 +152,10 @@ export default function SetupPage() {
       toast.error("Agent name is required");
       return;
     }
+    if (!botToken.trim()) {
+      toast.error("Telegram Bot Token is required");
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/admin/setup", {
@@ -166,6 +166,7 @@ export default function SetupPage() {
           name: agentName,
           system_prompt: systemPrompt,
           model,
+          telegram_bot_token: botToken,
         }),
       });
       const data = await res.json();
@@ -256,14 +257,6 @@ export default function SetupPage() {
                   }))
                 }
               />
-              <SecretField
-                label="Telegram Bot Token"
-                required
-                value={secrets.TELEGRAM_BOT_TOKEN}
-                onChange={(v) =>
-                  setSecrets((s) => ({ ...s, TELEGRAM_BOT_TOKEN: v }))
-                }
-              />
               <div className="border-t pt-4">
                 <p className="mb-3 text-sm font-medium text-muted-foreground">
                   LLM API Keys (at least one required)
@@ -324,6 +317,22 @@ export default function SetupPage() {
                   value={agentName}
                   onChange={(e) => setAgentName(e.target.value)}
                 />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="botToken">
+                  Telegram Bot Token <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="botToken"
+                  type="password"
+                  placeholder="Paste token from @BotFather"
+                  value={botToken}
+                  onChange={(e) => setBotToken(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Create a bot via @BotFather on Telegram and paste the token here.
+                  Each agent needs its own bot.
+                </p>
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="model">Model</Label>

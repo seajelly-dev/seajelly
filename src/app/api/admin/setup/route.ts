@@ -14,16 +14,17 @@ export async function GET() {
 
   const hasAdmin = (admins.count ?? 0) > 0;
   const secretKeys = (secrets.data ?? []).map((s) => s.key_name);
-  const hasRequiredSecrets =
-    secretKeys.includes("SUPABASE_SERVICE_ROLE_KEY") &&
-    secretKeys.includes("TELEGRAM_BOT_TOKEN");
+  const hasRequiredSecrets = secretKeys.includes("SUPABASE_SERVICE_ROLE_KEY");
+  const hasLLMKey = secretKeys.some((k) =>
+    ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "DEEPSEEK_API_KEY"].includes(k)
+  );
   const hasAgent = (agents.count ?? 0) > 0;
 
-  const setupComplete = hasAdmin && hasRequiredSecrets && hasAgent;
+  const setupComplete = hasAdmin && hasRequiredSecrets && hasLLMKey && hasAgent;
 
   let currentStep = 0;
   if (hasAdmin) currentStep = 1;
-  if (hasAdmin && hasRequiredSecrets) currentStep = 2;
+  if (hasAdmin && hasRequiredSecrets && hasLLMKey) currentStep = 2;
   if (setupComplete) currentStep = 3;
 
   return NextResponse.json({
@@ -140,6 +141,7 @@ async function handleAgent(body: {
   name: string;
   system_prompt: string;
   model: string;
+  telegram_bot_token?: string;
 }) {
   const supabase = await createClient();
   const {
@@ -149,14 +151,20 @@ async function handleAgent(body: {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const insertData: Record<string, unknown> = {
+    name: body.name,
+    system_prompt: body.system_prompt,
+    model: body.model,
+    is_default: true,
+  };
+
+  if (body.telegram_bot_token) {
+    insertData.telegram_bot_token = encrypt(body.telegram_bot_token);
+  }
+
   const { data, error } = await supabase
     .from("agents")
-    .insert({
-      name: body.name,
-      system_prompt: body.system_prompt,
-      model: body.model,
-      is_default: true,
-    })
+    .insert(insertData)
     .select()
     .single();
 

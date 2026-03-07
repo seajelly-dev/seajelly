@@ -42,6 +42,7 @@ export default function AgentsPage() {
     model: "",
     access_mode: "open" as "open" | "whitelist",
     ai_soul: "",
+    telegram_bot_token: "",
   });
   const [saving, setSaving] = useState(false);
   const [availableModels, setAvailableModels] = useState<ModelDef[]>(MODEL_CATALOG);
@@ -77,7 +78,7 @@ export default function AgentsPage() {
 
   const openCreate = () => {
     setEditingAgent(null);
-    setForm({ name: "", system_prompt: "", model: availableModels[0]?.id ?? "", access_mode: "open", ai_soul: "" });
+    setForm({ name: "", system_prompt: "", model: availableModels[0]?.id ?? "", access_mode: "open", ai_soul: "", telegram_bot_token: "" });
     setDialogOpen(true);
   };
 
@@ -89,6 +90,7 @@ export default function AgentsPage() {
       model: agent.model,
       access_mode: agent.access_mode || "open",
       ai_soul: agent.ai_soul || "",
+      telegram_bot_token: "",
     });
     setDialogOpen(true);
   };
@@ -162,6 +164,20 @@ export default function AgentsPage() {
                   }
                   placeholder="My Agent"
                 />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Telegram Bot Token</Label>
+                <Input
+                  type="password"
+                  value={form.telegram_bot_token}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, telegram_bot_token: e.target.value }))
+                  }
+                  placeholder={editingAgent?.telegram_bot_token ? "••••••  (leave empty to keep)" : "Paste token from @BotFather"}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Each agent needs its own Telegram bot. Create one via @BotFather.
+                </p>
               </div>
               <div className="flex flex-col gap-2">
                 <Label>Model</Label>
@@ -264,10 +280,13 @@ export default function AgentsPage() {
                         <Badge variant="secondary">Default</Badge>
                       )}
                     </CardTitle>
-                    <CardDescription className="mt-1 flex items-center gap-2">
+                    <CardDescription className="mt-1 flex flex-wrap items-center gap-2">
                       {agent.model}
                       <Badge variant={agent.access_mode === "whitelist" ? "destructive" : "outline"}>
                         {agent.access_mode === "whitelist" ? "🔒 Whitelist" : "🌐 Open"}
+                      </Badge>
+                      <Badge variant={(agent as Agent & { has_bot_token?: boolean }).has_bot_token ? "secondary" : "outline"}>
+                        {(agent as Agent & { has_bot_token?: boolean }).has_bot_token ? "🤖 Bot" : "No Bot"}
                       </Badge>
                     </CardDescription>
                   </div>

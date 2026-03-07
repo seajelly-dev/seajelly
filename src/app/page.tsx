@@ -12,9 +12,7 @@ export default async function RootPage() {
 
   const hasAdmin = (admins.count ?? 0) > 0;
   const secretKeys = (secrets.data ?? []).map((s) => s.key_name);
-  const hasRequiredSecrets =
-    secretKeys.includes("SUPABASE_SERVICE_ROLE_KEY") &&
-    secretKeys.includes("TELEGRAM_BOT_TOKEN");
+  const hasRequiredSecrets = secretKeys.includes("SUPABASE_SERVICE_ROLE_KEY");
   const hasAgent = (agents.count ?? 0) > 0;
 
   if (!hasAdmin || !hasRequiredSecrets || !hasAgent) {

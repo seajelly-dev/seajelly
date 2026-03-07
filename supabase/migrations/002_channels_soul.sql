@@ -37,6 +37,9 @@ alter table public.agents
 alter table public.agents
   add column ai_soul text not null default '';
 
+alter table public.agents
+  add column telegram_bot_token text;
+
 -- 3. sessions: add channel_id (nullable for backwards compat)
 alter table public.sessions
   add column channel_id uuid references public.channels(id) on delete set null;

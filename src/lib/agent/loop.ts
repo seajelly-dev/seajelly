@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { getModel } from "./provider";
 import { createAgentTools } from "./tools";
 import { AGENT_LIMITS } from "./limits";
-import { getBot } from "@/lib/telegram/bot";
+import { getBotForAgent } from "@/lib/telegram/bot";
 import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
 
 interface LoopResult {
@@ -168,7 +168,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       deadline - Date.now()
     );
 
-    const bot = await getBot();
+    const bot = await getBotForAgent(typedAgent.id);
     await bot.api.sendChatAction(chatId, "typing").catch(() => {});
     const typingInterval = setInterval(() => {
       bot.api.sendChatAction(chatId, "typing").catch(() => {});
@@ -235,7 +235,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     if (event.chat_id) {
       try {
-        const bot = await getBot();
+        const bot = await getBotForAgent(event.agent_id!);
         await bot.api.sendMessage(
           event.chat_id,
           `Sorry, I encountered an error. Please try again later.`
