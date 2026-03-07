@@ -76,15 +76,15 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
               {NAV_ITEMS.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
-                    render={<a href={item.href} />}
+                    render={<a href={item.href} className="transition-all duration-300" />}
                     isActive={
                       item.href === "/dashboard"
                         ? pathname === "/dashboard"
                         : pathname.startsWith(item.href)
                     }
                   >
-                    <item.icon className="size-4" />
-                    <span>{item.title}</span>
+                    <item.icon className="size-4 transition-transform duration-300 group-hover/menu-button:scale-110 group-hover/menu-button:text-primary" />
+                    <span className="transition-colors duration-300">{item.title}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}

@@ -280,7 +280,7 @@ export default function McpPage() {
         <CardHeader>
           <CardTitle>Registered Servers</CardTitle>
           <CardDescription>
-            MCP servers can be bound to individual agents. Use "Test" to verify
+            MCP servers can be bound to individual agents. Use &quot;Test&quot; to verify
             connectivity and list available tools.
           </CardDescription>
         </CardHeader>
@@ -289,7 +289,7 @@ export default function McpPage() {
             <p className="text-sm text-muted-foreground">Loading...</p>
           ) : servers.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No MCP servers configured. Click "Add Server" to get started.
+              No MCP servers configured. Click &quot;Add Server&quot; to get started.
             </p>
           ) : (
             <Table>

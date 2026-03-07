@@ -31,6 +31,7 @@ export function RouteProgress() {
 
   useEffect(() => {
     if (pathname !== prevPath.current) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       start();
       const t = setTimeout(done, 150);
       prevPath.current = pathname;

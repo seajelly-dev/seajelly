@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
-import { encrypt, decrypt } from "@/lib/crypto/encrypt";
-import type { SecretKeyName } from "@/types/database";
+import { encrypt } from "@/lib/crypto/encrypt";
 
 const MGMT_BASE = "https://api.supabase.com/v1";
 
@@ -123,7 +122,6 @@ async function handleConnect(body: {
     );
 
     // Now that secrets table exists, store PAT + ref via Supabase Data API
-    const supabase = await createClient();
 
     // Use upsert via anon key — secrets table has public RLS for this bootstrap
     // We need a temporary permissive approach: the SCHEMA_SQL creates the table
