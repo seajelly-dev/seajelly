@@ -25,11 +25,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { RefreshCw, RotateCcw, Radio } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { AgentEvent } from "@/types/database";
 
-const STATUS_OPTIONS = ["all", "pending", "processing", "processed", "failed", "dead"];
+const STATUS_OPTIONS = [
+  "all",
+  "pending",
+  "processing",
+  "processed",
+  "failed",
+  "dead",
+];
 
 export default function EventsPage() {
   const [events, setEvents] = useState<AgentEvent[]>([]);
@@ -83,16 +92,19 @@ export default function EventsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Events</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-semibold tracking-tight">Events</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Event queue and processing debug panel
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? "all")}>
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => setStatusFilter(v ?? "all")}
+          >
             <SelectTrigger className="w-36">
               <SelectValue />
             </SelectTrigger>
@@ -104,7 +116,8 @@ export default function EventsPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={fetchEvents}>
+          <Button variant="outline" onClick={fetchEvents} className="gap-1.5">
+            <RefreshCw className="size-3.5" />
             Refresh
           </Button>
         </div>
@@ -117,9 +130,18 @@ export default function EventsPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading...</p>
+            <div className="flex flex-col gap-2">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full rounded-md" />
+              ))}
+            </div>
           ) : events.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No events found.</p>
+            <div className="flex flex-col items-center gap-4 py-10">
+              <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+                <Radio className="size-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm text-muted-foreground">No events found.</p>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -148,11 +170,11 @@ export default function EventsPage() {
                           {e.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm">
+                      <TableCell className="tabular-nums text-sm">
                         {e.retry_count}/{e.max_retries}
                       </TableCell>
                       <TableCell className="max-w-48 truncate text-xs text-muted-foreground">
-                        {e.error_message || "—"}
+                        {e.error_message || "--"}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {new Date(e.created_at).toLocaleString()}
@@ -162,8 +184,10 @@ export default function EventsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="gap-1"
                             onClick={() => handleReplay(e.id)}
                           >
+                            <RotateCcw className="size-3.5" />
                             Replay
                           </Button>
                         )}

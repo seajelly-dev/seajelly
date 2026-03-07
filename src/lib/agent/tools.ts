@@ -219,9 +219,9 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
       }) => {
         const appUrl =
           process.env.NEXT_PUBLIC_APP_URL ||
-          process.env.VERCEL_URL
+          (process.env.VERCEL_URL
             ? `https://${process.env.VERCEL_URL}`
-            : "http://localhost:3000";
+            : "http://localhost:3000");
         const cronSecret = process.env.CRON_SECRET || "opencrab-cron";
 
         const chatIdResult = await supabase

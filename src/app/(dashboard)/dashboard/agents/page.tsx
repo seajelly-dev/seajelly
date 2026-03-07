@@ -22,12 +22,16 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { Plus, Pencil, Trash2, Lock, Globe, Bot } from "lucide-react";
 import type { Agent } from "@/types/database";
 import { getAvailableModels, MODEL_CATALOG, type ModelDef } from "@/lib/models";
 
@@ -45,7 +49,8 @@ export default function AgentsPage() {
     telegram_bot_token: "",
   });
   const [saving, setSaving] = useState(false);
-  const [availableModels, setAvailableModels] = useState<ModelDef[]>(MODEL_CATALOG);
+  const [availableModels, setAvailableModels] =
+    useState<ModelDef[]>(MODEL_CATALOG);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -69,11 +74,12 @@ export default function AgentsPage() {
       if (!res.ok) {
         throw new Error(data.error || "Failed to load secrets");
       }
-      const keyNames = new Set((data.secrets ?? []).map((s: { key_name: string }) => s.key_name));
+      const keyNames = new Set(
+        (data.secrets ?? []).map((s: { key_name: string }) => s.key_name)
+      );
       const models = getAvailableModels(keyNames as Set<string>);
       setAvailableModels(models.length > 0 ? models : MODEL_CATALOG);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load model keys");
+    } catch {
       // fallback to full catalog
     }
   }, []);
@@ -85,7 +91,14 @@ export default function AgentsPage() {
 
   const openCreate = () => {
     setEditingAgent(null);
-    setForm({ name: "", system_prompt: "", model: availableModels[0]?.id ?? "", access_mode: "open", ai_soul: "", telegram_bot_token: "" });
+    setForm({
+      name: "",
+      system_prompt: "",
+      model: availableModels[0]?.id ?? "",
+      access_mode: "open",
+      ai_soul: "",
+      telegram_bot_token: "",
+    });
     setDialogOpen(true);
   };
 
@@ -143,26 +156,32 @@ export default function AgentsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Agents</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-semibold tracking-tight">Agents</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Configure AI agent personas and models
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger render={<Button onClick={openCreate} />}>
+            <Plus className="mr-1.5 size-4" />
             New Agent
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {editingAgent ? "Edit Agent" : "Create Agent"}
               </DialogTitle>
+              <DialogDescription>
+                {editingAgent
+                  ? "Update the agent configuration below."
+                  : "Fill in the details to create a new AI agent."}
+              </DialogDescription>
             </DialogHeader>
-            <div className="flex flex-col gap-4 pt-2">
-              <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
                 <Label>Name</Label>
                 <Input
                   value={form.name}
@@ -172,70 +191,80 @@ export default function AgentsPage() {
                   placeholder="My Agent"
                 />
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label>Telegram Bot Token</Label>
                 <Input
                   type="password"
                   value={form.telegram_bot_token}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, telegram_bot_token: e.target.value }))
+                    setForm((f) => ({
+                      ...f,
+                      telegram_bot_token: e.target.value,
+                    }))
                   }
-                  placeholder={editingAgent?.telegram_bot_token ? "••••••  (leave empty to keep)" : "Paste token from @BotFather"}
+                  placeholder={
+                    editingAgent?.telegram_bot_token
+                      ? "Leave empty to keep current"
+                      : "Paste token from @BotFather"
+                  }
                 />
                 <p className="text-xs text-muted-foreground">
-                  Each agent needs its own Telegram bot. Create one via @BotFather.
+                  Each agent needs its own Telegram bot. Create one via
+                  @BotFather.
                 </p>
               </div>
-              <div className="flex flex-col gap-2">
-                <Label>Model</Label>
-                <Select
-                  value={form.model}
-                  onValueChange={(v) => setForm((f) => ({ ...f, model: v ?? f.model }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableModels.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.label}
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {m.provider}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label>Model</Label>
+                  <Select
+                    value={form.model}
+                    onValueChange={(v) =>
+                      setForm((f) => ({ ...f, model: v ?? f.model }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableModels.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.label}
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {m.provider}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Access Mode</Label>
+                  <Select
+                    value={form.access_mode}
+                    onValueChange={(v) =>
+                      setForm((f) => ({
+                        ...f,
+                        access_mode: (v ?? f.access_mode) as
+                          | "open"
+                          | "whitelist",
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open">Open</SelectItem>
+                      <SelectItem value="whitelist">Whitelist</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="flex flex-col gap-2">
-                <Label>Access Mode</Label>
-                <Select
-                  value={form.access_mode}
-                  onValueChange={(v) => setForm((f) => ({ ...f, access_mode: (v ?? f.access_mode) as "open" | "whitelist" }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="open">
-                      Open
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        Anyone can chat, auto-register
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="whitelist">
-                      Whitelist
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        Only approved channels
-                      </span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label>System Prompt</Label>
                 <Textarea
                   rows={6}
+                  className="max-h-48 resize-y"
                   value={form.system_prompt}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, system_prompt: e.target.value }))
@@ -243,74 +272,139 @@ export default function AgentsPage() {
                   placeholder="You are a helpful AI assistant..."
                 />
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label>AI Soul</Label>
                 <Textarea
                   rows={3}
+                  className="max-h-32 resize-y"
                   value={form.ai_soul}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, ai_soul: e.target.value }))
                   }
-                  placeholder="Name: 宋承宪. Role: personal assistant. Tone: warm."
+                  placeholder="Name: ... Role: personal assistant. Tone: warm."
                 />
                 <p className="text-xs text-muted-foreground">
-                  AI identity profile. Users can update this via chat. Shared across all users.
+                  AI identity profile. Users can update this via chat. Shared
+                  across all users.
                 </p>
               </div>
-              <Button onClick={handleSave} disabled={saving}>
+            </div>
+            <DialogFooter>
+              <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
                 {saving ? "Saving..." : "Save"}
               </Button>
-            </div>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading...</p>
+        <div className="grid gap-4 md:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader>
+                <Skeleton className="h-5 w-32" />
+                <Skeleton className="mt-1 h-4 w-48" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-14 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : agents.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-10">
-            <p className="text-muted-foreground">No agents yet.</p>
-            <Button onClick={openCreate}>Create your first agent</Button>
+          <CardContent className="flex flex-col items-center gap-4 py-16">
+            <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+              <Bot className="size-6 text-muted-foreground" />
+            </div>
+            <div className="text-center">
+              <p className="font-medium">No agents yet</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Create your first AI agent to get started.
+              </p>
+            </div>
+            <Button onClick={openCreate}>
+              <Plus className="mr-1.5 size-4" />
+              Create Agent
+            </Button>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {agents.map((agent) => (
-            <Card key={agent.id}>
+            <Card
+              key={agent.id}
+              className="transition-shadow hover:shadow-md"
+            >
               <CardHeader>
                 <div className="flex items-start justify-between">
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <CardTitle className="flex items-center gap-2">
                       {agent.name}
                       {agent.is_default && (
-                        <Badge variant="secondary">Default</Badge>
+                        <Badge variant="secondary" className="text-xs">
+                          Default
+                        </Badge>
                       )}
                     </CardTitle>
-                    <CardDescription className="mt-1 flex flex-wrap items-center gap-2">
-                      {agent.model}
-                      <Badge variant={agent.access_mode === "whitelist" ? "destructive" : "outline"}>
-                        {agent.access_mode === "whitelist" ? "🔒 Whitelist" : "🌐 Open"}
+                    <CardDescription className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <span className="font-mono text-xs">{agent.model}</span>
+                      <Badge
+                        variant={
+                          agent.access_mode === "whitelist"
+                            ? "destructive"
+                            : "outline"
+                        }
+                        className="gap-1 text-xs"
+                      >
+                        {agent.access_mode === "whitelist" ? (
+                          <Lock className="size-3" />
+                        ) : (
+                          <Globe className="size-3" />
+                        )}
+                        {agent.access_mode === "whitelist"
+                          ? "Whitelist"
+                          : "Open"}
                       </Badge>
-                      <Badge variant={(agent as Agent & { has_bot_token?: boolean }).has_bot_token ? "secondary" : "outline"}>
-                        {(agent as Agent & { has_bot_token?: boolean }).has_bot_token ? "🤖 Bot" : "No Bot"}
+                      <Badge
+                        variant={
+                          (
+                            agent as Agent & {
+                              has_bot_token?: boolean;
+                            }
+                          ).has_bot_token
+                            ? "secondary"
+                            : "outline"
+                        }
+                        className="gap-1 text-xs"
+                      >
+                        <Bot className="size-3" />
+                        {(
+                          agent as Agent & {
+                            has_bot_token?: boolean;
+                          }
+                        ).has_bot_token
+                          ? "Bot Active"
+                          : "No Bot"}
                       </Badge>
                     </CardDescription>
                   </div>
                   <div className="flex gap-1">
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="icon-sm"
                       onClick={() => openEdit(agent)}
                     >
-                      Edit
+                      <Pencil className="size-3.5" />
                     </Button>
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="icon-sm"
                       onClick={() => handleDelete(agent)}
+                      className="text-muted-foreground hover:text-destructive"
                     >
-                      Delete
+                      <Trash2 className="size-3.5" />
                     </Button>
                   </div>
                 </div>

@@ -12,13 +12,17 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { Users, ShieldCheck, ShieldOff, Pencil, Trash2 } from "lucide-react";
 
 interface ChannelRow {
   id: string;
@@ -112,29 +116,53 @@ export default function ChannelsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Channels</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-2xl font-semibold tracking-tight">Channels</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Manage platform users, access control, and soul profiles
         </p>
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading...</p>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-3">
+                <Skeleton className="h-5 w-28" />
+                <Skeleton className="mt-1 h-3 w-40" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-12 w-full" />
+                <div className="mt-3 flex gap-1">
+                  <Skeleton className="h-8 w-16" />
+                  <Skeleton className="h-8 w-20" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : channels.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-10">
-            <p className="text-muted-foreground">
-              No channels yet. Channels are created automatically when users
-              message your bot.
-            </p>
+          <CardContent className="flex flex-col items-center gap-4 py-16">
+            <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+              <Users className="size-6 text-muted-foreground" />
+            </div>
+            <div className="text-center">
+              <p className="font-medium">No channels yet</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Channels are created automatically when users message your bot.
+              </p>
+            </div>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {channels.map((ch) => (
-            <Card key={ch.id}>
+            <Card
+              key={ch.id}
+              className="transition-shadow hover:shadow-md"
+            >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="min-w-0">
@@ -142,6 +170,7 @@ export default function ChannelsPage() {
                       {ch.display_name || "Unknown"}
                       <Badge
                         variant={ch.is_allowed ? "secondary" : "destructive"}
+                        className="text-xs"
                       >
                         {ch.is_allowed ? "Allowed" : "Blocked"}
                       </Badge>
@@ -159,8 +188,10 @@ export default function ChannelsPage() {
                 </div>
 
                 {ch.user_soul ? (
-                  <div className="rounded-md bg-muted p-2 text-xs">
-                    <span className="font-medium">User Soul: </span>
+                  <div className="rounded-lg bg-muted/50 p-2.5 text-xs">
+                    <span className="font-medium text-foreground/70">
+                      User Soul:{" "}
+                    </span>
                     <span className="text-muted-foreground">
                       {ch.user_soul.length > 120
                         ? ch.user_soul.slice(0, 120) + "..."
@@ -168,32 +199,41 @@ export default function ChannelsPage() {
                     </span>
                   </div>
                 ) : (
-                  <div className="text-xs text-muted-foreground italic">
+                  <div className="text-xs italic text-muted-foreground">
                     No user soul profile yet
                   </div>
                 )}
 
-                <div className="flex gap-1 pt-1">
+                <div className="flex gap-1.5 pt-1">
                   <Button
                     variant={ch.is_allowed ? "destructive" : "default"}
                     size="sm"
+                    className="gap-1"
                     onClick={() => toggleAllowed(ch)}
                   >
+                    {ch.is_allowed ? (
+                      <ShieldOff className="size-3.5" />
+                    ) : (
+                      <ShieldCheck className="size-3.5" />
+                    )}
                     {ch.is_allowed ? "Block" : "Allow"}
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
+                    className="gap-1"
                     onClick={() => openSoul(ch)}
                   >
+                    <Pencil className="size-3.5" />
                     Edit Soul
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => deleteChannel(ch)}
+                    className="text-muted-foreground hover:text-destructive"
                   >
-                    Delete
+                    <Trash2 className="size-3.5" />
                   </Button>
                 </div>
               </CardContent>
@@ -206,33 +246,34 @@ export default function ChannelsPage() {
         open={!!soulDialog}
         onOpenChange={(open) => !open && setSoulDialog(null)}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Edit Soul — {soulDialog?.display_name || soulDialog?.platform_uid}
+              Edit Soul --{" "}
+              {soulDialog?.display_name || soulDialog?.platform_uid}
             </DialogTitle>
+            <DialogDescription>
+              The soul is injected into the system prompt for every conversation
+              with this user.
+            </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-4 pt-2">
-            <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
               <Label>Soul Profile</Label>
               <Textarea
                 rows={10}
+                className="max-h-64 resize-y"
                 value={soulText}
                 onChange={(e) => setSoulText(e.target.value)}
-                placeholder={
-                  "Name: 李荣鑫\nPreferred address: 老李\nPersonality: humorous, tech-savvy\nLanguage: Chinese"
-                }
+                placeholder="Name: ...\nPreferred address: ...\nPersonality: humorous, tech-savvy\nLanguage: Chinese"
               />
-              <p className="text-xs text-muted-foreground">
-                The soul is injected into the system prompt for every
-                conversation with this user. The AI can also update it via the
-                soul_update tool.
-              </p>
             </div>
-            <Button onClick={saveSoul} disabled={saving}>
+          </div>
+          <DialogFooter>
+            <Button onClick={saveSoul} disabled={saving} className="w-full sm:w-auto">
               {saving ? "Saving..." : "Save Soul"}
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

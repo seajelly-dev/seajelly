@@ -15,21 +15,24 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { MessageSquare } from "lucide-react";
 
 export default async function SessionsPage() {
   const supabase = await createAdminClient();
 
   const { data: sessions } = await supabase
     .from("sessions")
-    .select("id, chat_id, agent_id, version, updated_at, messages, agents(name)")
+    .select(
+      "id, chat_id, agent_id, version, updated_at, messages, agents(name)"
+    )
     .order("updated_at", { ascending: false })
     .limit(50);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Sessions</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-2xl font-semibold tracking-tight">Sessions</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           View active conversation sessions
         </p>
       </div>
@@ -53,7 +56,9 @@ export default async function SessionsPage() {
               </TableHeader>
               <TableBody>
                 {sessions.map((s) => {
-                  const agent = s.agents as unknown as { name: string } | null;
+                  const agent = s.agents as unknown as {
+                    name: string;
+                  } | null;
                   const msgs = Array.isArray(s.messages) ? s.messages : [];
                   return (
                     <TableRow key={s.id}>
@@ -61,12 +66,10 @@ export default async function SessionsPage() {
                         {s.chat_id}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">
-                          {agent?.name ?? "Unknown"}
-                        </Badge>
+                        <Badge variant="outline">{agent?.name ?? "Unknown"}</Badge>
                       </TableCell>
-                      <TableCell>{msgs.length}</TableCell>
-                      <TableCell>{s.version}</TableCell>
+                      <TableCell className="tabular-nums">{msgs.length}</TableCell>
+                      <TableCell className="tabular-nums">{s.version}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {new Date(s.updated_at).toLocaleString()}
                       </TableCell>
@@ -76,7 +79,12 @@ export default async function SessionsPage() {
               </TableBody>
             </Table>
           ) : (
-            <p className="text-sm text-muted-foreground">No sessions yet.</p>
+            <div className="flex flex-col items-center gap-4 py-10">
+              <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+                <MessageSquare className="size-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm text-muted-foreground">No sessions yet.</p>
+            </div>
           )}
         </CardContent>
       </Card>

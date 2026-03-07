@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { toast } from "sonner";
+import { CrabLogo } from "@/components/crab-logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -43,13 +44,14 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
+        <CardHeader className="flex flex-col items-center gap-2 text-center">
+          <CrabLogo size={40} className="text-primary" />
           <CardTitle className="text-2xl">OpenCrab</CardTitle>
           <CardDescription>Sign in to Admin Dashboard</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
@@ -60,7 +62,7 @@ export default function LoginPage() {
                 required
               />
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { RouteProgress } from "@/components/route-progress";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,9 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OpenCrab — Cloud-Native AI Agent",
+  title: "OpenCrab -- Cloud-Native AI Agent",
   description:
-    "Let everyone have a cloud AI Agent in 5 minutes — no server, no Docker, no SSH.",
+    "Let everyone have a cloud AI Agent in 5 minutes -- no server, no Docker, no SSH.",
 };
 
 export default function RootLayout({
@@ -29,6 +30,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <RouteProgress />
         {children}
         <Toaster richColors />
       </body>

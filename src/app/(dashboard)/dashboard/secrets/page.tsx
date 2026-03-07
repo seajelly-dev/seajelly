@@ -21,6 +21,8 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -33,7 +35,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { Plus, Trash2, KeyRound } from "lucide-react";
 import { SECRET_KEYS } from "@/types/database";
 
 interface SecretRow {
@@ -59,7 +63,9 @@ export default function SecretsPage() {
       }
       setSecrets(data.secrets ?? []);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load secrets");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to load secrets"
+      );
     } finally {
       setLoading(false);
     }
@@ -110,26 +116,34 @@ export default function SecretsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Secrets</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-semibold tracking-tight">Secrets</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Manage encrypted API keys and tokens
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger render={<Button />}>
+            <Plus className="mr-1.5 size-4" />
             Add Secret
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Add or Update Secret</DialogTitle>
+              <DialogDescription>
+                Select a key type and provide the value. Values are encrypted
+                with AES-256-GCM.
+              </DialogDescription>
             </DialogHeader>
-            <div className="flex flex-col gap-4 pt-2">
-              <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
                 <Label>Key Name</Label>
-                <Select value={newKeyName} onValueChange={(v) => setNewKeyName(v ?? "")}>
+                <Select
+                  value={newKeyName}
+                  onValueChange={(v) => setNewKeyName(v ?? "")}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a key..." />
                   </SelectTrigger>
@@ -142,7 +156,7 @@ export default function SecretsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label>Value</Label>
                 <Input
                   type="password"
@@ -151,10 +165,12 @@ export default function SecretsPage() {
                   onChange={(e) => setNewValue(e.target.value)}
                 />
               </div>
-              <Button onClick={handleSave} disabled={saving}>
+            </div>
+            <DialogFooter>
+              <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
                 {saving ? "Saving..." : "Save"}
               </Button>
-            </div>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
@@ -168,11 +184,20 @@ export default function SecretsPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading...</p>
+            <div className="flex flex-col gap-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full rounded-md" />
+              ))}
+            </div>
           ) : secrets.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No secrets configured yet.
-            </p>
+            <div className="flex flex-col items-center gap-4 py-10">
+              <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+                <KeyRound className="size-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                No secrets configured yet.
+              </p>
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -194,10 +219,11 @@ export default function SecretsPage() {
                     <TableCell className="text-right">
                       <Button
                         variant="ghost"
-                        size="sm"
+                        size="icon-sm"
                         onClick={() => handleDelete(s.id, s.key_name)}
+                        className="text-muted-foreground hover:text-destructive"
                       >
-                        Delete
+                        <Trash2 className="size-3.5" />
                       </Button>
                     </TableCell>
                   </TableRow>

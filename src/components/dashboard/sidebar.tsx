@@ -3,6 +3,16 @@
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
+  LayoutDashboard,
+  Bot,
+  Users,
+  KeyRound,
+  MessageSquare,
+  Radio,
+  LogOut,
+} from "lucide-react";
+import { CrabLogo } from "@/components/crab-logo";
+import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -23,12 +33,12 @@ import {
 import { Button } from "@/components/ui/button";
 
 const NAV_ITEMS = [
-  { title: "Overview", href: "/dashboard", icon: "📊" },
-  { title: "Agents", href: "/dashboard/agents", icon: "🤖" },
-  { title: "Channels", href: "/dashboard/channels", icon: "📱" },
-  { title: "Secrets", href: "/dashboard/secrets", icon: "🔑" },
-  { title: "Sessions", href: "/dashboard/sessions", icon: "💬" },
-  { title: "Events", href: "/dashboard/events", icon: "📡" },
+  { title: "Overview", href: "/dashboard", icon: LayoutDashboard },
+  { title: "Agents", href: "/dashboard/agents", icon: Bot },
+  { title: "Channels", href: "/dashboard/channels", icon: Users },
+  { title: "Secrets", href: "/dashboard/secrets", icon: KeyRound },
+  { title: "Sessions", href: "/dashboard/sessions", icon: MessageSquare },
+  { title: "Events", href: "/dashboard/events", icon: Radio },
 ];
 
 export function DashboardSidebar({ userEmail }: { userEmail: string }) {
@@ -45,9 +55,11 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
   return (
     <Sidebar>
       <SidebarHeader className="border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">🦀</span>
-          <span className="text-lg font-bold">OpenCrab</span>
+        <div className="flex items-center gap-2.5">
+          <CrabLogo size={28} className="text-primary" />
+          <span className="text-lg font-semibold tracking-tight">
+            OpenCrab
+          </span>
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -65,7 +77,7 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
                         : pathname.startsWith(item.href)
                     }
                   >
-                    <span>{item.icon}</span>
+                    <item.icon className="size-4" />
                     <span>{item.title}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -77,12 +89,18 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
       <SidebarFooter className="border-t p-3">
         <DropdownMenu>
           <DropdownMenuTrigger
-            render={<Button variant="ghost" className="w-full justify-start text-sm" />}
+            render={
+              <Button
+                variant="ghost"
+                className="w-full justify-start text-sm"
+              />
+            }
           >
             <span className="truncate">{userEmail}</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
             <DropdownMenuItem onClick={handleSignOut}>
+              <LogOut className="mr-2 size-4" />
               Sign Out
             </DropdownMenuItem>
           </DropdownMenuContent>

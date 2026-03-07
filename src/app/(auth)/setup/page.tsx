@@ -21,12 +21,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { CrabLogo } from "@/components/crab-logo";
 import { getAvailableModels } from "@/lib/models";
 
 const STEPS = [
-  { title: "Connect Supabase", desc: "Link your project and initialize the database" },
-  { title: "Create Admin Account", desc: "Register the first administrator" },
-  { title: "Configure API Keys", desc: "Set up LLM and service credentials" },
+  {
+    title: "Connect Supabase",
+    desc: "Link your project and initialize the database",
+  },
+  {
+    title: "Create Admin Account",
+    desc: "Register the first administrator",
+  },
+  {
+    title: "Configure API Keys",
+    desc: "Set up LLM and service credentials",
+  },
   { title: "Create Your Agent", desc: "Set up your first AI agent" },
 ];
 
@@ -54,7 +64,7 @@ export default function SetupPage() {
 
   const [agentName, setAgentName] = useState("Crab");
   const [systemPrompt, setSystemPrompt] = useState(
-`You are a personal AI assistant running on the OpenCrab framework.
+    `You are a personal AI assistant running on the OpenCrab framework.
 
 ## Core Behavior
 - Respond in the same language the user writes in. Default to Chinese if ambiguous.
@@ -83,7 +93,7 @@ You have persistent memory across conversations. Use it wisely:
 ## Personality
 - Warm but efficient. Think of yourself as a capable personal secretary.
 - Use humor sparingly and appropriately.
-- Proactively offer help when you notice patterns (e.g. "You seem to ask about X often — want me to set a reminder?").`
+- Proactively offer help when you notice patterns (e.g. "You seem to ask about X often -- want me to set a reminder?").`
   );
   const [model, setModel] = useState("");
   const [botToken, setBotToken] = useState("");
@@ -114,10 +124,9 @@ You have persistent memory across conversations. Use it wisely:
         setChecking(false);
       })
       .catch(() => setChecking(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  // Step 0: Connect Supabase + initialize DB
   const handleConnect = async () => {
     if (!supabasePAT.trim()) {
       toast.error("Supabase Access Token is required");
@@ -150,7 +159,6 @@ You have persistent memory across conversations. Use it wisely:
     }
   };
 
-  // Step 1: Register admin (passes PAT + ref for Management API bootstrap)
   const handleRegister = async () => {
     if (!email || !password) {
       toast.error("Please fill in both email and password");
@@ -188,7 +196,6 @@ You have persistent memory across conversations. Use it wisely:
     }
   };
 
-  // Step 2: Save API keys
   const handleSecrets = async () => {
     if (!secrets.SUPABASE_SERVICE_ROLE_KEY) {
       toast.error("Supabase Service Role Key is required");
@@ -230,13 +237,11 @@ You have persistent memory across conversations. Use it wisely:
     }
   };
 
-  // Step 3: Create agent
   const handleCreateAgent = async () => {
     if (!agentName.trim()) {
       toast.error("Agent name is required");
       return;
     }
-    // bot token is optional — can be configured later in dashboard
     setLoading(true);
     try {
       const res = await fetch("/api/admin/setup", {
@@ -275,10 +280,13 @@ You have persistent memory across conversations. Use it wisely:
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-8 p-4">
-      <div className="flex flex-col items-center gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">OpenCrab Setup</h1>
-        <p className="text-muted-foreground">
-          Step {currentStep + 1} of {STEPS.length} — {STEPS[currentStep].desc}
+      <div className="flex flex-col items-center gap-3">
+        <CrabLogo size={48} className="text-primary" />
+        <h1 className="text-3xl font-semibold tracking-tight">
+          OpenCrab Setup
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Step {currentStep + 1} of {STEPS.length} -- {STEPS[currentStep].desc}
         </p>
       </div>
 
@@ -286,7 +294,7 @@ You have persistent memory across conversations. Use it wisely:
         {STEPS.map((_, i) => (
           <div
             key={i}
-            className={`h-2 w-12 rounded-full transition-colors ${
+            className={`h-1.5 w-12 rounded-full transition-colors ${
               i <= currentStep ? "bg-primary" : "bg-muted"
             }`}
           />
@@ -299,19 +307,19 @@ You have persistent memory across conversations. Use it wisely:
           <CardDescription>{STEPS[currentStep].desc}</CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Step 0: Connect Supabase */}
           {currentStep === 0 && (
             <div className="flex flex-col gap-4">
               <SecretField
                 label="Supabase Access Token (PAT)"
                 required
-                hint="Supabase Dashboard → Account → Access Tokens → Generate new token"
+                hint="Supabase Dashboard -> Account -> Access Tokens -> Generate new token"
                 value={supabasePAT}
                 onChange={setSupabasePAT}
               />
               <div className="flex flex-col gap-1.5">
                 <Label className="text-sm">
-                  Supabase Project Ref <span className="ml-1 text-destructive">*</span>
+                  Supabase Project Ref{" "}
+                  <span className="ml-1 text-destructive">*</span>
                 </Label>
                 <Input
                   placeholder="e.g. gjtcqawhjgaohawslmbs"
@@ -322,9 +330,9 @@ You have persistent memory across conversations. Use it wisely:
                   From your project URL: https://&lt;ref&gt;.supabase.co
                 </p>
               </div>
-              <div className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
-                This will create all required tables, enable pg_cron and pg_net extensions,
-                and store your Supabase credentials securely.
+              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                This will create all required tables, enable pg_cron and pg_net
+                extensions, and store your Supabase credentials securely.
               </div>
               <Button onClick={handleConnect} disabled={loading}>
                 {loading ? "Initializing database..." : "Connect & Initialize"}
@@ -332,10 +340,9 @@ You have persistent memory across conversations. Use it wisely:
             </div>
           )}
 
-          {/* Step 1: Create Admin */}
           {currentStep === 1 && (
             <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
@@ -345,7 +352,7 @@ You have persistent memory across conversations. Use it wisely:
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
@@ -355,7 +362,7 @@ You have persistent memory across conversations. Use it wisely:
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>
                 <Input
                   id="confirmPassword"
@@ -371,13 +378,12 @@ You have persistent memory across conversations. Use it wisely:
             </div>
           )}
 
-          {/* Step 2: API Keys */}
           {currentStep === 2 && (
             <div className="flex flex-col gap-4">
               <SecretField
                 label="Supabase Service Role Key"
                 required
-                hint="Supabase Dashboard → Settings → API → service_role (secret)"
+                hint="Supabase Dashboard -> Settings -> API -> service_role (secret)"
                 value={secrets.SUPABASE_SERVICE_ROLE_KEY}
                 onChange={(v) =>
                   setSecrets((s) => ({ ...s, SUPABASE_SERVICE_ROLE_KEY: v }))
@@ -434,10 +440,9 @@ You have persistent memory across conversations. Use it wisely:
             </div>
           )}
 
-          {/* Step 3: Create Agent */}
           {currentStep === 3 && (
             <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="agentName">Agent Name</Label>
                 <Input
                   id="agentName"
@@ -445,9 +450,12 @@ You have persistent memory across conversations. Use it wisely:
                   onChange={(e) => setAgentName(e.target.value)}
                 />
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="botToken">
-                  Telegram Bot Token <span className="text-xs text-muted-foreground">(optional)</span>
+                  Telegram Bot Token{" "}
+                  <span className="text-xs text-muted-foreground">
+                    (optional)
+                  </span>
                 </Label>
                 <Input
                   id="botToken"
@@ -457,17 +465,22 @@ You have persistent memory across conversations. Use it wisely:
                   onChange={(e) => setBotToken(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Create a bot via @BotFather on Telegram, then paste the token here.
+                  Create a bot via @BotFather on Telegram, then paste the token
+                  here.
                 </p>
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="model">Model</Label>
                 {availableModels.length === 0 ? (
                   <p className="text-sm text-destructive">
-                    No models available. Go back and add at least one LLM API Key.
+                    No models available. Go back and add at least one LLM API
+                    Key.
                   </p>
                 ) : (
-                  <Select value={model} onValueChange={(v) => setModel(v ?? model)}>
+                  <Select
+                    value={model}
+                    onValueChange={(v) => setModel(v ?? model)}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -484,11 +497,12 @@ You have persistent memory across conversations. Use it wisely:
                   </Select>
                 )}
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="systemPrompt">System Prompt</Label>
                 <Textarea
                   id="systemPrompt"
                   rows={12}
+                  className="max-h-64 resize-y"
                   value={systemPrompt}
                   onChange={(e) => setSystemPrompt(e.target.value)}
                 />
