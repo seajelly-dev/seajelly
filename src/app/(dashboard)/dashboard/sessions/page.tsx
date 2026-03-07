@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { MessageSquare, Bot, User } from "lucide-react";
+import { useT } from "@/lib/i18n";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -45,6 +46,7 @@ interface SessionRow {
 }
 
 export default function SessionsPage() {
+  const t = useT();
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<SessionRow | null>(null);
@@ -59,11 +61,11 @@ export default function SessionsPage() {
       }));
       setSessions(rows);
     } catch {
-      toast.error("Failed to load sessions");
+      toast.error(t("sessions.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchSessions();
@@ -72,17 +74,17 @@ export default function SessionsPage() {
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Sessions</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("sessions.title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          View active conversation sessions
+          {t("sessions.subtitle")}
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>All Sessions</CardTitle>
+          <CardTitle>{t("sessions.allSessions")}</CardTitle>
           <CardDescription>
-            Most recent 50 sessions — click a row to view chat history
+            {t("sessions.allSessionsDesc")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -96,11 +98,11 @@ export default function SessionsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Chat ID</TableHead>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Messages</TableHead>
-                  <TableHead>Version</TableHead>
-                  <TableHead>Last Updated</TableHead>
+                  <TableHead>{t("sessions.chatId")}</TableHead>
+                  <TableHead>{t("sessions.agent")}</TableHead>
+                  <TableHead>{t("sessions.messages")}</TableHead>
+                  <TableHead>{t("sessions.version")}</TableHead>
+                  <TableHead>{t("sessions.lastUpdated")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -115,7 +117,7 @@ export default function SessionsPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">
-                        {s.agents?.name ?? "Unknown"}
+                        {s.agents?.name ?? t("sessions.unknown")}
                       </Badge>
                     </TableCell>
                     <TableCell className="tabular-nums">
@@ -134,7 +136,7 @@ export default function SessionsPage() {
               <div className="flex size-12 items-center justify-center rounded-full bg-muted">
                 <MessageSquare className="size-6 text-muted-foreground" />
               </div>
-              <p className="text-sm text-muted-foreground">No sessions yet.</p>
+              <p className="text-sm text-muted-foreground">{t("sessions.noSessions")}</p>
             </div>
           )}
         </CardContent>
@@ -151,12 +153,15 @@ export default function SessionsPage() {
           <SheetHeader className="px-6">
             <SheetTitle className="flex items-center gap-2">
               <MessageSquare className="size-4" />
-              Chat History
+              {t("sessions.chatHistory")}
             </SheetTitle>
             {selected && (
               <SheetDescription>
-                Chat {selected.chat_id} · {selected.agents?.name ?? "Unknown"} ·{" "}
-                {selected.messages.length} messages
+                {t("sessions.chatInfo", {
+                  chatId: selected.chat_id,
+                  agent: selected.agents?.name ?? t("sessions.unknown"),
+                  count: selected.messages.length,
+                })}
               </SheetDescription>
             )}
           </SheetHeader>
@@ -171,7 +176,7 @@ export default function SessionsPage() {
             ) : (
               <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
                 <MessageSquare className="size-8" />
-                <p className="text-sm">No messages in this session.</p>
+                <p className="text-sm">{t("sessions.noMessages")}</p>
               </div>
             )}
           </div>

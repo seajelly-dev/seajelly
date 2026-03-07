@@ -29,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { RefreshCw, RotateCcw, Radio } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useT } from "@/lib/i18n";
 import type { AgentEvent } from "@/types/database";
 
 const STATUS_OPTIONS = [
@@ -41,6 +42,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function EventsPage() {
+  const t = useT();
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
@@ -59,12 +61,12 @@ export default function EventsPage() {
 
     const { data, error } = await query;
     if (error) {
-      toast.error("Failed to load events");
+      toast.error(t("events.loadFailed"));
     } else {
       setEvents((data as AgentEvent[]) ?? []);
     }
     setLoading(false);
-  }, [statusFilter]);
+  }, [statusFilter, t]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -79,9 +81,9 @@ export default function EventsPage() {
       .eq("id", eventId);
 
     if (error) {
-      toast.error("Replay failed");
+      toast.error(t("events.replayFailed"));
     } else {
-      toast.success("Event queued for replay");
+      toast.success(t("events.replaySuccess"));
       fetchEvents();
     }
   };
@@ -96,9 +98,9 @@ export default function EventsPage() {
     <div className="flex flex-col gap-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Events</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("events.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Event queue and processing debug panel
+            {t("events.subtitle")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -112,22 +114,22 @@ export default function EventsPage() {
             <SelectContent>
               {STATUS_OPTIONS.map((s) => (
                 <SelectItem key={s} value={s}>
-                  {s === "all" ? "All Status" : s}
+                  {s === "all" ? t("events.allStatus") : s}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Button variant="outline" onClick={fetchEvents} className="gap-1.5">
             <RefreshCw className="size-3.5" />
-            Refresh
+            {t("common.refresh")}
           </Button>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Event Log</CardTitle>
-          <CardDescription>Last 100 events</CardDescription>
+          <CardTitle>{t("events.eventLog")}</CardTitle>
+          <CardDescription>{t("events.eventLogDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -141,20 +143,20 @@ export default function EventsPage() {
               <div className="flex size-12 items-center justify-center rounded-full bg-muted">
                 <Radio className="size-6 text-muted-foreground" />
               </div>
-              <p className="text-sm text-muted-foreground">No events found.</p>
+              <p className="text-sm text-muted-foreground">{t("events.noEvents")}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Trace ID</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Retries</TableHead>
-                    <TableHead>Error</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>{t("events.traceId")}</TableHead>
+                    <TableHead>{t("events.source")}</TableHead>
+                    <TableHead>{t("events.status")}</TableHead>
+                    <TableHead>{t("events.retries")}</TableHead>
+                    <TableHead>{t("events.error")}</TableHead>
+                    <TableHead>{t("events.created")}</TableHead>
+                    <TableHead className="text-right">{t("common.actions")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -189,7 +191,7 @@ export default function EventsPage() {
                             onClick={() => handleReplay(e.id)}
                           >
                             <RotateCcw className="size-3.5" />
-                            Replay
+                            {t("events.replay")}
                           </Button>
                         )}
                       </TableCell>

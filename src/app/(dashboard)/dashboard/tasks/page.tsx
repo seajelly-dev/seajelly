@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner";
 import { Trash2, RefreshCw } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useT } from "@/lib/i18n";
 
 interface TaskRow {
   id: string;
@@ -35,6 +36,7 @@ interface TaskRow {
 }
 
 export default function TasksPage() {
+  const t = useT();
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -44,14 +46,14 @@ export default function TasksPage() {
     try {
       const res = await fetch("/api/admin/tasks");
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load tasks");
+      if (!res.ok) throw new Error(data.error || t("tasks.loadFailed"));
       setTasks(data.tasks ?? []);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load tasks");
+      toast.error(err instanceof Error ? err.message : t("tasks.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchTasks();
@@ -67,12 +69,12 @@ export default function TasksPage() {
         method: "DELETE",
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Delete failed");
-      toast.success(`Task "${name}" deleted`);
+      if (!res.ok) throw new Error(data.error || t("common.delete"));
+      toast.success(t("tasks.taskDeleted", { name }));
       setDeleteTarget(null);
       fetchTasks();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(err instanceof Error ? err.message : t("common.delete"));
     } finally {
       setDeleting(null);
     }
@@ -87,13 +89,20 @@ export default function TasksPage() {
     return "-";
   }
 
+  function getTypeLabel(type: string) {
+    if (type === "reminder") return t("tasks.reminder");
+    if (type === "agent_invoke") return t("tasks.agentInvoke");
+    if (type === "webhook") return t("tasks.webhook");
+    return type;
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Tasks</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t("tasks.title")}</h1>
           <p className="text-muted-foreground">
-            Manage scheduled cron jobs and reminders
+            {t("tasks.subtitle")}
           </p>
         </div>
         <Button
@@ -105,38 +114,36 @@ export default function TasksPage() {
           }}
         >
           <RefreshCw className="mr-2 size-4" />
-          Refresh
+          {t("common.refresh")}
         </Button>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Scheduled Tasks</CardTitle>
+          <CardTitle>{t("tasks.scheduledTasks")}</CardTitle>
           <CardDescription>
-            Tasks created by agents via pg_cron. Deleting here also removes the
-            underlying pg_cron job.
+            {t("tasks.scheduledTasksDesc")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading...</p>
+            <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
           ) : tasks.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No scheduled tasks. Ask your agent to set a reminder or schedule a
-              task.
+              {t("tasks.noTasks")}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Schedule</TableHead>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Details</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("tasks.name")}</TableHead>
+                  <TableHead>{t("tasks.type")}</TableHead>
+                  <TableHead>{t("tasks.schedule")}</TableHead>
+                  <TableHead>{t("tasks.agent")}</TableHead>
+                  <TableHead>{t("tasks.details")}</TableHead>
+                  <TableHead>{t("common.status")}</TableHead>
+                  <TableHead>{t("common.created")}</TableHead>
+                  <TableHead className="text-right">{t("common.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -146,7 +153,7 @@ export default function TasksPage() {
                       {(task.task_config.job_name as string) || "-"}
                     </TableCell>
                     <TableCell>
-                      <TypeBadge type={task.task_type} />
+                      <TypeBadge label={getTypeLabel(task.task_type)} type={task.task_type} />
                       {!!task.task_config.once && (
                         <Badge variant="outline" className="ml-1">
                           once
@@ -166,7 +173,7 @@ export default function TasksPage() {
                       <Badge
                         variant={task.enabled ? "default" : "secondary"}
                       >
-                        {task.enabled ? "Active" : "Disabled"}
+                        {task.enabled ? t("common.active") : t("common.disabled")}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
@@ -193,8 +200,8 @@ export default function TasksPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Delete Task"
-        description={`Delete task "${deleteTarget ? (deleteTarget.task_config.job_name as string) || deleteTarget.task_type : ""}"? This will also remove the pg_cron job.`}
+        title={t("tasks.deleteTask")}
+        description={t("tasks.deleteTaskConfirm", { name: deleteTarget ? (deleteTarget.task_config.job_name as string) || deleteTarget.task_type : "" })}
         loading={!!deleting}
         onConfirm={confirmDelete}
       />
@@ -202,20 +209,12 @@ export default function TasksPage() {
   );
 }
 
-function TypeBadge({ type }: { type: string }) {
+function TypeBadge({ label, type }: { label: string; type: string }) {
   const variant =
     type === "reminder"
       ? "default"
       : type === "agent_invoke"
         ? "secondary"
         : "outline";
-  const label =
-    type === "reminder"
-      ? "Reminder"
-      : type === "agent_invoke"
-        ? "Agent Invoke"
-        : type === "webhook"
-          ? "Webhook"
-          : type;
   return <Badge variant={variant}>{label}</Badge>;
 }

@@ -22,26 +22,13 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { CrabLogo } from "@/components/crab-logo";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useT } from "@/lib/i18n";
 import { getAvailableModels } from "@/lib/models";
-
-const STEPS = [
-  {
-    title: "Connect Supabase",
-    desc: "Link your project and initialize the database",
-  },
-  {
-    title: "Create Admin Account",
-    desc: "Register the first administrator",
-  },
-  {
-    title: "Configure API Keys",
-    desc: "Set up LLM and service credentials",
-  },
-  { title: "Create Your Agent", desc: "Set up your first AI agent" },
-];
 
 export default function SetupPage() {
   const router = useRouter();
+  const t = useT();
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -105,6 +92,8 @@ You have persistent memory across conversations. Use it wisely:
     ReturnType<typeof getAvailableModels>
   >([]);
 
+  const STEPS_KEYS = ["connect", "register", "secrets", "agent"] as const;
+
   const loadAvailableModels = (keys: string[]) => {
     const models = getAvailableModels(new Set(keys));
     setAvailableModels(models);
@@ -133,16 +122,16 @@ You have persistent memory across conversations. Use it wisely:
 
   const handleConnect = async () => {
     if (!supabasePAT.trim()) {
-      toast.error("Supabase Access Token is required");
+      toast.error(t("setup.errors.supabasePATRequired"));
       return;
     }
     if (!projectRef.trim()) {
-      toast.error("Project Ref is required");
+      toast.error(t("setup.errors.projectRefRequired"));
       return;
     }
     setLoading(true);
     try {
-      toast.info("Initializing database schema...");
+      toast.info(t("setup.initializingDb"));
       const res = await fetch("/api/admin/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -154,10 +143,10 @@ You have persistent memory across conversations. Use it wisely:
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      toast.success(data.message || "Database initialized");
+      toast.success(data.message || t("setup.success.dbInitialized"));
       setCurrentStep(1);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Connection failed");
+      toast.error(err instanceof Error ? err.message : t("setup.errors.connectionFailed"));
     } finally {
       setLoading(false);
     }
@@ -165,15 +154,15 @@ You have persistent memory across conversations. Use it wisely:
 
   const handleRegister = async () => {
     if (!email || !password) {
-      toast.error("Please fill in both email and password");
+      toast.error(t("setup.errors.fillEmailPassword"));
       return;
     }
     if (password.length < 6) {
-      toast.error("Password must be at least 6 characters");
+      toast.error(t("setup.errors.passwordMinLength"));
       return;
     }
     if (password !== confirmPassword) {
-      toast.error("Passwords do not match");
+      toast.error(t("setup.errors.passwordMismatch"));
       return;
     }
     setLoading(true);
@@ -191,10 +180,10 @@ You have persistent memory across conversations. Use it wisely:
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      toast.success("Admin account created");
+      toast.success(t("setup.success.adminCreated"));
       setCurrentStep(2);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Registration failed");
+      toast.error(err instanceof Error ? err.message : t("setup.errors.registrationFailed"));
     } finally {
       setLoading(false);
     }
@@ -202,7 +191,7 @@ You have persistent memory across conversations. Use it wisely:
 
   const handleSecrets = async () => {
     if (!secrets.SUPABASE_SERVICE_ROLE_KEY) {
-      toast.error("Supabase Service Role Key is required");
+      toast.error(t("setup.errors.serviceRoleRequired"));
       return;
     }
     const hasLLMKey =
@@ -211,7 +200,7 @@ You have persistent memory across conversations. Use it wisely:
       secrets.GOOGLE_GENERATIVE_AI_API_KEY ||
       secrets.DEEPSEEK_API_KEY;
     if (!hasLLMKey) {
-      toast.error("At least one LLM API Key is required");
+      toast.error(t("setup.errors.llmKeyRequired"));
       return;
     }
     setLoading(true);
@@ -228,14 +217,14 @@ You have persistent memory across conversations. Use it wisely:
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      toast.success(`${data.count} keys saved`);
+      toast.success(t("setup.success.keysSaved", { count: data.count }));
       const filledKeys = Object.entries(secrets)
         .filter(([, v]) => v.trim() !== "")
         .map(([k]) => k);
       loadAvailableModels(filledKeys);
       setCurrentStep(3);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save keys");
+      toast.error(err instanceof Error ? err.message : t("setup.errors.saveKeysFailed"));
     } finally {
       setLoading(false);
     }
@@ -243,7 +232,7 @@ You have persistent memory across conversations. Use it wisely:
 
   const handleCreateAgent = async () => {
     if (!agentName.trim()) {
-      toast.error("Agent name is required");
+      toast.error(t("setup.errors.agentNameRequired"));
       return;
     }
     setLoading(true);
@@ -263,11 +252,11 @@ You have persistent memory across conversations. Use it wisely:
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      toast.success("Agent created! Redirecting to dashboard...");
+      toast.success(t("setup.success.agentCreated"));
       setTimeout(() => router.push("/dashboard"), 1500);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to create agent"
+        err instanceof Error ? err.message : t("setup.errors.createAgentFailed")
       );
     } finally {
       setLoading(false);
@@ -277,25 +266,31 @@ You have persistent memory across conversations. Use it wisely:
   if (checking) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Checking setup status...</p>
+        <p className="text-muted-foreground">{t("setup.checkingStatus")}</p>
       </div>
     );
   }
 
+  const stepKey = STEPS_KEYS[currentStep];
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-8 p-4">
+      <div className="absolute right-4 top-4">
+        <LanguageSwitcher variant="outline" size="icon" />
+      </div>
+
       <div className="flex flex-col items-center gap-3">
         <CrabLogo size={48} className="text-primary" />
         <h1 className="text-3xl font-semibold tracking-tight">
-          OpenCrab Setup
+          {t("setup.title")}
         </h1>
         <p className="text-sm text-muted-foreground">
-          Step {currentStep + 1} of {STEPS.length} -- {STEPS[currentStep].desc}
+          {t("setup.stepOf", { current: currentStep + 1, total: STEPS_KEYS.length })} -- {t(`setup.steps.${stepKey}.desc` as const)}
         </p>
       </div>
 
       <div className="flex gap-2">
-        {STEPS.map((_, i) => (
+        {STEPS_KEYS.map((_, i) => (
           <div
             key={i}
             className={`h-1.5 w-12 rounded-full transition-colors ${
@@ -307,39 +302,39 @@ You have persistent memory across conversations. Use it wisely:
 
       <Card className="w-full max-w-lg">
         <CardHeader>
-          <CardTitle>{STEPS[currentStep].title}</CardTitle>
-          <CardDescription>{STEPS[currentStep].desc}</CardDescription>
+          <CardTitle>{t(`setup.steps.${stepKey}.title` as const)}</CardTitle>
+          <CardDescription>{t(`setup.steps.${stepKey}.desc` as const)}</CardDescription>
         </CardHeader>
         <CardContent>
           {currentStep === 0 && (
             <div className="flex flex-col gap-4">
               <SecretField
-                label="Supabase Access Token (PAT)"
+                label={t("setup.supabasePAT")}
                 required
-                hint="Supabase Dashboard -> Account -> Access Tokens -> Generate new token"
+                hint={t("setup.supabasePATHint")}
+                placeholder={t("setup.pasteKeyPlaceholder")}
                 value={supabasePAT}
                 onChange={setSupabasePAT}
               />
               <div className="flex flex-col gap-1.5">
                 <Label className="text-sm">
-                  Supabase Project Ref{" "}
+                  {t("setup.projectRef")}{" "}
                   <span className="ml-1 text-destructive">*</span>
                 </Label>
                 <Input
-                  placeholder="e.g. gjtcqawhjgaohawslmbs"
+                  placeholder={t("setup.projectRefPlaceholder")}
                   value={projectRef}
                   onChange={(e) => setProjectRef(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  From your project URL: https://&lt;ref&gt;.supabase.co
+                  {t("setup.projectRefHint")}
                 </p>
               </div>
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                This will create all required tables, enable pg_cron and pg_net
-                extensions, and store your Supabase credentials securely.
+                {t("setup.connectNote")}
               </div>
               <Button onClick={handleConnect} disabled={loading}>
-                {loading ? "Initializing database..." : "Connect & Initialize"}
+                {loading ? t("setup.connectingBtn") : t("setup.connectBtn")}
               </Button>
             </div>
           )}
@@ -347,37 +342,37 @@ You have persistent memory across conversations. Use it wisely:
           {currentStep === 1 && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t("setup.email")}</Label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="admin@example.com"
+                  placeholder={t("setup.emailPlaceholder")}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t("setup.password")}</Label>
                 <Input
                   id="password"
                   type="password"
-                  placeholder="At least 6 characters"
+                  placeholder={t("setup.passwordPlaceholder")}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Label htmlFor="confirmPassword">{t("setup.confirmPassword")}</Label>
                 <Input
                   id="confirmPassword"
                   type="password"
-                  placeholder="Re-enter your password"
+                  placeholder={t("setup.confirmPasswordPlaceholder")}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />
               </div>
               <Button onClick={handleRegister} disabled={loading}>
-                {loading ? "Creating..." : "Create Admin Account"}
+                {loading ? t("common.creating") : t("setup.createAdminBtn")}
               </Button>
             </div>
           )}
@@ -385,9 +380,10 @@ You have persistent memory across conversations. Use it wisely:
           {currentStep === 2 && (
             <div className="flex flex-col gap-4">
               <SecretField
-                label="Supabase Service Role Key"
+                label={t("setup.serviceRoleKey")}
                 required
-                hint="Supabase Dashboard -> Settings -> API -> service_role (secret)"
+                hint={t("setup.serviceRoleKeyHint")}
+                placeholder={t("setup.pasteKeyPlaceholder")}
                 value={secrets.SUPABASE_SERVICE_ROLE_KEY}
                 onChange={(v) =>
                   setSecrets((s) => ({ ...s, SUPABASE_SERVICE_ROLE_KEY: v }))
@@ -395,25 +391,28 @@ You have persistent memory across conversations. Use it wisely:
               />
               <div className="border-t pt-4">
                 <p className="mb-3 text-sm font-medium text-muted-foreground">
-                  LLM API Keys (at least one required)
+                  {t("setup.llmKeysTitle")}
                 </p>
                 <div className="flex flex-col gap-3">
                   <SecretField
-                    label="Anthropic API Key"
+                    label={t("setup.anthropicKey")}
+                    placeholder={t("setup.pasteKeyPlaceholder")}
                     value={secrets.ANTHROPIC_API_KEY}
                     onChange={(v) =>
                       setSecrets((s) => ({ ...s, ANTHROPIC_API_KEY: v }))
                     }
                   />
                   <SecretField
-                    label="OpenAI API Key"
+                    label={t("setup.openaiKey")}
+                    placeholder={t("setup.pasteKeyPlaceholder")}
                     value={secrets.OPENAI_API_KEY}
                     onChange={(v) =>
                       setSecrets((s) => ({ ...s, OPENAI_API_KEY: v }))
                     }
                   />
                   <SecretField
-                    label="Google AI API Key"
+                    label={t("setup.googleKey")}
+                    placeholder={t("setup.pasteKeyPlaceholder")}
                     value={secrets.GOOGLE_GENERATIVE_AI_API_KEY}
                     onChange={(v) =>
                       setSecrets((s) => ({
@@ -423,7 +422,8 @@ You have persistent memory across conversations. Use it wisely:
                     }
                   />
                   <SecretField
-                    label="DeepSeek API Key"
+                    label={t("setup.deepseekKey")}
+                    placeholder={t("setup.pasteKeyPlaceholder")}
                     value={secrets.DEEPSEEK_API_KEY}
                     onChange={(v) =>
                       setSecrets((s) => ({ ...s, DEEPSEEK_API_KEY: v }))
@@ -432,14 +432,15 @@ You have persistent memory across conversations. Use it wisely:
                 </div>
               </div>
               <SecretField
-                label="Embedding API Key (Gemini recommended)"
+                label={t("setup.embeddingKey")}
+                placeholder={t("setup.pasteKeyPlaceholder")}
                 value={secrets.EMBEDDING_API_KEY}
                 onChange={(v) =>
                   setSecrets((s) => ({ ...s, EMBEDDING_API_KEY: v }))
                 }
               />
               <Button onClick={handleSecrets} disabled={loading}>
-                {loading ? "Saving..." : "Save & Continue"}
+                {loading ? t("common.saving") : t("setup.saveAndContinue")}
               </Button>
             </div>
           )}
@@ -447,7 +448,7 @@ You have persistent memory across conversations. Use it wisely:
           {currentStep === 3 && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="agentName">Agent Name</Label>
+                <Label htmlFor="agentName">{t("setup.agentName")}</Label>
                 <Input
                   id="agentName"
                   value={agentName}
@@ -456,36 +457,34 @@ You have persistent memory across conversations. Use it wisely:
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="botToken">
-                  Telegram Bot Token{" "}
+                  {t("setup.botToken")}{" "}
                   <span className="text-xs text-muted-foreground">
-                    (optional)
+                    {t("setup.botTokenOptional")}
                   </span>
                 </Label>
                 <Input
                   id="botToken"
                   type="password"
-                  placeholder="Paste token from @BotFather"
+                  placeholder={t("setup.botTokenPlaceholder")}
                   value={botToken}
                   onChange={(e) => setBotToken(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Create a bot via @BotFather on Telegram, then paste the token
-                  here.
+                  {t("setup.botTokenHint")}
                 </p>
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="model">Model</Label>
+                <Label htmlFor="model">{t("setup.model")}</Label>
                 {availableModels.length === 0 ? (
                   <p className="text-sm text-destructive">
-                    No models available. Go back and add at least one LLM API
-                    Key.
+                    {t("setup.noModels")}
                   </p>
                 ) : (
                   <Select
                     value={model}
                     onValueChange={(v) => setModel(v ?? model)}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="setup-model-select-trigger">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -502,7 +501,7 @@ You have persistent memory across conversations. Use it wisely:
                 )}
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="systemPrompt">System Prompt</Label>
+                <Label htmlFor="systemPrompt">{t("setup.systemPrompt")}</Label>
                 <Textarea
                   id="systemPrompt"
                   rows={12}
@@ -512,7 +511,7 @@ You have persistent memory across conversations. Use it wisely:
                 />
               </div>
               <Button onClick={handleCreateAgent} disabled={loading}>
-                {loading ? "Creating..." : "Create Agent & Finish"}
+                {loading ? t("common.creating") : t("setup.createAgentBtn")}
               </Button>
             </div>
           )}
@@ -526,12 +525,14 @@ function SecretField({
   label,
   required,
   hint,
+  placeholder,
   value,
   onChange,
 }: {
   label: string;
   required?: boolean;
   hint?: string;
+  placeholder?: string;
   value: string;
   onChange: (v: string) => void;
 }) {
@@ -543,7 +544,7 @@ function SecretField({
       </Label>
       <Input
         type="password"
-        placeholder="Paste your key here..."
+        placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />

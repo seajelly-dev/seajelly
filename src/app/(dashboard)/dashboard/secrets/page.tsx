@@ -39,6 +39,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Plus, Trash2, KeyRound } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useT } from "@/lib/i18n";
 import { SECRET_KEYS } from "@/types/database";
 
 interface SecretRow {
@@ -48,6 +49,7 @@ interface SecretRow {
 }
 
 export default function SecretsPage() {
+  const t = useT();
   const [secrets, setSecrets] = useState<SecretRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -61,17 +63,17 @@ export default function SecretsPage() {
       const res = await fetch("/api/admin/secrets");
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Failed to load secrets");
+        throw new Error(data.error || t("secrets.loadFailed"));
       }
       setSecrets(data.secrets ?? []);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to load secrets"
+        err instanceof Error ? err.message : t("secrets.loadFailed")
       );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchSecrets();
@@ -79,7 +81,7 @@ export default function SecretsPage() {
 
   const handleSave = async () => {
     if (!newKeyName || !newValue) {
-      toast.error("Both key name and value are required");
+      toast.error(t("secrets.bothRequired"));
       return;
     }
     setSaving(true);
@@ -97,7 +99,7 @@ export default function SecretsPage() {
       setNewValue("");
       fetchSecrets();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : t("common.saving"));
     } finally {
       setSaving(false);
     }
@@ -109,12 +111,12 @@ export default function SecretsPage() {
       const res = await fetch(`/api/admin/secrets?id=${deleteTarget.id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Delete failed");
+      if (!res.ok) throw new Error(t("secrets.deleteFailed"));
       toast.success(`${deleteTarget.key_name} deleted`);
       setDeleteTarget(null);
       fetchSecrets();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(err instanceof Error ? err.message : t("secrets.deleteFailed"));
     }
   };
 
@@ -122,33 +124,32 @@ export default function SecretsPage() {
     <div className="flex flex-col gap-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Secrets</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("secrets.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Manage encrypted API keys and tokens
+            {t("secrets.subtitle")}
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger render={<Button />}>
+          <DialogTrigger id="secrets-add-dialog-trigger" render={<Button />}>
             <Plus className="mr-1.5 size-4" />
-            Add Secret
+            {t("secrets.addSecret")}
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add or Update Secret</DialogTitle>
+              <DialogTitle>{t("secrets.addOrUpdate")}</DialogTitle>
               <DialogDescription>
-                Select a key type and provide the value. Values are encrypted
-                with AES-256-GCM.
+                {t("secrets.addOrUpdateDesc")}
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label>Key Name</Label>
+                <Label>{t("secrets.keyName")}</Label>
                 <Select
                   value={newKeyName}
                   onValueChange={(v) => setNewKeyName(v ?? "")}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a key..." />
+                  <SelectTrigger id="secrets-key-select-trigger">
+                    <SelectValue placeholder={t("secrets.selectKey")} />
                   </SelectTrigger>
                   <SelectContent>
                     {SECRET_KEYS.map((k) => (
@@ -160,10 +161,10 @@ export default function SecretsPage() {
                 </Select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label>Value</Label>
+                <Label>{t("secrets.value")}</Label>
                 <Input
                   type="password"
-                  placeholder="Paste key value..."
+                  placeholder={t("secrets.valuePlaceholder")}
                   value={newValue}
                   onChange={(e) => setNewValue(e.target.value)}
                 />
@@ -171,7 +172,7 @@ export default function SecretsPage() {
             </div>
             <DialogFooter>
               <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
-                {saving ? "Saving..." : "Save"}
+                {saving ? t("common.saving") : t("common.save")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -180,9 +181,9 @@ export default function SecretsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Configured Keys</CardTitle>
+          <CardTitle>{t("secrets.configuredKeys")}</CardTitle>
           <CardDescription>
-            Values are encrypted with AES-256-GCM. Only key names are shown.
+            {t("secrets.configuredKeysDesc")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -198,16 +199,16 @@ export default function SecretsPage() {
                 <KeyRound className="size-6 text-muted-foreground" />
               </div>
               <p className="text-sm text-muted-foreground">
-                No secrets configured yet.
+                {t("secrets.noSecrets")}
               </p>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Key Name</TableHead>
-                  <TableHead>Updated</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("secrets.keyName")}</TableHead>
+                  <TableHead>{t("secrets.updated")}</TableHead>
+                  <TableHead className="text-right">{t("common.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -240,8 +241,8 @@ export default function SecretsPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Delete Secret"
-        description={`Delete "${deleteTarget?.key_name || ""}"?`}
+        title={t("secrets.deleteSecret")}
+        description={t("secrets.deleteSecretConfirm", { name: deleteTarget?.key_name || "" })}
         onConfirm={confirmDeleteSecret}
       />
     </div>

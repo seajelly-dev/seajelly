@@ -1,4 +1,6 @@
-import { createAdminClient } from "@/lib/supabase/server";
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -7,61 +9,113 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Bot, MessageSquare, Radio } from "lucide-react";
+import { useT } from "@/lib/i18n";
+import { createClient } from "@/lib/supabase/client";
 
-export default async function DashboardPage() {
-  const supabase = await createAdminClient();
+interface RecentEvent {
+  id: string;
+  source: string;
+  status: string;
+  trace_id: string;
+  created_at: string;
+}
 
-  const [agents, sessions, events, recentEvents] = await Promise.all([
-    supabase.from("agents").select("*", { count: "exact", head: true }),
-    supabase.from("sessions").select("*", { count: "exact", head: true }),
-    supabase.from("events").select("*", { count: "exact", head: true }),
-    supabase
-      .from("events")
-      .select("id, source, status, trace_id, created_at")
-      .order("created_at", { ascending: false })
-      .limit(10),
-  ]);
+export default function DashboardPage() {
+  const t = useT();
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ agents: 0, sessions: 0, events: 0 });
+  const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
+
+  const fetchData = useCallback(async () => {
+    const supabase = createClient();
+    const [agents, sessions, events, recent] = await Promise.all([
+      supabase.from("agents").select("*", { count: "exact", head: true }),
+      supabase.from("sessions").select("*", { count: "exact", head: true }),
+      supabase.from("events").select("*", { count: "exact", head: true }),
+      supabase
+        .from("events")
+        .select("id, source, status, trace_id, created_at")
+        .order("created_at", { ascending: false })
+        .limit(10),
+    ]);
+    setStats({
+      agents: agents.count ?? 0,
+      sessions: sessions.count ?? 0,
+      events: events.count ?? 0,
+    });
+    setRecentEvents((recent.data as RecentEvent[]) ?? []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-8">
+        <div>
+          <Skeleton className="h-8 w-40" />
+          <Skeleton className="mt-2 h-4 w-64" />
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-9 w-16" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-3 w-32" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("overview.title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          OpenCrab system overview
+          {t("overview.subtitle")}
         </p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
         <StatCard
-          title="Agents"
-          value={agents.count ?? 0}
-          desc="Configured AI agents"
+          title={t("overview.agents")}
+          value={stats.agents}
+          desc={t("overview.agentsDesc")}
           icon={<Bot className="size-4 text-primary" />}
         />
         <StatCard
-          title="Sessions"
-          value={sessions.count ?? 0}
-          desc="Active conversations"
+          title={t("overview.sessions")}
+          value={stats.sessions}
+          desc={t("overview.sessionsDesc")}
           icon={<MessageSquare className="size-4 text-primary" />}
         />
         <StatCard
-          title="Events"
-          value={events.count ?? 0}
-          desc="Total events processed"
+          title={t("overview.events")}
+          value={stats.events}
+          desc={t("overview.eventsDesc")}
           icon={<Radio className="size-4 text-primary" />}
         />
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent Events</CardTitle>
-          <CardDescription>Last 10 events across all agents</CardDescription>
+          <CardTitle>{t("overview.recentEvents")}</CardTitle>
+          <CardDescription>{t("overview.recentEventsDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
-          {recentEvents.data && recentEvents.data.length > 0 ? (
+          {recentEvents.length > 0 ? (
             <div className="flex flex-col gap-2">
-              {recentEvents.data.map((event) => (
+              {recentEvents.map((event) => (
                 <div
                   key={event.id}
                   className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 px-4 py-3 text-sm transition-colors hover:bg-muted/50"
@@ -83,7 +137,7 @@ export default async function DashboardPage() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              No events yet. Send a message to your Telegram bot to get started.
+              {t("overview.noEvents")}
             </p>
           )}
         </CardContent>

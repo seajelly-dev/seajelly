@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/i18n";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -26,33 +27,34 @@ interface ConfirmDialogProps {
 export function ConfirmDialog({
   open,
   onOpenChange,
-  title = "Confirm",
+  title,
   description,
-  confirmText = "Delete",
-  cancelText = "Cancel",
+  confirmText,
+  cancelText,
   variant = "destructive",
   loading = false,
   onConfirm,
 }: ConfirmDialogProps) {
+  const t = useT();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false} className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+          <DialogTitle>{title ?? t("confirmDialog.confirm")}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose
             render={<Button variant="outline" disabled={loading} />}
           >
-            {cancelText}
+            {cancelText ?? t("confirmDialog.cancel")}
           </DialogClose>
           <Button
             variant={variant}
             disabled={loading}
             onClick={() => onConfirm()}
           >
-            {loading ? "Processing..." : confirmText}
+            {loading ? t("common.processing") : (confirmText ?? t("confirmDialog.delete"))}
           </Button>
         </DialogFooter>
       </DialogContent>

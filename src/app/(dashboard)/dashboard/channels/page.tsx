@@ -24,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Users, ShieldCheck, ShieldOff, Pencil, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useT } from "@/lib/i18n";
 
 interface ChannelRow {
   id: string;
@@ -39,6 +40,7 @@ interface ChannelRow {
 }
 
 export default function ChannelsPage() {
+  const t = useT();
   const [channels, setChannels] = useState<ChannelRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [soulDialog, setSoulDialog] = useState<ChannelRow | null>(null);
@@ -52,11 +54,11 @@ export default function ChannelsPage() {
       const data = await res.json();
       setChannels(data.channels ?? []);
     } catch {
-      toast.error("Failed to load channels");
+      toast.error(t("channels.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchChannels();
@@ -70,7 +72,7 @@ export default function ChannelsPage() {
         body: JSON.stringify({ id: ch.id, is_allowed: !ch.is_allowed }),
       });
       if (!res.ok) throw new Error("Failed");
-      toast.success(ch.is_allowed ? "Channel blocked" : "Channel allowed");
+      toast.success(ch.is_allowed ? t("channels.channelBlocked") : t("channels.channelAllowed"));
       fetchChannels();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
@@ -92,7 +94,7 @@ export default function ChannelsPage() {
         body: JSON.stringify({ id: soulDialog.id, user_soul: soulText }),
       });
       if (!res.ok) throw new Error("Failed");
-      toast.success("Soul updated");
+      toast.success(t("channels.soulUpdated"));
       setSoulDialog(null);
       fetchChannels();
     } catch (err) {
@@ -109,20 +111,20 @@ export default function ChannelsPage() {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Delete failed");
-      toast.success("Channel deleted");
+      toast.success(t("channels.channelDeleted"));
       setDeleteTarget(null);
       fetchChannels();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(err instanceof Error ? err.message : t("common.delete"));
     }
   };
 
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Channels</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("channels.title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Manage platform users, access control, and soul profiles
+          {t("channels.subtitle")}
         </p>
       </div>
 
@@ -151,9 +153,9 @@ export default function ChannelsPage() {
               <Users className="size-6 text-muted-foreground" />
             </div>
             <div className="text-center">
-              <p className="font-medium">No channels yet</p>
+              <p className="font-medium">{t("channels.noChannels")}</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Channels are created automatically when users message your bot.
+                {t("channels.noChannelsHint")}
               </p>
             </div>
           </CardContent>
@@ -174,7 +176,7 @@ export default function ChannelsPage() {
                         variant={ch.is_allowed ? "secondary" : "destructive"}
                         className="text-xs"
                       >
-                        {ch.is_allowed ? "Allowed" : "Blocked"}
+                        {ch.is_allowed ? t("channels.allowed") : t("channels.blocked")}
                       </Badge>
                     </CardTitle>
                     <CardDescription className="mt-1 font-mono text-xs">
@@ -185,14 +187,14 @@ export default function ChannelsPage() {
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
                 <div className="text-xs text-muted-foreground">
-                  <span className="font-medium">Agent:</span>{" "}
+                  <span className="font-medium">{t("channels.agent")}:</span>{" "}
                   {ch.agents?.name ?? "N/A"}
                 </div>
 
                 {ch.user_soul ? (
                   <div className="rounded-lg bg-muted/50 p-2.5 text-xs">
                     <span className="font-medium text-foreground/70">
-                      User Soul:{" "}
+                      {t("channels.userSoul")}:{" "}
                     </span>
                     <span className="text-muted-foreground">
                       {ch.user_soul.length > 120
@@ -202,7 +204,7 @@ export default function ChannelsPage() {
                   </div>
                 ) : (
                   <div className="text-xs italic text-muted-foreground">
-                    No user soul profile yet
+                    {t("channels.noSoulProfile")}
                   </div>
                 )}
 
@@ -218,7 +220,7 @@ export default function ChannelsPage() {
                     ) : (
                       <ShieldCheck className="size-3.5" />
                     )}
-                    {ch.is_allowed ? "Block" : "Allow"}
+                    {ch.is_allowed ? t("channels.block") : t("channels.allow")}
                   </Button>
                   <Button
                     variant="outline"
@@ -227,7 +229,7 @@ export default function ChannelsPage() {
                     onClick={() => openSoul(ch)}
                   >
                     <Pencil className="size-3.5" />
-                    Edit Soul
+                    {t("channels.editSoul")}
                   </Button>
                   <Button
                     variant="ghost"
@@ -251,29 +253,28 @@ export default function ChannelsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Edit Soul --{" "}
+              {t("channels.editSoulTitle")} --{" "}
               {soulDialog?.display_name || soulDialog?.platform_uid}
             </DialogTitle>
             <DialogDescription>
-              The soul is injected into the system prompt for every conversation
-              with this user.
+              {t("channels.editSoulDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
-              <Label>Soul Profile</Label>
+              <Label>{t("channels.soulProfile")}</Label>
               <Textarea
                 rows={10}
                 className="max-h-64 resize-y"
                 value={soulText}
                 onChange={(e) => setSoulText(e.target.value)}
-                placeholder="Name: ...\nPreferred address: ...\nPersonality: humorous, tech-savvy\nLanguage: Chinese"
+                placeholder={t("channels.soulPlaceholder")}
               />
             </div>
           </div>
           <DialogFooter>
             <Button onClick={saveSoul} disabled={saving} className="w-full sm:w-auto">
-              {saving ? "Saving..." : "Save Soul"}
+              {saving ? t("common.saving") : t("channels.saveSoul")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -282,8 +283,8 @@ export default function ChannelsPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Delete Channel"
-        description={`Delete channel "${deleteTarget?.display_name || deleteTarget?.platform_uid || ""}"?`}
+        title={t("channels.deleteChannel")}
+        description={t("channels.deleteChannelConfirm", { name: deleteTarget?.display_name || deleteTarget?.platform_uid || "" })}
         onConfirm={confirmDeleteChannel}
       />
     </div>

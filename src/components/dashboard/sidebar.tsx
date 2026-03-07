@@ -15,6 +15,8 @@ import {
   LogOut,
 } from "lucide-react";
 import { CrabLogo } from "@/components/crab-logo";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useT } from "@/lib/i18n";
 import {
   Sidebar,
   SidebarContent,
@@ -34,22 +36,24 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import type { LucideIcon } from "lucide-react";
 
-const NAV_ITEMS = [
-  { title: "Overview", href: "/dashboard", icon: LayoutDashboard },
-  { title: "Agents", href: "/dashboard/agents", icon: Bot },
-  { title: "Channels", href: "/dashboard/channels", icon: Users },
-  { title: "Secrets", href: "/dashboard/secrets", icon: KeyRound },
-  { title: "Sessions", href: "/dashboard/sessions", icon: MessageSquare },
-  { title: "Tasks", href: "/dashboard/tasks", icon: Clock },
-  { title: "MCP Servers", href: "/dashboard/mcp", icon: Plug },
-  { title: "Skills", href: "/dashboard/skills", icon: Sparkles },
-  { title: "Events", href: "/dashboard/events", icon: Radio },
+const NAV_ITEMS: { titleKey: string; href: string; icon: LucideIcon }[] = [
+  { titleKey: "sidebar.overview", href: "/dashboard", icon: LayoutDashboard },
+  { titleKey: "sidebar.agents", href: "/dashboard/agents", icon: Bot },
+  { titleKey: "sidebar.channels", href: "/dashboard/channels", icon: Users },
+  { titleKey: "sidebar.secrets", href: "/dashboard/secrets", icon: KeyRound },
+  { titleKey: "sidebar.sessions", href: "/dashboard/sessions", icon: MessageSquare },
+  { titleKey: "sidebar.tasks", href: "/dashboard/tasks", icon: Clock },
+  { titleKey: "sidebar.mcpServers", href: "/dashboard/mcp", icon: Plug },
+  { titleKey: "sidebar.skills", href: "/dashboard/skills", icon: Sparkles },
+  { titleKey: "sidebar.events", href: "/dashboard/events", icon: Radio },
 ];
 
 export function DashboardSidebar({ userEmail }: { userEmail: string }) {
   const pathname = usePathname();
   const router = useRouter();
+  const t = useT();
 
   const handleSignOut = async () => {
     const supabase = createClient();
@@ -61,16 +65,19 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
   return (
     <Sidebar>
       <SidebarHeader className="border-b px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <CrabLogo size={28} className="text-primary" />
-          <span className="text-lg font-semibold tracking-tight">
-            OpenCrab
-          </span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <CrabLogo size={28} className="text-primary" />
+            <span className="text-lg font-semibold tracking-tight">
+              OpenCrab
+            </span>
+          </div>
+          <LanguageSwitcher variant="ghost" size="icon-sm" />
         </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Dashboard</SidebarGroupLabel>
+          <SidebarGroupLabel>{t("sidebar.dashboard")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {NAV_ITEMS.map((item) => (
@@ -84,7 +91,7 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
                     }
                   >
                     <item.icon className="size-4 transition-transform duration-300 group-hover/menu-button:scale-110 group-hover/menu-button:text-primary" />
-                    <span className="transition-colors duration-300">{item.title}</span>
+                    <span className="transition-colors duration-300">{t(item.titleKey as Parameters<typeof t>[0])}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -108,7 +115,7 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
           <DropdownMenuContent align="start" className="w-48">
             <DropdownMenuItem onClick={handleSignOut}>
               <LogOut className="mr-2 size-4" />
-              Sign Out
+              {t("common.signOut")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

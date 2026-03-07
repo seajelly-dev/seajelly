@@ -36,8 +36,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Zap, RefreshCw } from "lucide-react";
+import { useT } from "@/lib/i18n";
 import type { McpServer } from "@/types/database";
 
 const EMPTY_FORM = {
@@ -49,6 +51,7 @@ const EMPTY_FORM = {
 };
 
 export default function McpPage() {
+  const t = useT();
   const [servers, setServers] = useState<McpServer[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -56,6 +59,8 @@ export default function McpPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const fetchServers = useCallback(async () => {
     try {
@@ -64,11 +69,11 @@ export default function McpPage() {
       if (!res.ok) throw new Error(data.error);
       setServers(data.servers ?? []);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load");
+      toast.error(err instanceof Error ? err.message : t("mcp.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchServers();
@@ -94,7 +99,7 @@ export default function McpPage() {
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.url.trim()) {
-      toast.error("Name and URL are required");
+      toast.error(t("mcp.nameUrlRequired"));
       return;
     }
 
@@ -102,7 +107,7 @@ export default function McpPage() {
     try {
       headers = JSON.parse(form.headers);
     } catch {
-      toast.error("Headers must be valid JSON");
+      toast.error(t("mcp.headersInvalid"));
       return;
     }
 
@@ -125,26 +130,34 @@ export default function McpPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      toast.success(editing ? "Server updated" : "Server added");
+      toast.success(editing ? t("mcp.serverUpdated") : t("mcp.serverAdded"));
       setDialogOpen(false);
       fetchServers();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : t("common.saving"));
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete MCP server "${name}"?`)) return;
+  const handleDelete = (id: string, name: string) => {
+    setDeleteTarget({ id, name });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(deleteTarget.id);
     try {
-      const res = await fetch(`/api/admin/mcp?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/mcp?id=${deleteTarget.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      toast.success("Deleted");
+      toast.success(t("mcp.deleted"));
+      setDeleteTarget(null);
       fetchServers();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(err instanceof Error ? err.message : t("common.delete"));
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -163,13 +176,16 @@ export default function McpPage() {
       const data = await res.json();
       if (data.success) {
         toast.success(
-          `Connected! ${data.tools?.length || 0} tools: ${(data.tools || []).join(", ") || "none"}`
+          t("mcp.testConnected", {
+            count: data.tools?.length || 0,
+            tools: (data.tools || []).join(", ") || "none",
+          })
         );
       } else {
-        toast.error(`Connection failed: ${data.error}`);
+        toast.error(t("mcp.testFailed", { error: data.error }));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Test failed");
+      toast.error(err instanceof Error ? err.message : t("mcp.loadFailed"));
     } finally {
       setTesting(null);
     }
@@ -179,9 +195,9 @@ export default function McpPage() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">MCP Servers</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t("mcp.title")}</h1>
           <p className="text-muted-foreground">
-            Manage Model Context Protocol server connections
+            {t("mcp.subtitle")}
           </p>
         </div>
         <div className="flex gap-2">
@@ -194,81 +210,80 @@ export default function McpPage() {
             }}
           >
             <RefreshCw className="mr-2 size-4" />
-            Refresh
+            {t("common.refresh")}
           </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger render={<Button size="sm" onClick={openNew} />}>
+            <DialogTrigger
+              id="mcp-add-dialog-trigger"
+              render={<Button size="sm" onClick={openNew} />}
+            >
               <Plus className="mr-2 size-4" />
-              Add Server
+              {t("mcp.addServer")}
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>
-                  {editing ? "Edit MCP Server" : "Add MCP Server"}
+                  {editing ? t("mcp.editServer") : t("mcp.addServerTitle")}
                 </DialogTitle>
               </DialogHeader>
               <p className="text-xs text-muted-foreground rounded-md bg-muted p-3">
-                Only remote MCP servers with an HTTP or SSE endpoint are
-                supported. Local stdio-based servers (e.g.{" "}
-                <code className="text-[11px]">npx @upstash/context7-mcp</code>)
-                cannot run in serverless environments. Look for a hosted/cloud
-                version of the MCP server you want to use.
+                {t("mcp.serverNote")}
               </p>
               <div className="grid gap-4 py-4">
                 <div>
-                  <Label>Name</Label>
+                  <Label>{t("mcp.name")}</Label>
                   <Input
                     value={form.name}
                     onChange={(e) =>
                       setForm({ ...form, name: e.target.value })
                     }
-                    placeholder="e.g. Context7"
+                    placeholder={t("mcp.namePlaceholder")}
                   />
                 </div>
                 <div>
-                  <Label>URL</Label>
+                  <Label>{t("mcp.url")}</Label>
                   <Input
                     value={form.url}
                     onChange={(e) =>
                       setForm({ ...form, url: e.target.value })
                     }
-                    placeholder="https://mcp.context7.com/mcp"
+                    placeholder={t("mcp.urlPlaceholder")}
                   />
                 </div>
                 <div>
-                  <Label>Transport</Label>
+                  <Label>{t("mcp.transport")}</Label>
                   <Select
                     value={form.transport}
                     onValueChange={(v) =>
                       setForm({ ...form, transport: v as "http" | "sse" })
                     }
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="mcp-transport-select-trigger">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="http">
-                        Streamable HTTP
+                        {t("mcp.streamableHttp")}
                       </SelectItem>
                       <SelectItem value="sse">SSE</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label>Headers (JSON)</Label>
+                  <Label>{t("mcp.headers")}</Label>
                   <Textarea
                     value={form.headers}
                     onChange={(e) =>
                       setForm({ ...form, headers: e.target.value })
                     }
                     rows={3}
-                    placeholder='{"Authorization": "Bearer ..."}'
+                    placeholder={t("mcp.headersPlaceholder")}
                   />
                 </div>
               </div>
               <DialogFooter>
                 <Button onClick={handleSave} disabled={saving}>
-                  {saving ? "Saving..." : "Save"}
+                  {saving ? t("common.saving") : t("common.save")}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -278,29 +293,28 @@ export default function McpPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Registered Servers</CardTitle>
+          <CardTitle>{t("mcp.registeredServers")}</CardTitle>
           <CardDescription>
-            MCP servers can be bound to individual agents. Use &quot;Test&quot; to verify
-            connectivity and list available tools.
+            {t("mcp.registeredServersDesc")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading...</p>
+            <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
           ) : servers.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No MCP servers configured. Click &quot;Add Server&quot; to get started.
+              {t("mcp.noServers")}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>URL</TableHead>
-                  <TableHead>Transport</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("mcp.name")}</TableHead>
+                  <TableHead>{t("mcp.url")}</TableHead>
+                  <TableHead>{t("mcp.transport")}</TableHead>
+                  <TableHead>{t("common.status")}</TableHead>
+                  <TableHead>{t("common.created")}</TableHead>
+                  <TableHead className="text-right">{t("common.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -315,7 +329,7 @@ export default function McpPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant={s.enabled ? "default" : "secondary"}>
-                        {s.enabled ? "Enabled" : "Disabled"}
+                        {s.enabled ? t("common.enabled") : t("common.disabled")}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
@@ -328,7 +342,6 @@ export default function McpPage() {
                           size="sm"
                           disabled={testing === s.id}
                           onClick={() => handleTest(s)}
-                          title="Test Connection"
                         >
                           <Zap className="size-4" />
                         </Button>
@@ -342,6 +355,7 @@ export default function McpPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          disabled={deleting === s.id}
                           onClick={() => handleDelete(s.id, s.name)}
                         >
                           <Trash2 className="size-4" />
@@ -355,6 +369,15 @@ export default function McpPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={t("common.delete")}
+        description={t("mcp.deleteConfirm", { name: deleteTarget?.name || "" })}
+        loading={!!deleting}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

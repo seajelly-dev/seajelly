@@ -33,10 +33,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Lock, Globe, Bot } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useT } from "@/lib/i18n";
 import type { Agent, McpServer, Skill } from "@/types/database";
 import { getAvailableModels, MODEL_CATALOG, type ModelDef } from "@/lib/models";
 
 export default function AgentsPage() {
+  const t = useT();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -159,7 +161,7 @@ export default function AgentsPage() {
 
   const handleSave = async () => {
     if (!form.name.trim()) {
-      toast.error("Agent name is required");
+      toast.error(t("agents.agentNameRequired"));
       return;
     }
     setSaving(true);
@@ -183,11 +185,11 @@ export default function AgentsPage() {
         });
       }
 
-      toast.success(editingAgent ? "Agent updated" : "Agent created");
+      toast.success(editingAgent ? t("agents.agentUpdated") : t("agents.agentCreated"));
       setDialogOpen(false);
       fetchAgents();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : t("common.saving"));
     } finally {
       setSaving(false);
     }
@@ -200,11 +202,11 @@ export default function AgentsPage() {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Delete failed");
-      toast.success("Agent deleted");
+      toast.success(t("agents.agentDeleted"));
       setDeleteTarget(null);
       fetchAgents();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(err instanceof Error ? err.message : t("common.delete"));
     }
   };
 
@@ -212,40 +214,41 @@ export default function AgentsPage() {
     <div className="flex flex-col gap-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Agents</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("agents.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Configure AI agent personas and models
+            {t("agents.subtitle")}
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger render={<Button onClick={openCreate} />}>
+          <DialogTrigger
+            id="agents-create-dialog-trigger"
+            render={<Button onClick={openCreate} />}
+          >
             <Plus className="mr-1.5 size-4" />
-            New Agent
+            {t("agents.newAgent")}
           </DialogTrigger>
           <DialogContent className="max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                {editingAgent ? "Edit Agent" : "Create Agent"}
+                {editingAgent ? t("agents.editAgent") : t("agents.createAgent")}
               </DialogTitle>
               <DialogDescription>
-                {editingAgent
-                  ? "Update the agent configuration below."
-                  : "Fill in the details to create a new AI agent."}
+                {editingAgent ? t("agents.editDesc") : t("agents.createDesc")}
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label>Name</Label>
+                <Label>{t("agents.name")}</Label>
                 <Input
                   value={form.name}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, name: e.target.value }))
                   }
-                  placeholder="My Agent"
+                  placeholder={t("agents.namePlaceholder")}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label>Telegram Bot Token</Label>
+                <Label>{t("agents.botToken")}</Label>
                 <Input
                   type="password"
                   value={form.telegram_bot_token}
@@ -257,25 +260,24 @@ export default function AgentsPage() {
                   }
                   placeholder={
                     editingAgent?.telegram_bot_token
-                      ? "Leave empty to keep current"
-                      : "Paste token from @BotFather"
+                      ? t("agents.botTokenKeep")
+                      : t("agents.botTokenNew")
                   }
                 />
                 <p className="text-xs text-muted-foreground">
-                  Each agent needs its own Telegram bot. Create one via
-                  @BotFather.
+                  {t("agents.botTokenHint")}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <Label>Model</Label>
+                  <Label>{t("agents.model")}</Label>
                   <Select
                     value={form.model}
                     onValueChange={(v) =>
                       setForm((f) => ({ ...f, model: v ?? f.model }))
                     }
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="agents-model-select-trigger">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -291,7 +293,7 @@ export default function AgentsPage() {
                   </Select>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label>Access Mode</Label>
+                  <Label>{t("agents.accessMode")}</Label>
                   <Select
                     value={form.access_mode}
                     onValueChange={(v) =>
@@ -303,18 +305,18 @@ export default function AgentsPage() {
                       }))
                     }
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="agents-access-mode-select-trigger">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="open">Open</SelectItem>
-                      <SelectItem value="whitelist">Whitelist</SelectItem>
+                      <SelectItem value="open">{t("agents.open")}</SelectItem>
+                      <SelectItem value="whitelist">{t("agents.whitelist")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label>System Prompt</Label>
+                <Label>{t("agents.systemPrompt")}</Label>
                 <Textarea
                   rows={6}
                   className="max-h-48 resize-y"
@@ -322,12 +324,12 @@ export default function AgentsPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, system_prompt: e.target.value }))
                   }
-                  placeholder="You are a helpful AI assistant..."
+                  placeholder={t("agents.systemPromptPlaceholder")}
                 />
               </div>
               {mcpServers.length > 0 && (
                 <div className="flex flex-col gap-1.5">
-                  <Label>MCP Servers</Label>
+                  <Label>{t("agents.mcpServers")}</Label>
                   <div className="flex flex-wrap gap-2 rounded-md border p-2">
                     {mcpServers.map((s) => {
                       const selected = form.mcp_server_ids.includes(s.id);
@@ -355,13 +357,13 @@ export default function AgentsPage() {
                     })}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Click to toggle. Selected MCP tools will be available to this agent.
+                    {t("agents.mcpToggleHint")}
                   </p>
                 </div>
               )}
               {allSkills.length > 0 && (
                 <div className="flex flex-col gap-1.5">
-                  <Label>Skills</Label>
+                  <Label>{t("agents.skills")}</Label>
                   <div className="flex flex-wrap gap-2 rounded-md border p-2">
                     {allSkills.map((s) => {
                       const selected = boundSkillIds.includes(s.id);
@@ -388,12 +390,12 @@ export default function AgentsPage() {
                     })}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Click to toggle. Selected skills will be injected into this agent&apos;s system prompt.
+                    {t("agents.skillsToggleHint")}
                   </p>
                 </div>
               )}
               <div className="flex flex-col gap-1.5">
-                <Label>AI Soul</Label>
+                <Label>{t("agents.aiSoul")}</Label>
                 <Textarea
                   rows={3}
                   className="max-h-32 resize-y"
@@ -401,17 +403,16 @@ export default function AgentsPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, ai_soul: e.target.value }))
                   }
-                  placeholder="Name: ... Role: personal assistant. Tone: warm."
+                  placeholder={t("agents.aiSoulPlaceholder")}
                 />
                 <p className="text-xs text-muted-foreground">
-                  AI identity profile. Users can update this via chat. Shared
-                  across all users.
+                  {t("agents.aiSoulHint")}
                 </p>
               </div>
             </div>
             <DialogFooter>
               <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
-                {saving ? "Saving..." : "Save"}
+                {saving ? t("common.saving") : t("common.save")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -439,14 +440,14 @@ export default function AgentsPage() {
               <Bot className="size-6 text-muted-foreground" />
             </div>
             <div className="text-center">
-              <p className="font-medium">No agents yet</p>
+              <p className="font-medium">{t("agents.noAgents")}</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Create your first AI agent to get started.
+                {t("agents.noAgentsHint")}
               </p>
             </div>
             <Button onClick={openCreate}>
               <Plus className="mr-1.5 size-4" />
-              Create Agent
+              {t("agents.createAgent")}
             </Button>
           </CardContent>
         </Card>
@@ -464,7 +465,7 @@ export default function AgentsPage() {
                       {agent.name}
                       {agent.is_default && (
                         <Badge variant="secondary" className="text-xs">
-                          Default
+                          {t("agents.default")}
                         </Badge>
                       )}
                     </CardTitle>
@@ -484,8 +485,8 @@ export default function AgentsPage() {
                           <Globe className="size-3" />
                         )}
                         {agent.access_mode === "whitelist"
-                          ? "Whitelist"
-                          : "Open"}
+                          ? t("agents.whitelist")
+                          : t("agents.open")}
                       </Badge>
                       <Badge
                         variant={
@@ -505,8 +506,8 @@ export default function AgentsPage() {
                             has_bot_token?: boolean;
                           }
                         ).has_bot_token
-                          ? "Bot Active"
-                          : "No Bot"}
+                          ? t("agents.botActive")
+                          : t("agents.noBot")}
                       </Badge>
                     </CardDescription>
                   </div>
@@ -531,7 +532,7 @@ export default function AgentsPage() {
               </CardHeader>
               <CardContent>
                 <p className="line-clamp-3 text-sm text-muted-foreground">
-                  {agent.system_prompt || "No system prompt set"}
+                  {agent.system_prompt || t("agents.noSystemPrompt")}
                 </p>
               </CardContent>
             </Card>
@@ -542,8 +543,8 @@ export default function AgentsPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Delete Agent"
-        description={`Delete agent "${deleteTarget?.name || ""}"?`}
+        title={t("agents.deleteAgent")}
+        description={t("agents.deleteAgentConfirm", { name: deleteTarget?.name || "" })}
         onConfirm={confirmDeleteAgent}
       />
     </div>
