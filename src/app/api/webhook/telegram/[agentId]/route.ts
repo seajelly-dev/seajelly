@@ -82,9 +82,17 @@ export async function POST(
       status: "pending",
     });
 
+    triggerWorker();
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Webhook error:", err);
     return NextResponse.json({ ok: true });
   }
+}
+
+function triggerWorker() {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) return;
+  fetch(`${appUrl}/api/worker/process`, { method: "POST" }).catch(() => {});
 }

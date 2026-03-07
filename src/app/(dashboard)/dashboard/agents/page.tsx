@@ -31,7 +31,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Lock, Globe, Bot } from "lucide-react";
+import { Plus, Pencil, Trash2, Lock, Globe, Bot, Webhook, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
 import type { Agent, McpServer, Skill } from "@/types/database";
@@ -59,6 +59,8 @@ export default function AgentsPage() {
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [allSkills, setAllSkills] = useState<Skill[]>([]);
   const [boundSkillIds, setBoundSkillIds] = useState<string[]>([]);
+  const [webhookStatus, setWebhookStatus] = useState<Record<string, { url: string; pending: number } | null>>({});
+  const [settingWebhook, setSettingWebhook] = useState<string | null>(null);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -122,12 +124,66 @@ export default function AgentsPage() {
     }
   }, []);
 
+  const fetchWebhookInfo = useCallback(async (agentId: string) => {
+    try {
+      const res = await fetch("/api/admin/telegram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "get-info", agent_id: agentId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.webhook) {
+        setWebhookStatus((prev) => ({
+          ...prev,
+          [agentId]: {
+            url: data.webhook.url || "",
+            pending: data.webhook.pending_update_count ?? 0,
+          },
+        }));
+      } else {
+        setWebhookStatus((prev) => ({ ...prev, [agentId]: null }));
+      }
+    } catch {
+      setWebhookStatus((prev) => ({ ...prev, [agentId]: null }));
+    }
+  }, []);
+
+  const handleSetWebhook = async (agentId: string) => {
+    setSettingWebhook(agentId);
+    try {
+      const res = await fetch("/api/admin/telegram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set-webhook",
+          agent_id: agentId,
+          webhook_url: `${window.location.origin}/api/webhook/telegram`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success(t("agents.webhookSet"));
+      fetchWebhookInfo(agentId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("agents.webhookSetFailed"));
+    } finally {
+      setSettingWebhook(null);
+    }
+  };
+
   useEffect(() => {
     fetchAgents();
     fetchModels();
     fetchMcpServers();
     fetchAllSkills();
   }, [fetchAgents, fetchModels, fetchMcpServers, fetchAllSkills]);
+
+  useEffect(() => {
+    const agentsWithBot = agents.filter(
+      (a) => (a as Agent & { has_bot_token?: boolean }).has_bot_token
+    );
+    agentsWithBot.forEach((a) => fetchWebhookInfo(a.id));
+  }, [agents, fetchWebhookInfo]);
 
   const openCreate = () => {
     setEditingAgent(null);
@@ -183,6 +239,23 @@ export default function AgentsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ agent_id: agentId, skill_ids: boundSkillIds }),
         });
+      }
+
+      const savedAgentId = agentId;
+      if (savedAgentId && form.telegram_bot_token) {
+        try {
+          await fetch("/api/admin/telegram", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "set-webhook",
+              agent_id: savedAgentId,
+              webhook_url: `${window.location.origin}/api/webhook/telegram`,
+            }),
+          });
+        } catch {
+          // non-blocking
+        }
       }
 
       toast.success(editingAgent ? t("agents.agentUpdated") : t("agents.agentCreated"));
@@ -530,10 +603,78 @@ export default function AgentsPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex flex-col gap-3">
                 <p className="line-clamp-3 text-sm text-muted-foreground">
                   {agent.system_prompt || t("agents.noSystemPrompt")}
                 </p>
+                {(agent as Agent & { has_bot_token?: boolean }).has_bot_token && (
+                  <div className="flex items-center gap-2 rounded-md border p-2">
+                    <Webhook className="size-4 shrink-0 text-muted-foreground" />
+                    {(() => {
+                      const info = webhookStatus[agent.id];
+                      const isLoading = !(agent.id in webhookStatus);
+                      const isSet = info && info.url;
+                      const isSetting = settingWebhook === agent.id;
+
+                      if (isLoading) {
+                        return (
+                          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Loader2 className="size-3 animate-spin" />
+                            {t("common.loading")}
+                          </span>
+                        );
+                      }
+
+                      if (isSet) {
+                        return (
+                          <div className="flex flex-1 items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                                <CheckCircle2 className="size-3" />
+                                {t("agents.webhookActive")}
+                              </span>
+                              <p className="truncate text-[10px] text-muted-foreground" title={info.url}>
+                                {info.url}
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              onClick={() => handleSetWebhook(agent.id)}
+                              disabled={isSetting}
+                            >
+                              {isSetting ? <Loader2 className="size-3 animate-spin" /> : t("agents.setWebhook")}
+                            </Button>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex flex-1 items-center justify-between gap-2">
+                          <span className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400">
+                            <XCircle className="size-3" />
+                            {t("agents.webhookNotSet")}
+                          </span>
+                          <Button
+                            variant="default"
+                            size="xs"
+                            onClick={() => handleSetWebhook(agent.id)}
+                            disabled={isSetting}
+                          >
+                            {isSetting ? (
+                              <>
+                                <Loader2 className="mr-1 size-3 animate-spin" />
+                                {t("agents.settingWebhook")}
+                              </>
+                            ) : (
+                              t("agents.setWebhook")
+                            )}
+                          </Button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}

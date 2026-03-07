@@ -359,6 +359,24 @@ async function handleAgent(body: {
     }
 
     const data = await res.json();
+    const agentId = data?.[0]?.id;
+
+    if (agentId && body.telegram_bot_token) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+      if (appUrl) {
+        try {
+          const { getBotForAgent, resetBotForAgent } = await import("@/lib/telegram/bot");
+          const { BOT_COMMANDS } = await import("@/lib/telegram/commands");
+          resetBotForAgent(agentId);
+          const bot = await getBotForAgent(agentId);
+          await bot.api.setWebhook(`${appUrl}/api/webhook/telegram/${agentId}`);
+          await bot.api.setMyCommands(BOT_COMMANDS);
+        } catch (webhookErr) {
+          console.warn("Auto-webhook setup failed (non-blocking):", webhookErr);
+        }
+      }
+    }
+
     return NextResponse.json({ success: true, agent: data });
   } catch (err) {
     return NextResponse.json(

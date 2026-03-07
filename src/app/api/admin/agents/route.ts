@@ -1,6 +1,21 @@
 import { NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/crypto/encrypt";
+import { getBotForAgent, resetBotForAgent } from "@/lib/telegram/bot";
+import { BOT_COMMANDS } from "@/lib/telegram/commands";
+
+async function autoSetWebhook(agentId: string) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) return;
+  try {
+    resetBotForAgent(agentId);
+    const bot = await getBotForAgent(agentId);
+    await bot.api.setWebhook(`${appUrl}/api/webhook/telegram/${agentId}`);
+    await bot.api.setMyCommands(BOT_COMMANDS);
+  } catch (err) {
+    console.warn("Auto-webhook failed (non-blocking):", err);
+  }
+}
 
 async function requireAuth() {
   const supabase = await createClient();
@@ -70,6 +85,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  if (data?.id && telegram_bot_token) {
+    autoSetWebhook(data.id);
+  }
+
   return NextResponse.json({
     agent: { ...data, telegram_bot_token: data.telegram_bot_token ? "••••••" : null },
   });
@@ -90,7 +109,8 @@ export async function PUT(request: Request) {
 
   const updates: Record<string, unknown> = { ...rest };
 
-  if (telegram_bot_token && telegram_bot_token !== "••••••") {
+  const newToken = telegram_bot_token && telegram_bot_token !== "••••••";
+  if (newToken) {
     updates.telegram_bot_token = encrypt(telegram_bot_token);
   }
 
@@ -103,6 +123,10 @@ export async function PUT(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (newToken && data?.id) {
+    autoSetWebhook(data.id);
   }
 
   return NextResponse.json({
