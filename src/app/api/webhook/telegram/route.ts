@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { after } from "next/server";
 
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   try {
@@ -79,17 +81,31 @@ export async function POST(request: Request) {
       status: "pending",
     });
 
-    triggerWorker();
+    after(async () => {
+      try {
+        const { claimPendingEvents, markProcessed, markFailed } = await import("@/lib/events/queue");
+        const { runAgentLoop } = await import("@/lib/agent/loop");
+        const events = await claimPendingEvents();
+        for (const event of events) {
+          try {
+            const result = await runAgentLoop(event);
+            if (result.success) {
+              await markProcessed(event.id);
+            } else {
+              await markFailed(event.id, result.error ?? "Unknown failure");
+            }
+          } catch (err) {
+            await markFailed(event.id, err instanceof Error ? err.message : "Unknown error");
+          }
+        }
+      } catch (err) {
+        console.error("after() worker error:", err);
+      }
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Webhook error:", err);
     return NextResponse.json({ ok: true });
   }
-}
-
-function triggerWorker() {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!appUrl) return;
-  fetch(`${appUrl}/api/worker/process`, { method: "POST" }).catch(() => {});
 }

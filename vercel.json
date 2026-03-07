@@ -7,10 +7,10 @@
       "maxDuration": 300
     },
     "src/app/api/webhook/telegram/route.ts": {
-      "maxDuration": 30
+      "maxDuration": 300
     },
     "src/app/api/webhook/telegram/[agentId]/route.ts": {
-      "maxDuration": 30
+      "maxDuration": 300
     },
     "src/app/api/worker/remind/route.ts": {
       "maxDuration": 60
