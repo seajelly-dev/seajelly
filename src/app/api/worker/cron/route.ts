@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getBotForAgent } from "@/lib/telegram/bot";
 import { runAgentLoop } from "@/lib/agent/loop";
@@ -86,8 +86,6 @@ export async function POST(request: Request) {
       }
 
       case "webhook": {
-        // TODO: implement external webhook POST
-        // const { url, payload } = rest;
         return NextResponse.json(
           { error: "webhook task_type is not yet implemented" },
           { status: 501 }
@@ -101,19 +99,22 @@ export async function POST(request: Request) {
         );
     }
 
-    // One-shot task cleanup: unschedule from pg_cron + mark disabled in cron_jobs
+    // Once cleanup runs AFTER the response is sent back to pg_net,
+    // so it won't be killed by pg_net's 5s timeout.
     if (rest.once && rest.job_name) {
-      try {
-        await unscheduleCronJob(rest.job_name);
-        const supabase = getSupabase();
-        await supabase
-          .from("cron_jobs")
-          .update({ enabled: false })
-          .eq("agent_id", agent_id)
-          .filter("task_config->>'job_name'", "eq", rest.job_name);
-      } catch (e) {
-        console.warn("One-shot cleanup failed:", e);
-      }
+      after(async () => {
+        try {
+          await unscheduleCronJob(rest.job_name);
+          const supabase = getSupabase();
+          await supabase
+            .from("cron_jobs")
+            .update({ enabled: false })
+            .eq("agent_id", agent_id)
+            .filter("task_config->>'job_name'", "eq", rest.job_name);
+        } catch (e) {
+          console.warn("One-shot cleanup failed:", e);
+        }
+      });
     }
 
     return NextResponse.json({ success: true, task_type: type });
