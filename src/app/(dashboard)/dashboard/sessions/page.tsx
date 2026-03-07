@@ -24,10 +24,14 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TablePagination } from "@/components/table-pagination";
 import { toast } from "sonner";
-import { MessageSquare, Bot, User } from "lucide-react";
+import { MessageSquare, Bot, User, RefreshCw, Loader2 } from "lucide-react";
 import { useT } from "@/lib/i18n";
+
+const PAGE_SIZE = 20;
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -49,44 +53,98 @@ interface SessionRow {
 export default function SessionsPage() {
   const t = useT();
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<SessionRow | null>(null);
 
-  const fetchSessions = useCallback(async () => {
-    try {
-      const res = await fetch("/api/admin/sessions");
-      const data = await res.json();
-      const rows = (data.sessions ?? []).map((s: SessionRow) => ({
-        ...s,
-        messages: Array.isArray(s.messages) ? s.messages : [],
-      }));
-      setSessions(rows);
-    } catch {
-      toast.error(t("sessions.loadFailed"));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<SessionRow | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const fetchSessions = useCallback(
+    async (p: number) => {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/admin/sessions?page=${p}&page_size=${PAGE_SIZE}`
+        );
+        const data = await res.json();
+        const rows = (data.sessions ?? []).map((s: SessionRow) => ({
+          ...s,
+          messages: Array.isArray(s.messages) ? s.messages : [],
+        }));
+        setSessions(rows);
+        setTotal(data.total ?? 0);
+      } catch {
+        toast.error(t("sessions.loadFailed"));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [t]
+  );
+
+  const fetchDetail = useCallback(
+    async (id: string) => {
+      setDetailLoading(true);
+      try {
+        const res = await fetch(`/api/admin/sessions?id=${id}`);
+        const data = await res.json();
+        if (data.session) {
+          const s = data.session;
+          setSelectedDetail({
+            ...s,
+            messages: Array.isArray(s.messages) ? s.messages : [],
+          });
+        }
+      } catch {
+        toast.error(t("sessions.loadFailed"));
+      } finally {
+        setDetailLoading(false);
+      }
+    },
+    [t]
+  );
 
   useEffect(() => {
-    fetchSessions();
-  }, [fetchSessions]);
+    fetchSessions(page);
+  }, [page, fetchSessions]);
+
+  useEffect(() => {
+    if (selectedId) {
+      fetchDetail(selectedId);
+    } else {
+      setSelectedDetail(null);
+    }
+  }, [selectedId, fetchDetail]);
+
+  const handlePageChange = (p: number) => setPage(p);
 
   return (
     <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{t("sessions.title")}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("sessions.subtitle")}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t("sessions.title")}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t("sessions.subtitle")}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fetchSessions(page)}
+        >
+          <RefreshCw className="mr-2 size-4" />
+          {t("common.refresh")}
+        </Button>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>{t("sessions.allSessions")}</CardTitle>
-          <CardDescription>
-            {t("sessions.allSessionsDesc")}
-          </CardDescription>
+          <CardDescription>{t("sessions.allSessionsDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -96,60 +154,74 @@ export default function SessionsPage() {
               ))}
             </div>
           ) : sessions.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("sessions.chatId")}</TableHead>
-                  <TableHead>{t("sessions.agent")}</TableHead>
-                  <TableHead>{t("sessions.messages")}</TableHead>
-                  <TableHead>{t("sessions.status")}</TableHead>
-                  <TableHead>{t("sessions.lastUpdated")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sessions.map((s) => (
-                  <TableRow
-                    key={s.id}
-                    className="cursor-pointer transition-colors hover:bg-muted/50"
-                    onClick={() => setSelected(s)}
-                  >
-                    <TableCell className="font-mono text-sm">
-                      {s.platform_chat_id}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {s.agents?.name ?? t("sessions.unknown")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {s.messages.length}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={s.is_active ? "default" : "secondary"}>
-                        {s.is_active ? t("sessions.active") : t("sessions.archived")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {new Date(s.updated_at).toLocaleString()}
-                    </TableCell>
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("sessions.chatId")}</TableHead>
+                    <TableHead>{t("sessions.agent")}</TableHead>
+                    <TableHead>{t("sessions.messages")}</TableHead>
+                    <TableHead>{t("sessions.status")}</TableHead>
+                    <TableHead>{t("sessions.lastUpdated")}</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {sessions.map((s) => (
+                    <TableRow
+                      key={s.id}
+                      className="cursor-pointer transition-colors hover:bg-muted/50"
+                      onClick={() => setSelectedId(s.id)}
+                    >
+                      <TableCell className="font-mono text-sm">
+                        {s.platform_chat_id}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {s.agents?.name ?? t("sessions.unknown")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="tabular-nums">
+                        {s.messages.length}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={s.is_active ? "default" : "secondary"}
+                        >
+                          {s.is_active
+                            ? t("sessions.active")
+                            : t("sessions.archived")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {new Date(s.updated_at).toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <TablePagination
+                page={page}
+                pageSize={PAGE_SIZE}
+                total={total}
+                onPageChange={handlePageChange}
+              />
+            </>
           ) : (
             <div className="flex flex-col items-center gap-4 py-10">
               <div className="flex size-12 items-center justify-center rounded-full bg-muted">
                 <MessageSquare className="size-6 text-muted-foreground" />
               </div>
-              <p className="text-sm text-muted-foreground">{t("sessions.noSessions")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("sessions.noSessions")}
+              </p>
             </div>
           )}
         </CardContent>
       </Card>
 
       <Sheet
-        open={!!selected}
-        onOpenChange={(open) => !open && setSelected(null)}
+        open={!!selectedId}
+        onOpenChange={(open) => !open && setSelectedId(null)}
       >
         <SheetContent
           side="right"
@@ -160,21 +232,27 @@ export default function SessionsPage() {
               <MessageSquare className="size-4" />
               {t("sessions.chatHistory")}
             </SheetTitle>
-            {selected && (
+            {selectedDetail && (
               <SheetDescription>
                 {t("sessions.chatInfo", {
-                  chatId: selected.platform_chat_id,
-                  agent: selected.agents?.name ?? t("sessions.unknown"),
-                  count: selected.messages.length,
+                  chatId: selectedDetail.platform_chat_id,
+                  agent:
+                    selectedDetail.agents?.name ?? t("sessions.unknown"),
+                  count: selectedDetail.messages.length,
                 })}
               </SheetDescription>
             )}
           </SheetHeader>
 
           <div className="flex-1 overflow-y-auto px-6 pb-6">
-            {selected && selected.messages.length > 0 ? (
+            {detailLoading ? (
+              <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
+                <Loader2 className="size-8 animate-spin" />
+                <p className="text-sm">{t("common.loading")}</p>
+              </div>
+            ) : selectedDetail && selectedDetail.messages.length > 0 ? (
               <div className="flex flex-col gap-4">
-                {selected.messages.map((msg, i) => (
+                {selectedDetail.messages.map((msg, i) => (
                   <MessageBubble key={i} message={msg} />
                 ))}
               </div>
@@ -214,7 +292,11 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             : "bg-muted text-muted-foreground"
         }`}
       >
-        {isUser ? <User className="size-3.5" /> : <Bot className="size-3.5" />}
+        {isUser ? (
+          <User className="size-3.5" />
+        ) : (
+          <Bot className="size-3.5" />
+        )}
       </div>
       <div
         className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
@@ -223,7 +305,9 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             : "bg-muted rounded-tl-sm"
         }`}
       >
-        <p className="whitespace-pre-wrap wrap-break-word">{message.content}</p>
+        <p className="whitespace-pre-wrap wrap-break-word">
+          {message.content}
+        </p>
         {message.timestamp && (
           <p
             className={`mt-2 text-[10px] ${

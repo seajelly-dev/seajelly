@@ -31,11 +31,26 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Lock, Globe, Bot, Webhook, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Lock,
+  Globe,
+  Bot,
+  Webhook,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
 import type { Agent, McpServer, Skill } from "@/types/database";
-import { getAvailableModels, MODEL_CATALOG, type ModelDef } from "@/lib/models";
+import {
+  getAvailableModels,
+  MODEL_CATALOG,
+  type ModelDef,
+} from "@/lib/models";
 
 export default function AgentsPage() {
   const t = useT();
@@ -50,16 +65,18 @@ export default function AgentsPage() {
     access_mode: "open" as "open" | "whitelist",
     ai_soul: "",
     telegram_bot_token: "",
-    mcp_server_ids: [] as string[],
   });
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [availableModels, setAvailableModels] =
     useState<ModelDef[]>(MODEL_CATALOG);
-  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
-  const [allSkills, setAllSkills] = useState<Skill[]>([]);
-  const [boundSkillIds, setBoundSkillIds] = useState<string[]>([]);
-  const [webhookStatus, setWebhookStatus] = useState<Record<string, { url: string; pending: number } | null>>({});
+
+  const [boundMcpNames, setBoundMcpNames] = useState<string[]>([]);
+  const [boundSkillNames, setBoundSkillNames] = useState<string[]>([]);
+
+  const [webhookStatus, setWebhookStatus] = useState<
+    Record<string, { url: string; pending: number } | null>
+  >({});
   const [settingWebhook, setSettingWebhook] = useState<string | null>(null);
 
   const fetchAgents = useCallback(async () => {
@@ -71,7 +88,9 @@ export default function AgentsPage() {
       }
       setAgents(data.agents ?? []);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load agents");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to load agents"
+      );
     } finally {
       setLoading(false);
     }
@@ -94,34 +113,24 @@ export default function AgentsPage() {
     }
   }, []);
 
-  const fetchMcpServers = useCallback(async () => {
-    try {
-      const res = await fetch("/api/admin/mcp");
-      const data = await res.json();
-      if (res.ok) setMcpServers((data.servers ?? []).filter((s: McpServer) => s.enabled));
-    } catch {
-      // non-critical
-    }
-  }, []);
+  const fetchBoundResources = useCallback(async (agentId: string) => {
+    setBoundMcpNames([]);
+    setBoundSkillNames([]);
 
-  const fetchAllSkills = useCallback(async () => {
-    try {
-      const res = await fetch("/api/admin/skills");
-      const data = await res.json();
-      if (res.ok) setAllSkills(data.skills ?? []);
-    } catch {
-      // non-critical
-    }
-  }, []);
+    const [mcpRes, skillRes, mcpListRes, skillListRes] = await Promise.all([
+      fetch(`/api/admin/agents/mcps?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
+      fetch(`/api/admin/agents/skills?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
+      fetch("/api/admin/mcp").then((r) => r.json()).catch(() => ({})),
+      fetch("/api/admin/skills").then((r) => r.json()).catch(() => ({})),
+    ]);
 
-  const fetchBoundSkills = useCallback(async (agentId: string) => {
-    try {
-      const res = await fetch(`/api/admin/agents/skills?agent_id=${agentId}`);
-      const data = await res.json();
-      if (res.ok) setBoundSkillIds(data.skill_ids ?? []);
-    } catch {
-      setBoundSkillIds([]);
-    }
+    const mcpIds = new Set<string>(mcpRes.mcp_server_ids ?? []);
+    const skillIds = new Set<string>(skillRes.skill_ids ?? []);
+    const allMcps: McpServer[] = mcpListRes.servers ?? [];
+    const allSkills: Skill[] = skillListRes.skills ?? [];
+
+    setBoundMcpNames(allMcps.filter((m) => mcpIds.has(m.id)).map((m) => m.name));
+    setBoundSkillNames(allSkills.filter((s) => skillIds.has(s.id)).map((s) => s.name));
   }, []);
 
   const fetchWebhookInfo = useCallback(async (agentId: string) => {
@@ -165,7 +174,9 @@ export default function AgentsPage() {
       toast.success(t("agents.webhookSet"));
       fetchWebhookInfo(agentId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("agents.webhookSetFailed"));
+      toast.error(
+        err instanceof Error ? err.message : t("agents.webhookSetFailed")
+      );
     } finally {
       setSettingWebhook(null);
     }
@@ -174,9 +185,7 @@ export default function AgentsPage() {
   useEffect(() => {
     fetchAgents();
     fetchModels();
-    fetchMcpServers();
-    fetchAllSkills();
-  }, [fetchAgents, fetchModels, fetchMcpServers, fetchAllSkills]);
+  }, [fetchAgents, fetchModels]);
 
   useEffect(() => {
     const agentsWithBot = agents.filter(
@@ -194,9 +203,9 @@ export default function AgentsPage() {
       access_mode: "open",
       ai_soul: "",
       telegram_bot_token: "",
-      mcp_server_ids: [],
     });
-    setBoundSkillIds([]);
+    setBoundMcpNames([]);
+    setBoundSkillNames([]);
     setDialogOpen(true);
   };
 
@@ -209,9 +218,8 @@ export default function AgentsPage() {
       access_mode: agent.access_mode || "open",
       ai_soul: agent.ai_soul || "",
       telegram_bot_token: "",
-      mcp_server_ids: agent.mcp_server_ids ?? [],
     });
-    fetchBoundSkills(agent.id);
+    fetchBoundResources(agent.id);
     setDialogOpen(true);
   };
 
@@ -232,16 +240,7 @@ export default function AgentsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      const agentId = editingAgent?.id || data.agent?.id;
-      if (agentId && allSkills.length > 0) {
-        await fetch("/api/admin/agents/skills", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ agent_id: agentId, skill_ids: boundSkillIds }),
-        });
-      }
-
-      const savedAgentId = agentId;
+      const savedAgentId = editingAgent?.id || data.agent?.id;
       if (savedAgentId && form.telegram_bot_token) {
         try {
           await fetch("/api/admin/telegram", {
@@ -258,7 +257,9 @@ export default function AgentsPage() {
         }
       }
 
-      toast.success(editingAgent ? t("agents.agentUpdated") : t("agents.agentCreated"));
+      toast.success(
+        editingAgent ? t("agents.agentUpdated") : t("agents.agentCreated")
+      );
       setDialogOpen(false);
       fetchAgents();
     } catch (err) {
@@ -287,7 +288,9 @@ export default function AgentsPage() {
     <div className="flex flex-col gap-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("agents.title")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t("agents.title")}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {t("agents.subtitle")}
           </p>
@@ -303,7 +306,9 @@ export default function AgentsPage() {
           <DialogContent className="max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                {editingAgent ? t("agents.editAgent") : t("agents.createAgent")}
+                {editingAgent
+                  ? t("agents.editAgent")
+                  : t("agents.createAgent")}
               </DialogTitle>
               <DialogDescription>
                 {editingAgent ? t("agents.editDesc") : t("agents.createDesc")}
@@ -382,8 +387,12 @@ export default function AgentsPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="open">{t("agents.open")}</SelectItem>
-                      <SelectItem value="whitelist">{t("agents.whitelist")}</SelectItem>
+                      <SelectItem value="open">
+                        {t("agents.open")}
+                      </SelectItem>
+                      <SelectItem value="whitelist">
+                        {t("agents.whitelist")}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -395,78 +404,61 @@ export default function AgentsPage() {
                   className="max-h-48 resize-y"
                   value={form.system_prompt}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, system_prompt: e.target.value }))
+                    setForm((f) => ({
+                      ...f,
+                      system_prompt: e.target.value,
+                    }))
                   }
                   placeholder={t("agents.systemPromptPlaceholder")}
                 />
               </div>
-              {mcpServers.length > 0 && (
+
+              {/* Read-only bound MCPs */}
+              {editingAgent && (
                 <div className="flex flex-col gap-1.5">
                   <Label>{t("agents.mcpServers")}</Label>
-                  <div className="flex flex-wrap gap-2 rounded-md border p-2">
-                    {mcpServers.map((s) => {
-                      const selected = form.mcp_server_ids.includes(s.id);
-                      return (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() =>
-                            setForm((f) => ({
-                              ...f,
-                              mcp_server_ids: selected
-                                ? f.mcp_server_ids.filter((id) => id !== s.id)
-                                : [...f.mcp_server_ids, s.id],
-                            }))
-                          }
-                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs transition-colors ${
-                            selected
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-border hover:bg-muted"
-                          }`}
-                        >
-                          {s.name}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {boundMcpNames.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {boundMcpNames.map((name) => (
+                        <Badge key={name} variant="secondary">
+                          {name}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      {t("agents.noBindings")}
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
-                    {t("agents.mcpToggleHint")}
+                    {t("agents.bindFromResourcePage")}
                   </p>
                 </div>
               )}
-              {allSkills.length > 0 && (
+
+              {/* Read-only bound Skills */}
+              {editingAgent && (
                 <div className="flex flex-col gap-1.5">
                   <Label>{t("agents.skills")}</Label>
-                  <div className="flex flex-wrap gap-2 rounded-md border p-2">
-                    {allSkills.map((s) => {
-                      const selected = boundSkillIds.includes(s.id);
-                      return (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() =>
-                            setBoundSkillIds((prev) =>
-                              selected
-                                ? prev.filter((id) => id !== s.id)
-                                : [...prev, s.id]
-                            )
-                          }
-                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs transition-colors ${
-                            selected
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-border hover:bg-muted"
-                          }`}
-                        >
-                          {s.name}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {boundSkillNames.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {boundSkillNames.map((name) => (
+                        <Badge key={name} variant="secondary">
+                          {name}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      {t("agents.noBindings")}
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
-                    {t("agents.skillsToggleHint")}
+                    {t("agents.bindFromResourcePage")}
                   </p>
                 </div>
               )}
+
               <div className="flex flex-col gap-1.5">
                 <Label>{t("agents.aiSoul")}</Label>
                 <Textarea
@@ -484,7 +476,11 @@ export default function AgentsPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="w-full sm:w-auto"
+              >
                 {saving ? t("common.saving") : t("common.save")}
               </Button>
             </DialogFooter>
@@ -543,7 +539,9 @@ export default function AgentsPage() {
                       )}
                     </CardTitle>
                     <CardDescription className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <span className="font-mono text-xs">{agent.model}</span>
+                      <span className="font-mono text-xs">
+                        {agent.model}
+                      </span>
                       <Badge
                         variant={
                           agent.access_mode === "whitelist"
@@ -607,7 +605,8 @@ export default function AgentsPage() {
                 <p className="line-clamp-3 text-sm text-muted-foreground">
                   {agent.system_prompt || t("agents.noSystemPrompt")}
                 </p>
-                {(agent as Agent & { has_bot_token?: boolean }).has_bot_token && (
+                {(agent as Agent & { has_bot_token?: boolean })
+                  .has_bot_token && (
                   <div className="flex items-center gap-2 rounded-md border p-2 overflow-hidden">
                     <Webhook className="size-4 shrink-0 text-muted-foreground" />
                     {(() => {
@@ -633,7 +632,10 @@ export default function AgentsPage() {
                                 <CheckCircle2 className="size-3" />
                                 {t("agents.webhookActive")}
                               </span>
-                              <p className="truncate text-[10px] text-muted-foreground" title={info.url}>
+                              <p
+                                className="truncate text-[10px] text-muted-foreground"
+                                title={info.url}
+                              >
                                 {info.url}
                               </p>
                             </div>
@@ -644,7 +646,11 @@ export default function AgentsPage() {
                               onClick={() => handleSetWebhook(agent.id)}
                               disabled={isSetting}
                             >
-                              {isSetting ? <Loader2 className="size-3 animate-spin" /> : t("agents.setWebhook")}
+                              {isSetting ? (
+                                <Loader2 className="size-3 animate-spin" />
+                              ) : (
+                                t("agents.setWebhook")
+                              )}
                             </Button>
                           </div>
                         );
@@ -687,7 +693,9 @@ export default function AgentsPage() {
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         title={t("agents.deleteAgent")}
-        description={t("agents.deleteAgentConfirm", { name: deleteTarget?.name || "" })}
+        description={t("agents.deleteAgentConfirm", {
+          name: deleteTarget?.name || "",
+        })}
         onConfirm={confirmDeleteAgent}
       />
     </div>

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { unscheduleCronJob } from "@/lib/supabase/management";
 
@@ -11,18 +11,33 @@ async function requireAuth() {
   return user;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     await requireAuth();
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(request.url);
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
+  const pageSize = Math.min(
+    100,
+    Math.max(1, parseInt(searchParams.get("page_size") ?? "20", 10))
+  );
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
   const db = await createAdminClient();
+
+  const { count } = await db
+    .from("cron_jobs")
+    .select("id", { count: "exact", head: true });
+
   const { data, error } = await db
     .from("cron_jobs")
     .select("*, agents(name)")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .range(from, to);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -43,7 +58,7 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ tasks });
+  return NextResponse.json({ tasks, total: count ?? 0 });
 }
 
 export async function DELETE(request: Request) {

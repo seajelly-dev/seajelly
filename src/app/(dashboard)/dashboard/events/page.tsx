@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TablePagination } from "@/components/table-pagination";
 import { toast } from "sonner";
 import { RefreshCw, RotateCcw, Radio } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -41,37 +42,62 @@ const STATUS_OPTIONS = [
   "dead",
 ];
 
+const PAGE_SIZE = 20;
+
 export default function EventsPage() {
   const t = useT();
   const [events, setEvents] = useState<AgentEvent[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const fetchEvents = useCallback(async () => {
-    const supabase = createClient();
-    let query = supabase
-      .from("events")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(100);
+  const fetchEvents = useCallback(
+    async (p: number) => {
+      setLoading(true);
+      const supabase = createClient();
 
-    if (statusFilter !== "all") {
-      query = query.eq("status", statusFilter);
-    }
+      let countQuery = supabase
+        .from("events")
+        .select("id", { count: "exact", head: true });
+      if (statusFilter !== "all") {
+        countQuery = countQuery.eq("status", statusFilter);
+      }
+      const { count } = await countQuery;
+      setTotal(count ?? 0);
 
-    const { data, error } = await query;
-    if (error) {
-      toast.error(t("events.loadFailed"));
-    } else {
-      setEvents((data as AgentEvent[]) ?? []);
-    }
-    setLoading(false);
-  }, [statusFilter, t]);
+      const from = (p - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      let query = supabase
+        .from("events")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .range(from, to);
+
+      if (statusFilter !== "all") {
+        query = query.eq("status", statusFilter);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        toast.error(t("events.loadFailed"));
+      } else {
+        setEvents((data as AgentEvent[]) ?? []);
+      }
+      setLoading(false);
+    },
+    [statusFilter, t]
+  );
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchEvents();
-  }, [fetchEvents]);
+    setPage(1);
+  }, [statusFilter]);
+
+  useEffect(() => {
+    fetchEvents(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, statusFilter]);
 
   const handleReplay = async (eventId: string) => {
     const supabase = createClient();
@@ -84,7 +110,7 @@ export default function EventsPage() {
       toast.error(t("events.replayFailed"));
     } else {
       toast.success(t("events.replaySuccess"));
-      fetchEvents();
+      fetchEvents(page);
     }
   };
 
@@ -98,7 +124,9 @@ export default function EventsPage() {
     <div className="flex flex-col gap-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("events.title")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t("events.title")}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {t("events.subtitle")}
           </p>
@@ -108,7 +136,10 @@ export default function EventsPage() {
             value={statusFilter}
             onValueChange={(v) => setStatusFilter(v ?? "all")}
           >
-            <SelectTrigger id="events-status-filter-trigger" className="w-36">
+            <SelectTrigger
+              id="events-status-filter-trigger"
+              className="w-36"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -119,7 +150,11 @@ export default function EventsPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={fetchEvents} className="gap-1.5">
+          <Button
+            variant="outline"
+            onClick={() => fetchEvents(page)}
+            className="gap-1.5"
+          >
             <RefreshCw className="size-3.5" />
             {t("common.refresh")}
           </Button>
@@ -143,63 +178,76 @@ export default function EventsPage() {
               <div className="flex size-12 items-center justify-center rounded-full bg-muted">
                 <Radio className="size-6 text-muted-foreground" />
               </div>
-              <p className="text-sm text-muted-foreground">{t("events.noEvents")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("events.noEvents")}
+              </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("events.traceId")}</TableHead>
-                    <TableHead>{t("events.source")}</TableHead>
-                    <TableHead>{t("events.status")}</TableHead>
-                    <TableHead>{t("events.retries")}</TableHead>
-                    <TableHead>{t("events.error")}</TableHead>
-                    <TableHead>{t("events.created")}</TableHead>
-                    <TableHead className="text-right">{t("common.actions")}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {events.map((e) => (
-                    <TableRow key={e.id}>
-                      <TableCell className="font-mono text-xs">
-                        {e.trace_id.slice(0, 8)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{e.source}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusVariant(e.status)}>
-                          {e.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="tabular-nums text-sm">
-                        {e.retry_count}/{e.max_retries}
-                      </TableCell>
-                      <TableCell className="max-w-48 truncate text-xs text-muted-foreground">
-                        {e.error_message || "--"}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {new Date(e.created_at).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {(e.status === "failed" || e.status === "dead") && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="gap-1"
-                            onClick={() => handleReplay(e.id)}
-                          >
-                            <RotateCcw className="size-3.5" />
-                            {t("events.replay")}
-                          </Button>
-                        )}
-                      </TableCell>
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t("events.traceId")}</TableHead>
+                      <TableHead>{t("events.source")}</TableHead>
+                      <TableHead>{t("events.status")}</TableHead>
+                      <TableHead>{t("events.retries")}</TableHead>
+                      <TableHead>{t("events.error")}</TableHead>
+                      <TableHead>{t("events.created")}</TableHead>
+                      <TableHead className="text-right">
+                        {t("common.actions")}
+                      </TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {events.map((e) => (
+                      <TableRow key={e.id}>
+                        <TableCell className="font-mono text-xs">
+                          {e.trace_id.slice(0, 8)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{e.source}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={statusVariant(e.status)}>
+                            {e.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="tabular-nums text-sm">
+                          {e.retry_count}/{e.max_retries}
+                        </TableCell>
+                        <TableCell className="max-w-48 truncate text-xs text-muted-foreground">
+                          {e.error_message || "--"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {new Date(e.created_at).toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {(e.status === "failed" ||
+                            e.status === "dead") && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1"
+                              onClick={() => handleReplay(e.id)}
+                            >
+                              <RotateCcw className="size-3.5" />
+                              {t("events.replay")}
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <TablePagination
+                page={page}
+                pageSize={PAGE_SIZE}
+                total={total}
+                onPageChange={setPage}
+              />
+            </>
           )}
         </CardContent>
       </Card>

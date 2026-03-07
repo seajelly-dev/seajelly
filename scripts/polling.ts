@@ -76,7 +76,6 @@ interface AgentRow {
   access_mode: string;
   ai_soul: string;
   telegram_bot_token: string;
-  mcp_server_ids: string[];
 }
 
 async function startBotForAgent(agent: AgentRow) {
@@ -306,7 +305,11 @@ async function startBotForAgent(agent: AgentRow) {
 
       let mcpResult: MCPResult | null = null;
       let tools = builtinTools;
-      const mcpIds = agent.mcp_server_ids ?? [];
+      const { data: mcpRows } = await supabase
+        .from("agent_mcps")
+        .select("mcp_server_id")
+        .eq("agent_id", agent.id);
+      const mcpIds = (mcpRows ?? []).map((r: { mcp_server_id: string }) => r.mcp_server_id);
       if (mcpIds.length > 0) {
         try {
           mcpResult = await connectMCPServers(mcpIds);
@@ -424,7 +427,7 @@ async function main() {
 
   const { data: agents, error } = await supabase
     .from("agents")
-    .select("id, name, model, system_prompt, memory_namespace, access_mode, ai_soul, telegram_bot_token, mcp_server_ids")
+    .select("id, name, model, system_prompt, memory_namespace, access_mode, ai_soul, telegram_bot_token")
     .not("telegram_bot_token", "is", null);
 
   if (error) {

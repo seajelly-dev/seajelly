@@ -264,9 +264,13 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       channelId: channel?.id,
     });
 
-    // ── MCP tools ──
+    // ── MCP tools (from agent_mcps junction table) ──
     let tools = builtinTools;
-    const mcpIds = typedAgent.mcp_server_ids ?? [];
+    const { data: mcpRows } = await supabase
+      .from("agent_mcps")
+      .select("mcp_server_id")
+      .eq("agent_id", typedAgent.id);
+    const mcpIds = (mcpRows ?? []).map((r) => r.mcp_server_id as string);
     if (mcpIds.length > 0) {
       try {
         mcpResult = await connectMCPServers(mcpIds);

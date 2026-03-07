@@ -27,7 +27,6 @@ export interface Agent {
   access_mode: AccessMode;
   ai_soul: string;
   telegram_bot_token: string | null;
-  mcp_server_ids: string[];
   created_at: string;
 }
 
