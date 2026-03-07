@@ -31,7 +31,7 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  const publicPaths = ["/setup", "/login", "/api/webhook", "/api/admin/setup"];
+  const publicPaths = ["/setup", "/login", "/api/webhook", "/api/worker", "/api/admin/setup"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   if (!user && !isPublic && pathname !== "/") {
