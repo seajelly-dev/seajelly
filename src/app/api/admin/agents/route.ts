@@ -1,17 +1,21 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/crypto/encrypt";
 
-export async function GET() {
+async function requireAuth() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+  return user;
+}
+
+export async function GET() {
+  try { await requireAuth(); } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
+  const db = await createAdminClient();
+  const { data, error } = await db
     .from("agents")
     .select("*")
     .order("created_at", { ascending: false });
@@ -30,14 +34,11 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  try { await requireAuth(); } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const db = await createAdminClient();
   const body = await request.json();
   const { name, system_prompt, model, tools_config, access_mode, ai_soul, telegram_bot_token } = body;
 
@@ -58,7 +59,7 @@ export async function POST(request: Request) {
     insertData.telegram_bot_token = encrypt(telegram_bot_token);
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("agents")
     .insert(insertData)
     .select()
@@ -74,14 +75,11 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  try { await requireAuth(); } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const db = await createAdminClient();
   const body = await request.json();
   const { id, telegram_bot_token, ...rest } = body;
 
@@ -97,7 +95,7 @@ export async function PUT(request: Request) {
     updates.telegram_bot_token = encrypt(telegram_bot_token);
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("agents")
     .update(updates)
     .eq("id", id)
@@ -114,14 +112,11 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  try { await requireAuth(); } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const db = await createAdminClient();
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 
@@ -129,7 +124,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  const { error } = await supabase.from("agents").delete().eq("id", id);
+  const { error } = await db.from("agents").delete().eq("id", id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -139,20 +134,17 @@ export async function DELETE(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  try { await requireAuth(); } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const db = await createAdminClient();
   const { id } = await request.json();
   if (!id) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("agents")
     .select("telegram_bot_token")
     .eq("id", id)

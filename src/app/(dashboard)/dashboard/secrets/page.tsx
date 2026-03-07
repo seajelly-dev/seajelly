@@ -54,9 +54,12 @@ export default function SecretsPage() {
     try {
       const res = await fetch("/api/admin/secrets");
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to load secrets");
+      }
       setSecrets(data.secrets ?? []);
-    } catch {
-      toast.error("Failed to load secrets");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load secrets");
     } finally {
       setLoading(false);
     }

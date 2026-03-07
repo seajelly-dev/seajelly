@@ -1,269 +1,262 @@
--- OpenCrab Initial Schema
+-- OpenCrab Complete Schema (merged from 001 + 002)
+-- This file is the single source of truth, kept in sync with SCHEMA_SQL in route.ts
+
 -- Extensions
-create extension if not exists "pgcrypto";
-create extension if not exists "vector";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- ============================================================
 -- 1. admins
 -- ============================================================
-create table public.admins (
-  id            uuid primary key default gen_random_uuid(),
-  auth_uid      uuid unique not null,
-  email         text unique not null,
-  is_super_admin boolean not null default false,
-  created_at    timestamptz not null default now()
+CREATE TABLE IF NOT EXISTS public.admins (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  auth_uid      uuid UNIQUE NOT NULL,
+  email         text UNIQUE NOT NULL,
+  is_super_admin boolean NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;
 
-alter table public.admins enable row level security;
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+  SELECT EXISTS (SELECT 1 FROM public.admins WHERE auth_uid = auth.uid());
+$fn$;
 
-create policy "admins_select_self" on public.admins
-  for select using (auth.uid() = auth_uid);
-
-create policy "admins_insert_first" on public.admins
-  for insert with check (
-    (select count(*) from public.admins) = 0
-    or auth.uid() in (select auth_uid from public.admins where is_super_admin = true)
-  );
+DROP POLICY IF EXISTS "admins_select_self" ON public.admins;
+CREATE POLICY "admins_select_self" ON public.admins FOR SELECT USING (auth.uid() = auth_uid);
+DROP POLICY IF EXISTS "admins_insert_first" ON public.admins;
+CREATE POLICY "admins_insert_first" ON public.admins FOR INSERT WITH CHECK (
+  (SELECT count(*) FROM public.admins) = 0
+  OR public.is_admin()
+);
 
 -- ============================================================
 -- 2. secrets
 -- ============================================================
-create table public.secrets (
-  id              uuid primary key default gen_random_uuid(),
-  key_name        text unique not null,
-  encrypted_value text not null,
-  created_by      uuid references public.admins(id) on delete set null,
-  updated_at      timestamptz not null default now()
+CREATE TABLE IF NOT EXISTS public.secrets (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  key_name        text UNIQUE NOT NULL,
+  encrypted_value text NOT NULL,
+  created_by      uuid REFERENCES public.admins(id) ON DELETE SET NULL,
+  updated_at      timestamptz NOT NULL DEFAULT now()
 );
-
-alter table public.secrets enable row level security;
-
-create policy "secrets_admin_all" on public.secrets
-  for all using (
-    auth.uid() in (select auth_uid from public.admins)
-  );
+ALTER TABLE public.secrets ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "secrets_admin_all" ON public.secrets;
+CREATE POLICY "secrets_admin_all" ON public.secrets FOR ALL USING (public.is_admin());
 
 -- ============================================================
 -- 3. agents
 -- ============================================================
-create table public.agents (
-  id                uuid primary key default gen_random_uuid(),
-  name              text not null,
-  system_prompt     text not null default '',
-  tools_config      jsonb not null default '{}',
-  memory_namespace  text not null default 'default',
-  model             text not null default 'claude-sonnet-4-20250514',
-  is_default        boolean not null default false,
-  created_at        timestamptz not null default now()
+CREATE TABLE IF NOT EXISTS public.agents (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name              text NOT NULL,
+  system_prompt     text NOT NULL DEFAULT '',
+  tools_config      jsonb NOT NULL DEFAULT '{}',
+  memory_namespace  text NOT NULL DEFAULT 'default',
+  model             text NOT NULL DEFAULT 'claude-sonnet-4-20250514',
+  is_default        boolean NOT NULL DEFAULT false,
+  access_mode       text NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','whitelist')),
+  ai_soul           text NOT NULL DEFAULT '',
+  telegram_bot_token text,
+  created_at        timestamptz NOT NULL DEFAULT now()
 );
-
-alter table public.agents enable row level security;
-
-create policy "agents_admin_all" on public.agents
-  for all using (
-    auth.uid() in (select auth_uid from public.admins)
-  );
-
--- allow service-role / anon to read agents for webhook processing
-create policy "agents_public_select" on public.agents
-  for select using (true);
+ALTER TABLE public.agents ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "agents_admin_all" ON public.agents;
+CREATE POLICY "agents_admin_all" ON public.agents FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "agents_public_select" ON public.agents;
+CREATE POLICY "agents_public_select" ON public.agents FOR SELECT USING (true);
 
 -- ============================================================
--- 4. sessions
+-- 4. channels
 -- ============================================================
-create table public.sessions (
-  id          uuid primary key default gen_random_uuid(),
-  chat_id     bigint not null,
-  agent_id    uuid not null references public.agents(id) on delete cascade,
-  messages    jsonb not null default '[]',
-  metadata    jsonb not null default '{}',
-  version     int not null default 1,
-  updated_at  timestamptz not null default now()
+CREATE TABLE IF NOT EXISTS public.channels (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id      uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  platform      text NOT NULL CHECK (platform IN ('telegram','discord','slack','web')),
+  platform_uid  text NOT NULL,
+  display_name  text,
+  user_soul     text NOT NULL DEFAULT '',
+  is_allowed    boolean NOT NULL DEFAULT true,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
 );
-
-create unique index sessions_chat_agent on public.sessions(chat_id, agent_id);
-create index sessions_chat_id on public.sessions(chat_id);
-
-alter table public.sessions enable row level security;
-
-create policy "sessions_admin_all" on public.sessions
-  for all using (
-    auth.uid() in (select auth_uid from public.admins)
-  );
-
-create policy "sessions_public_select" on public.sessions
-  for select using (true);
-
-create policy "sessions_service_upsert" on public.sessions
-  for insert with check (true);
-
-create policy "sessions_service_update" on public.sessions
-  for update using (true);
+CREATE UNIQUE INDEX IF NOT EXISTS channels_agent_platform_uid ON public.channels(agent_id, platform, platform_uid);
+CREATE INDEX IF NOT EXISTS channels_platform_uid ON public.channels(platform, platform_uid);
+ALTER TABLE public.channels ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "channels_admin_all" ON public.channels;
+CREATE POLICY "channels_admin_all" ON public.channels FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "channels_public_rw" ON public.channels;
+CREATE POLICY "channels_public_rw" ON public.channels FOR ALL USING (true);
 
 -- ============================================================
--- 5. memories
+-- 5. sessions
 -- ============================================================
-create table public.memories (
-  id          uuid primary key default gen_random_uuid(),
-  agent_id    uuid not null references public.agents(id) on delete cascade,
-  namespace   text not null default 'default',
-  category    text not null check (category in ('fact', 'preference', 'decision', 'summary', 'other')),
-  content     text not null,
-  metadata    jsonb not null default '{}',
-  created_at  timestamptz not null default now()
+CREATE TABLE IF NOT EXISTS public.sessions (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  chat_id     bigint NOT NULL,
+  agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  channel_id  uuid REFERENCES public.channels(id) ON DELETE SET NULL,
+  messages    jsonb NOT NULL DEFAULT '[]',
+  metadata    jsonb NOT NULL DEFAULT '{}',
+  version     int NOT NULL DEFAULT 1,
+  updated_at  timestamptz NOT NULL DEFAULT now()
 );
-
-create index memories_agent_ns on public.memories(agent_id, namespace);
-
-alter table public.memories enable row level security;
-
-create policy "memories_admin_all" on public.memories
-  for all using (
-    auth.uid() in (select auth_uid from public.admins)
-  );
-
-create policy "memories_public_rw" on public.memories
-  for all using (true);
+CREATE UNIQUE INDEX IF NOT EXISTS sessions_chat_agent ON public.sessions(chat_id, agent_id);
+CREATE INDEX IF NOT EXISTS sessions_chat_id ON public.sessions(chat_id);
+CREATE INDEX IF NOT EXISTS sessions_channel_id ON public.sessions(channel_id);
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sessions_admin_all" ON public.sessions;
+CREATE POLICY "sessions_admin_all" ON public.sessions FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "sessions_public_select" ON public.sessions;
+CREATE POLICY "sessions_public_select" ON public.sessions FOR SELECT USING (true);
+DROP POLICY IF EXISTS "sessions_service_upsert" ON public.sessions;
+CREATE POLICY "sessions_service_upsert" ON public.sessions FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "sessions_service_update" ON public.sessions;
+CREATE POLICY "sessions_service_update" ON public.sessions FOR UPDATE USING (true);
 
 -- ============================================================
--- 6. memory_chunks
+-- 6. memories
 -- ============================================================
-create table public.memory_chunks (
-  id            uuid primary key default gen_random_uuid(),
-  memory_id     uuid not null references public.memories(id) on delete cascade,
-  chunk_text    text not null,
+CREATE TABLE IF NOT EXISTS public.memories (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  namespace   text NOT NULL DEFAULT 'default',
+  category    text NOT NULL CHECK (category IN ('fact','preference','decision','summary','other')),
+  content     text NOT NULL,
+  metadata    jsonb NOT NULL DEFAULT '{}',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS memories_agent_ns ON public.memories(agent_id, namespace);
+ALTER TABLE public.memories ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "memories_admin_all" ON public.memories;
+CREATE POLICY "memories_admin_all" ON public.memories FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "memories_public_rw" ON public.memories;
+CREATE POLICY "memories_public_rw" ON public.memories FOR ALL USING (true);
+
+-- ============================================================
+-- 7. memory_chunks
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.memory_chunks (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  memory_id     uuid NOT NULL REFERENCES public.memories(id) ON DELETE CASCADE,
+  chunk_text    text NOT NULL,
   embedding     vector(768),
-  content_hash  text not null,
+  content_hash  text NOT NULL,
   embed_model   text,
-  status        text not null default 'pending_embedded' check (status in ('pending_embedded', 'embedded', 'embed_failed')),
+  status        text NOT NULL DEFAULT 'pending_embedded' CHECK (status IN ('pending_embedded','embedded','embed_failed')),
   start_line    int,
   end_line      int,
-  created_at    timestamptz not null default now()
+  created_at    timestamptz NOT NULL DEFAULT now()
 );
-
-create index memory_chunks_memory on public.memory_chunks(memory_id);
-create index memory_chunks_hash on public.memory_chunks(content_hash);
-
-alter table public.memory_chunks enable row level security;
-
-create policy "memory_chunks_admin_all" on public.memory_chunks
-  for all using (
-    auth.uid() in (select auth_uid from public.admins)
-  );
-
-create policy "memory_chunks_public_rw" on public.memory_chunks
-  for all using (true);
+CREATE INDEX IF NOT EXISTS memory_chunks_memory ON public.memory_chunks(memory_id);
+CREATE INDEX IF NOT EXISTS memory_chunks_hash ON public.memory_chunks(content_hash);
+ALTER TABLE public.memory_chunks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "memory_chunks_admin_all" ON public.memory_chunks;
+CREATE POLICY "memory_chunks_admin_all" ON public.memory_chunks FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "memory_chunks_public_rw" ON public.memory_chunks;
+CREATE POLICY "memory_chunks_public_rw" ON public.memory_chunks FOR ALL USING (true);
 
 -- ============================================================
--- 7. cron_jobs
+-- 8. cron_jobs
 -- ============================================================
-create table public.cron_jobs (
-  id            uuid primary key default gen_random_uuid(),
-  agent_id      uuid not null references public.agents(id) on delete cascade,
-  schedule      text not null,
-  task_type     text not null,
-  task_config   jsonb not null default '{}',
-  enabled       boolean not null default true,
+CREATE TABLE IF NOT EXISTS public.cron_jobs (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id      uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  schedule      text NOT NULL,
+  task_type     text NOT NULL,
+  task_config   jsonb NOT NULL DEFAULT '{}',
+  enabled       boolean NOT NULL DEFAULT true,
   last_run      timestamptz,
-  created_at    timestamptz not null default now()
+  created_at    timestamptz NOT NULL DEFAULT now()
 );
-
-alter table public.cron_jobs enable row level security;
-
-create policy "cron_jobs_admin_all" on public.cron_jobs
-  for all using (
-    auth.uid() in (select auth_uid from public.admins)
-  );
+ALTER TABLE public.cron_jobs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "cron_jobs_admin_all" ON public.cron_jobs;
+CREATE POLICY "cron_jobs_admin_all" ON public.cron_jobs FOR ALL USING (public.is_admin());
 
 -- ============================================================
--- 8. events
+-- 9. events
 -- ============================================================
-create table public.events (
-  id              uuid primary key default gen_random_uuid(),
-  source          text not null check (source in ('telegram', 'cron', 'webhook', 'manual')),
-  agent_id        uuid references public.agents(id) on delete set null,
+CREATE TABLE IF NOT EXISTS public.events (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source          text NOT NULL CHECK (source IN ('telegram','cron','webhook','manual')),
+  agent_id        uuid REFERENCES public.agents(id) ON DELETE SET NULL,
   chat_id         bigint,
-  dedup_key       text unique,
-  payload         jsonb not null default '{}',
-  status          text not null default 'pending' check (status in ('pending', 'processing', 'processed', 'failed', 'dead')),
+  dedup_key       text UNIQUE,
+  payload         jsonb NOT NULL DEFAULT '{}',
+  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','processed','failed','dead')),
   locked_until    timestamptz,
-  retry_count     int not null default 0,
-  max_retries     int not null default 5,
+  retry_count     int NOT NULL DEFAULT 0,
+  max_retries     int NOT NULL DEFAULT 5,
   error_message   text,
-  trace_id        text not null default gen_random_uuid()::text,
-  created_at      timestamptz not null default now(),
+  trace_id        text NOT NULL DEFAULT gen_random_uuid()::text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
   processed_at    timestamptz
 );
-
-create index events_status_created on public.events(status, created_at);
-create index events_dedup on public.events(dedup_key);
-create index events_trace on public.events(trace_id);
-
-alter table public.events enable row level security;
-
-create policy "events_admin_all" on public.events
-  for all using (
-    auth.uid() in (select auth_uid from public.admins)
-  );
-
-create policy "events_public_rw" on public.events
-  for all using (true);
+CREATE INDEX IF NOT EXISTS events_status_created ON public.events(status, created_at);
+CREATE INDEX IF NOT EXISTS events_dedup ON public.events(dedup_key);
+CREATE INDEX IF NOT EXISTS events_trace ON public.events(trace_id);
+ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "events_admin_all" ON public.events;
+CREATE POLICY "events_admin_all" ON public.events FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "events_public_rw" ON public.events;
+CREATE POLICY "events_public_rw" ON public.events FOR ALL USING (true);
 
 -- ============================================================
--- 9. skills
+-- 10. skills
 -- ============================================================
-create table public.skills (
-  id          uuid primary key default gen_random_uuid(),
-  name        text unique not null,
-  description text not null default '',
-  content     text not null,
+CREATE TABLE IF NOT EXISTS public.skills (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        text UNIQUE NOT NULL,
+  description text NOT NULL DEFAULT '',
+  content     text NOT NULL,
   tool_schema jsonb,
   source_url  text,
-  created_at  timestamptz not null default now()
+  created_at  timestamptz NOT NULL DEFAULT now()
 );
-
-alter table public.skills enable row level security;
-
-create policy "skills_admin_all" on public.skills
-  for all using (
-    auth.uid() in (select auth_uid from public.admins)
-  );
-
-create policy "skills_public_select" on public.skills
-  for select using (true);
+ALTER TABLE public.skills ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "skills_admin_all" ON public.skills;
+CREATE POLICY "skills_admin_all" ON public.skills FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "skills_public_select" ON public.skills;
+CREATE POLICY "skills_public_select" ON public.skills FOR SELECT USING (true);
 
 -- ============================================================
--- 10. agent_skills (many-to-many)
+-- 11. agent_skills (many-to-many)
 -- ============================================================
-create table public.agent_skills (
-  agent_id  uuid not null references public.agents(id) on delete cascade,
-  skill_id  uuid not null references public.skills(id) on delete cascade,
-  primary key (agent_id, skill_id)
+CREATE TABLE IF NOT EXISTS public.agent_skills (
+  agent_id  uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  skill_id  uuid NOT NULL REFERENCES public.skills(id) ON DELETE CASCADE,
+  PRIMARY KEY (agent_id, skill_id)
 );
+ALTER TABLE public.agent_skills ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "agent_skills_admin_all" ON public.agent_skills;
+CREATE POLICY "agent_skills_admin_all" ON public.agent_skills FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "agent_skills_public_select" ON public.agent_skills;
+CREATE POLICY "agent_skills_public_select" ON public.agent_skills FOR SELECT USING (true);
 
-alter table public.agent_skills enable row level security;
-
-create policy "agent_skills_admin_all" on public.agent_skills
-  for all using (
-    auth.uid() in (select auth_uid from public.admins)
-  );
-
-create policy "agent_skills_public_select" on public.agent_skills
-  for select using (true);
+-- Ensure Supabase API roles can reach schema objects (RLS still applies row-level checks)
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
 
 -- ============================================================
--- Helper function: update updated_at on row change
+-- Triggers
 -- ============================================================
-create or replace function public.update_updated_at()
-returns trigger as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$ language plpgsql;
+CREATE OR REPLACE FUNCTION public.update_updated_at()
+RETURNS trigger AS $fn$
+BEGIN NEW.updated_at = now(); RETURN NEW; END;
+$fn$ LANGUAGE plpgsql;
 
-create trigger secrets_updated_at before update on public.secrets
-  for each row execute function public.update_updated_at();
-
-create trigger sessions_updated_at before update on public.sessions
-  for each row execute function public.update_updated_at();
+DROP TRIGGER IF EXISTS secrets_updated_at ON public.secrets;
+CREATE TRIGGER secrets_updated_at BEFORE UPDATE ON public.secrets FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+DROP TRIGGER IF EXISTS sessions_updated_at ON public.sessions;
+CREATE TRIGGER sessions_updated_at BEFORE UPDATE ON public.sessions FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+DROP TRIGGER IF EXISTS channels_updated_at ON public.channels;
+CREATE TRIGGER channels_updated_at BEFORE UPDATE ON public.channels FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();

@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/server";
 import {
   Card,
   CardContent,
@@ -17,7 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 
 export default async function SessionsPage() {
-  const supabase = await createClient();
+  const supabase = await createAdminClient();
 
   const { data: sessions } = await supabase
     .from("sessions")

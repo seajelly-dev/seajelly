@@ -51,9 +51,12 @@ export default function AgentsPage() {
     try {
       const res = await fetch("/api/admin/agents");
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to load agents");
+      }
       setAgents(data.agents ?? []);
-    } catch {
-      toast.error("Failed to load agents");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load agents");
     } finally {
       setLoading(false);
     }
@@ -63,10 +66,14 @@ export default function AgentsPage() {
     try {
       const res = await fetch("/api/admin/secrets");
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to load secrets");
+      }
       const keyNames = new Set((data.secrets ?? []).map((s: { key_name: string }) => s.key_name));
       const models = getAvailableModels(keyNames as Set<string>);
       setAvailableModels(models.length > 0 ? models : MODEL_CATALOG);
-    } catch {
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load model keys");
       // fallback to full catalog
     }
   }, []);

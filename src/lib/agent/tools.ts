@@ -1,6 +1,12 @@
 import { tool } from "ai";
 import { z } from "zod/v4";
 import { createClient } from "@supabase/supabase-js";
+import {
+  scheduleCronJob,
+  unscheduleCronJob,
+  listCronJobs,
+  executeSQL,
+} from "@/lib/supabase/management";
 
 function bigrams(text: string): Set<string> {
   const clean = text.replace(/\s+/g, "");
@@ -175,6 +181,146 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
       inputSchema: z.object({}),
       execute: async () => {
         return { time: new Date().toISOString() };
+      },
+    }),
+
+    schedule_reminder: tool({
+      description:
+        "Schedule a recurring or one-time reminder. The user says things like " +
+        "'remind me to X every day at 2pm' or 'remind me in 30 minutes'. " +
+        "Converts the request into a cron expression and schedules a pg_cron job " +
+        "that sends a Telegram message at the specified time. " +
+        "Use standard cron syntax: minute hour day month weekday. " +
+        "Timezone is UTC — adjust accordingly.",
+      inputSchema: z.object({
+        job_name: z
+          .string()
+          .describe(
+            "Unique job name, lowercase with hyphens. e.g. 'remind-nap-daily'"
+          ),
+        cron_expression: z
+          .string()
+          .describe(
+            "Cron expression. e.g. '0 6 * * *' for daily 6:00 UTC. " +
+            "Format: minute hour day month weekday"
+          ),
+        message: z
+          .string()
+          .describe("The reminder message to send to the user"),
+      }),
+      execute: async ({
+        job_name,
+        cron_expression,
+        message,
+      }: {
+        job_name: string;
+        cron_expression: string;
+        message: string;
+      }) => {
+        const appUrl =
+          process.env.NEXT_PUBLIC_APP_URL ||
+          process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : "http://localhost:3000";
+        const cronSecret = process.env.CRON_SECRET || "opencrab-cron";
+
+        const chatIdResult = await supabase
+          .from("sessions")
+          .select("chat_id")
+          .eq("agent_id", agentId)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (!chatIdResult.data?.chat_id) {
+          return { success: false, error: "No active chat session found" };
+        }
+
+        const body = JSON.stringify({
+          agent_id: agentId,
+          chat_id: chatIdResult.data.chat_id,
+          message,
+        }).replace(/'/g, "''");
+
+        const command = `SELECT net.http_post(url := '${appUrl}/api/worker/remind', headers := '{"Content-Type":"application/json","x-cron-secret":"${cronSecret}"}'::jsonb, body := '${body}'::jsonb)`;
+
+        const result = await scheduleCronJob(job_name, cron_expression, command);
+        if (!result.success) {
+          return { success: false, error: result.error };
+        }
+
+        await supabase.from("cron_jobs").insert({
+          agent_id: agentId,
+          schedule: cron_expression,
+          task_type: "reminder",
+          task_config: { job_name, message, chat_id: chatIdResult.data.chat_id },
+        });
+
+        return {
+          success: true,
+          message: `Reminder "${job_name}" scheduled: ${cron_expression}`,
+        };
+      },
+    }),
+
+    list_scheduled_jobs: tool({
+      description:
+        "List all scheduled cron jobs (reminders, tasks, etc). " +
+        "Use when the user asks 'what reminders do I have' or 'show my scheduled tasks'.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const result = await listCronJobs();
+        if (!result.success) return { success: false, error: result.error };
+        return { success: true, jobs: result.data };
+      },
+    }),
+
+    cancel_scheduled_job: tool({
+      description:
+        "Cancel/remove a scheduled cron job by its name. " +
+        "Use when the user says 'cancel my X reminder' or 'stop the daily reminder'.",
+      inputSchema: z.object({
+        job_name: z.string().describe("The name of the cron job to cancel"),
+      }),
+      execute: async ({ job_name }: { job_name: string }) => {
+        const result = await unscheduleCronJob(job_name);
+        if (!result.success) return { success: false, error: result.error };
+
+        await supabase
+          .from("cron_jobs")
+          .update({ enabled: false })
+          .eq("agent_id", agentId)
+          .eq("task_type", "reminder")
+          .filter("task_config->>'job_name'", "eq", job_name);
+
+        return { success: true, message: `Job "${job_name}" cancelled` };
+      },
+    }),
+
+    run_sql: tool({
+      description:
+        "Execute a read-only SQL query against the Supabase database via Management API. " +
+        "Use for diagnostic queries: checking pg_cron status, viewing table sizes, " +
+        "checking extension status, etc. NEVER use for destructive operations.",
+      inputSchema: z.object({
+        query: z
+          .string()
+          .describe(
+            "SQL query to execute. Should be SELECT only for safety."
+          ),
+      }),
+      execute: async ({ query }: { query: string }) => {
+        const upper = query.trim().toUpperCase();
+        if (
+          upper.startsWith("DROP") ||
+          upper.startsWith("DELETE") ||
+          upper.startsWith("TRUNCATE")
+        ) {
+          return { success: false, error: "Destructive queries are not allowed" };
+        }
+        const result = await executeSQL(query);
+        if (!result.success) return { success: false, error: result.error };
+        return { success: true, data: result.data };
       },
     }),
   };

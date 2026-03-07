@@ -1,17 +1,21 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/crypto/encrypt";
 
-export async function GET() {
+async function requireAuth() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+  return user;
+}
+
+export async function GET() {
+  try { await requireAuth(); } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
+  const db = await createAdminClient();
+  const { data, error } = await db
     .from("secrets")
     .select("id, key_name, updated_at")
     .order("key_name");
@@ -24,15 +28,14 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  let user;
+  try { user = await requireAuth(); } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const admin = await supabase
+  const db = await createAdminClient();
+
+  const admin = await db
     .from("admins")
     .select("id")
     .eq("auth_uid", user.id)
@@ -54,7 +57,7 @@ export async function PUT(request: Request) {
 
   const encryptedValue = encrypt(value);
 
-  const { error } = await supabase.from("secrets").upsert(
+  const { error } = await db.from("secrets").upsert(
     {
       key_name,
       encrypted_value: encryptedValue,
@@ -71,14 +74,11 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  try { await requireAuth(); } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const db = await createAdminClient();
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 
@@ -86,7 +86,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  const { error } = await supabase.from("secrets").delete().eq("id", id);
+  const { error } = await db.from("secrets").delete().eq("id", id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

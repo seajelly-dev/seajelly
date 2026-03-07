@@ -1,6 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
+/**
+ * SSR client with user session (anon key + cookies).
+ * Subject to RLS — use for auth checks and user-scoped queries.
+ */
 export async function createClient() {
   const cookieStore = await cookies();
 
@@ -26,34 +31,38 @@ export async function createClient() {
   );
 }
 
-export async function createServiceClient() {
+/**
+ * Admin client with service role key — bypasses RLS entirely.
+ * Use in dashboard server components (already behind auth middleware).
+ * Tries env var first, falls back to encrypted value in secrets table.
+ */
+export async function createAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return createSupabaseClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  }
+
   const { decrypt } = await import("@/lib/crypto/encrypt");
-  const { createClient } = await import("@supabase/supabase-js");
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return [];
-        },
-        setAll() {},
-      },
-    }
-  );
+  const anonClient = createServerClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    cookies: { getAll: () => [], setAll() {} },
+  });
 
-  const { data } = await supabase
+  const { data } = await anonClient
     .from("secrets")
     .select("encrypted_value")
     .eq("key_name", "SUPABASE_SERVICE_ROLE_KEY")
     .single();
 
   if (!data?.encrypted_value) {
-    throw new Error("Supabase Service Role Key not configured");
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY not found in env or secrets table"
+    );
   }
 
-  const serviceRoleKey = decrypt(data.encrypted_value);
-
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey);
+  return createSupabaseClient(url, decrypt(data.encrypted_value));
 }
+
+/** @deprecated Use createAdminClient instead */
+export const createServiceClient = createAdminClient;

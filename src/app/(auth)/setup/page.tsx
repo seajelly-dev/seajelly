@@ -21,11 +21,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { MODEL_CATALOG, getAvailableModels } from "@/lib/models";
+import { getAvailableModels } from "@/lib/models";
 
 const STEPS = [
+  { title: "Connect Supabase", desc: "Link your project and initialize the database" },
   { title: "Create Admin Account", desc: "Register the first administrator" },
-  { title: "Configure API Keys", desc: "Set up required service credentials" },
+  { title: "Configure API Keys", desc: "Set up LLM and service credentials" },
   { title: "Create Your Agent", desc: "Set up your first AI agent" },
 ];
 
@@ -35,8 +36,12 @@ export default function SetupPage() {
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
 
+  const [supabasePAT, setSupabasePAT] = useState("");
+  const [projectRef, setProjectRef] = useState("");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const [secrets, setSecrets] = useState({
     SUPABASE_SERVICE_ROLE_KEY: "",
@@ -49,7 +54,36 @@ export default function SetupPage() {
 
   const [agentName, setAgentName] = useState("Crab");
   const [systemPrompt, setSystemPrompt] = useState(
-    "You are a helpful AI assistant. Be concise, friendly, and proactive."
+`You are a personal AI assistant running on the OpenCrab framework.
+
+## Core Behavior
+- Respond in the same language the user writes in. Default to Chinese if ambiguous.
+- Be concise and direct. Avoid filler phrases. Get to the point.
+- When unsure, ask a clarifying question rather than guessing.
+- Use markdown formatting for structured replies (lists, code blocks, etc.).
+
+## Memory & Identity
+You have persistent memory across conversations. Use it wisely:
+- Use \`memory_write\` to save important facts, user preferences, and decisions. Always write self-contained entries.
+- Use \`memory_search\` to recall past context before answering questions about previous conversations.
+- Use \`user_soul_update\` when the user tells you their name, preferences, or personal traits. This builds their profile.
+- Use \`ai_soul_update\` when the user gives you a name, persona, or character instructions. This defines who you are.
+- Do NOT save trivial or ephemeral information (e.g. "user said hi").
+
+## Scheduling
+- Use \`schedule_reminder\` when the user asks for timed reminders or recurring tasks. Convert natural language time to cron expressions (UTC timezone).
+- Use \`list_scheduled_jobs\` and \`cancel_scheduled_job\` to manage existing reminders.
+- Always confirm the scheduled time with the user after creating a reminder.
+
+## Tool Usage
+- Call \`get_current_time\` when you need to know the current date/time for scheduling or time-sensitive questions.
+- You may call multiple tools in sequence to fulfill complex requests.
+- If a tool call fails, explain the error to the user and suggest alternatives.
+
+## Personality
+- Warm but efficient. Think of yourself as a capable personal secretary.
+- Use humor sparingly and appropriately.
+- Proactively offer help when you notice patterns (e.g. "You seem to ask about X often — want me to set a reminder?").`
   );
   const [model, setModel] = useState("");
   const [botToken, setBotToken] = useState("");
@@ -73,8 +107,7 @@ export default function SetupPage() {
           router.replace("/login");
           return;
         }
-        const step = Math.min(data.currentStep ?? 0, 2);
-        setCurrentStep(step);
+        setCurrentStep(Math.min(data.currentStep ?? 0, 3));
         if (data.configuredKeys) {
           loadAvailableModels(data.configuredKeys);
         }
@@ -84,6 +117,40 @@ export default function SetupPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
+  // Step 0: Connect Supabase + initialize DB
+  const handleConnect = async () => {
+    if (!supabasePAT.trim()) {
+      toast.error("Supabase Access Token is required");
+      return;
+    }
+    if (!projectRef.trim()) {
+      toast.error("Project Ref is required");
+      return;
+    }
+    setLoading(true);
+    try {
+      toast.info("Initializing database schema...");
+      const res = await fetch("/api/admin/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: "connect",
+          access_token: supabasePAT,
+          project_ref: projectRef,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success(data.message || "Database initialized");
+      setCurrentStep(1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Connection failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 1: Register admin (passes PAT + ref for Management API bootstrap)
   const handleRegister = async () => {
     if (!email || !password) {
       toast.error("Please fill in both email and password");
@@ -93,17 +160,27 @@ export default function SetupPage() {
       toast.error("Password must be at least 6 characters");
       return;
     }
+    if (password !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/admin/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ step: "register", email, password }),
+        body: JSON.stringify({
+          step: "register",
+          email,
+          password,
+          access_token: supabasePAT,
+          project_ref: projectRef,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       toast.success("Admin account created");
-      setCurrentStep(1);
+      setCurrentStep(2);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Registration failed");
     } finally {
@@ -111,6 +188,7 @@ export default function SetupPage() {
     }
   };
 
+  // Step 2: Save API keys
   const handleSecrets = async () => {
     if (!secrets.SUPABASE_SERVICE_ROLE_KEY) {
       toast.error("Supabase Service Role Key is required");
@@ -130,7 +208,12 @@ export default function SetupPage() {
       const res = await fetch("/api/admin/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ step: "secrets", secrets }),
+        body: JSON.stringify({
+          step: "secrets",
+          secrets,
+          access_token: supabasePAT,
+          project_ref: projectRef,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -139,7 +222,7 @@ export default function SetupPage() {
         .filter(([, v]) => v.trim() !== "")
         .map(([k]) => k);
       loadAvailableModels(filledKeys);
-      setCurrentStep(2);
+      setCurrentStep(3);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save keys");
     } finally {
@@ -147,15 +230,13 @@ export default function SetupPage() {
     }
   };
 
+  // Step 3: Create agent
   const handleCreateAgent = async () => {
     if (!agentName.trim()) {
       toast.error("Agent name is required");
       return;
     }
-    if (!botToken.trim()) {
-      toast.error("Telegram Bot Token is required");
-      return;
-    }
+    // bot token is optional — can be configured later in dashboard
     setLoading(true);
     try {
       const res = await fetch("/api/admin/setup", {
@@ -167,6 +248,8 @@ export default function SetupPage() {
           system_prompt: systemPrompt,
           model,
           telegram_bot_token: botToken,
+          access_token: supabasePAT,
+          project_ref: projectRef,
         }),
       });
       const data = await res.json();
@@ -203,7 +286,7 @@ export default function SetupPage() {
         {STEPS.map((_, i) => (
           <div
             key={i}
-            className={`h-2 w-16 rounded-full transition-colors ${
+            className={`h-2 w-12 rounded-full transition-colors ${
               i <= currentStep ? "bg-primary" : "bg-muted"
             }`}
           />
@@ -216,7 +299,41 @@ export default function SetupPage() {
           <CardDescription>{STEPS[currentStep].desc}</CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Step 0: Connect Supabase */}
           {currentStep === 0 && (
+            <div className="flex flex-col gap-4">
+              <SecretField
+                label="Supabase Access Token (PAT)"
+                required
+                hint="Supabase Dashboard → Account → Access Tokens → Generate new token"
+                value={supabasePAT}
+                onChange={setSupabasePAT}
+              />
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-sm">
+                  Supabase Project Ref <span className="ml-1 text-destructive">*</span>
+                </Label>
+                <Input
+                  placeholder="e.g. gjtcqawhjgaohawslmbs"
+                  value={projectRef}
+                  onChange={(e) => setProjectRef(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  From your project URL: https://&lt;ref&gt;.supabase.co
+                </p>
+              </div>
+              <div className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
+                This will create all required tables, enable pg_cron and pg_net extensions,
+                and store your Supabase credentials securely.
+              </div>
+              <Button onClick={handleConnect} disabled={loading}>
+                {loading ? "Initializing database..." : "Connect & Initialize"}
+              </Button>
+            </div>
+          )}
+
+          {/* Step 1: Create Admin */}
+          {currentStep === 1 && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="email">Email</Label>
@@ -238,23 +355,32 @@ export default function SetupPage() {
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  placeholder="Re-enter your password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+              </div>
               <Button onClick={handleRegister} disabled={loading}>
                 {loading ? "Creating..." : "Create Admin Account"}
               </Button>
             </div>
           )}
 
-          {currentStep === 1 && (
+          {/* Step 2: API Keys */}
+          {currentStep === 2 && (
             <div className="flex flex-col gap-4">
               <SecretField
                 label="Supabase Service Role Key"
                 required
+                hint="Supabase Dashboard → Settings → API → service_role (secret)"
                 value={secrets.SUPABASE_SERVICE_ROLE_KEY}
                 onChange={(v) =>
-                  setSecrets((s) => ({
-                    ...s,
-                    SUPABASE_SERVICE_ROLE_KEY: v,
-                  }))
+                  setSecrets((s) => ({ ...s, SUPABASE_SERVICE_ROLE_KEY: v }))
                 }
               />
               <div className="border-t pt-4">
@@ -308,7 +434,8 @@ export default function SetupPage() {
             </div>
           )}
 
-          {currentStep === 2 && (
+          {/* Step 3: Create Agent */}
+          {currentStep === 3 && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="agentName">Agent Name</Label>
@@ -320,7 +447,7 @@ export default function SetupPage() {
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="botToken">
-                  Telegram Bot Token <span className="text-destructive">*</span>
+                  Telegram Bot Token <span className="text-xs text-muted-foreground">(optional)</span>
                 </Label>
                 <Input
                   id="botToken"
@@ -330,8 +457,7 @@ export default function SetupPage() {
                   onChange={(e) => setBotToken(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Create a bot via @BotFather on Telegram and paste the token here.
-                  Each agent needs its own bot.
+                  Create a bot via @BotFather on Telegram, then paste the token here.
                 </p>
               </div>
               <div className="flex flex-col gap-2">
@@ -362,7 +488,7 @@ export default function SetupPage() {
                 <Label htmlFor="systemPrompt">System Prompt</Label>
                 <Textarea
                   id="systemPrompt"
-                  rows={6}
+                  rows={12}
                   value={systemPrompt}
                   onChange={(e) => setSystemPrompt(e.target.value)}
                 />
@@ -381,11 +507,13 @@ export default function SetupPage() {
 function SecretField({
   label,
   required,
+  hint,
   value,
   onChange,
 }: {
   label: string;
   required?: boolean;
+  hint?: string;
   value: string;
   onChange: (v: string) => void;
 }) {
@@ -401,6 +529,7 @@ function SecretField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
