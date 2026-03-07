@@ -175,6 +175,22 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       systemPrompt += `\n\n## About This User\n${channel.user_soul}`;
     }
 
+    // ── Skills injection ──
+    const { data: agentSkillRows } = await supabase
+      .from("agent_skills")
+      .select("skill_id, skills(name, content)")
+      .eq("agent_id", typedAgent.id);
+
+    if (agentSkillRows?.length) {
+      systemPrompt += "\n\n## Skills\n";
+      for (const row of agentSkillRows) {
+        const skill = row.skills as unknown as { name: string; content: string };
+        if (skill) {
+          systemPrompt += `\n### ${skill.name}\n${skill.content}\n`;
+        }
+      }
+    }
+
     const deadline = startTime + AGENT_LIMITS.MAX_WALL_TIME_MS;
     const abortController = new AbortController();
     const timer = setTimeout(

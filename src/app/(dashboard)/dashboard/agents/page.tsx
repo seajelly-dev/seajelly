@@ -33,7 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Lock, Globe, Bot } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import type { Agent, McpServer } from "@/types/database";
+import type { Agent, McpServer, Skill } from "@/types/database";
 import { getAvailableModels, MODEL_CATALOG, type ModelDef } from "@/lib/models";
 
 export default function AgentsPage() {
@@ -55,6 +55,8 @@ export default function AgentsPage() {
   const [availableModels, setAvailableModels] =
     useState<ModelDef[]>(MODEL_CATALOG);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [allSkills, setAllSkills] = useState<Skill[]>([]);
+  const [boundSkillIds, setBoundSkillIds] = useState<string[]>([]);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -98,11 +100,32 @@ export default function AgentsPage() {
     }
   }, []);
 
+  const fetchAllSkills = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/skills");
+      const data = await res.json();
+      if (res.ok) setAllSkills(data.skills ?? []);
+    } catch {
+      // non-critical
+    }
+  }, []);
+
+  const fetchBoundSkills = useCallback(async (agentId: string) => {
+    try {
+      const res = await fetch(`/api/admin/agents/skills?agent_id=${agentId}`);
+      const data = await res.json();
+      if (res.ok) setBoundSkillIds(data.skill_ids ?? []);
+    } catch {
+      setBoundSkillIds([]);
+    }
+  }, []);
+
   useEffect(() => {
     fetchAgents();
     fetchModels();
     fetchMcpServers();
-  }, [fetchAgents, fetchModels, fetchMcpServers]);
+    fetchAllSkills();
+  }, [fetchAgents, fetchModels, fetchMcpServers, fetchAllSkills]);
 
   const openCreate = () => {
     setEditingAgent(null);
@@ -115,6 +138,7 @@ export default function AgentsPage() {
       telegram_bot_token: "",
       mcp_server_ids: [],
     });
+    setBoundSkillIds([]);
     setDialogOpen(true);
   };
 
@@ -129,6 +153,7 @@ export default function AgentsPage() {
       telegram_bot_token: "",
       mcp_server_ids: agent.mcp_server_ids ?? [],
     });
+    fetchBoundSkills(agent.id);
     setDialogOpen(true);
   };
 
@@ -148,6 +173,16 @@ export default function AgentsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
+
+      const agentId = editingAgent?.id || data.agent?.id;
+      if (agentId && allSkills.length > 0) {
+        await fetch("/api/admin/agents/skills", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent_id: agentId, skill_ids: boundSkillIds }),
+        });
+      }
+
       toast.success(editingAgent ? "Agent updated" : "Agent created");
       setDialogOpen(false);
       fetchAgents();
@@ -321,6 +356,39 @@ export default function AgentsPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Click to toggle. Selected MCP tools will be available to this agent.
+                  </p>
+                </div>
+              )}
+              {allSkills.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <Label>Skills</Label>
+                  <div className="flex flex-wrap gap-2 rounded-md border p-2">
+                    {allSkills.map((s) => {
+                      const selected = boundSkillIds.includes(s.id);
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() =>
+                            setBoundSkillIds((prev) =>
+                              selected
+                                ? prev.filter((id) => id !== s.id)
+                                : [...prev, s.id]
+                            )
+                          }
+                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs transition-colors ${
+                            selected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border hover:bg-muted"
+                          }`}
+                        >
+                          {s.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Click to toggle. Selected skills will be injected into this agent&apos;s system prompt.
                   </p>
                 </div>
               )}

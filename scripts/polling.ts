@@ -269,6 +269,21 @@ async function startBotForAgent(agent: AgentRow) {
         systemPrompt += `\n\n## About This User\n${channel.user_soul}`;
       }
 
+      const { data: agentSkillRows } = await supabase
+        .from("agent_skills")
+        .select("skill_id, skills(name, content)")
+        .eq("agent_id", agent.id);
+
+      if (agentSkillRows?.length) {
+        systemPrompt += "\n\n## Skills\n";
+        for (const row of agentSkillRows) {
+          const skill = row.skills as unknown as { name: string; content: string };
+          if (skill) {
+            systemPrompt += `\n### ${skill.name}\n${skill.content}\n`;
+          }
+        }
+      }
+
       console.log(`  Calling ${agent.model}...`);
 
       await ctx.replyWithChatAction("typing");
