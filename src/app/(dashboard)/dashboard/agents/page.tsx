@@ -32,6 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Lock, Globe, Bot } from "lucide-react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { Agent } from "@/types/database";
 import { getAvailableModels, MODEL_CATALOG, type ModelDef } from "@/lib/models";
 
@@ -49,6 +50,7 @@ export default function AgentsPage() {
     telegram_bot_token: "",
   });
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [availableModels, setAvailableModels] =
     useState<ModelDef[]>(MODEL_CATALOG);
 
@@ -141,14 +143,15 @@ export default function AgentsPage() {
     }
   };
 
-  const handleDelete = async (agent: Agent) => {
-    if (!confirm(`Delete agent "${agent.name}"?`)) return;
+  const confirmDeleteAgent = async () => {
+    if (!deleteTarget) return;
     try {
-      const res = await fetch(`/api/admin/agents?id=${agent.id}`, {
+      const res = await fetch(`/api/admin/agents?id=${deleteTarget.id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Delete failed");
       toast.success("Agent deleted");
+      setDeleteTarget(null);
       fetchAgents();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
@@ -401,7 +404,7 @@ export default function AgentsPage() {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => handleDelete(agent)}
+                      onClick={() => setDeleteTarget(agent)}
                       className="text-muted-foreground hover:text-destructive"
                     >
                       <Trash2 className="size-3.5" />
@@ -418,6 +421,14 @@ export default function AgentsPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete Agent"
+        description={`Delete agent "${deleteTarget?.name || ""}"?`}
+        onConfirm={confirmDeleteAgent}
+      />
     </div>
   );
 }

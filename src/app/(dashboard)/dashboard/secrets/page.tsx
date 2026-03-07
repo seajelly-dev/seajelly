@@ -38,6 +38,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Plus, Trash2, KeyRound } from "lucide-react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SECRET_KEYS } from "@/types/database";
 
 interface SecretRow {
@@ -53,6 +54,7 @@ export default function SecretsPage() {
   const [newKeyName, setNewKeyName] = useState<string>("");
   const [newValue, setNewValue] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<SecretRow | null>(null);
 
   const fetchSecrets = useCallback(async () => {
     try {
@@ -101,14 +103,15 @@ export default function SecretsPage() {
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete ${name}?`)) return;
+  const confirmDeleteSecret = async () => {
+    if (!deleteTarget) return;
     try {
-      const res = await fetch(`/api/admin/secrets?id=${id}`, {
+      const res = await fetch(`/api/admin/secrets?id=${deleteTarget.id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Delete failed");
-      toast.success(`${name} deleted`);
+      toast.success(`${deleteTarget.key_name} deleted`);
+      setDeleteTarget(null);
       fetchSecrets();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
@@ -220,7 +223,7 @@ export default function SecretsPage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        onClick={() => handleDelete(s.id, s.key_name)}
+                        onClick={() => setDeleteTarget(s)}
                         className="text-muted-foreground hover:text-destructive"
                       >
                         <Trash2 className="size-3.5" />
@@ -233,6 +236,14 @@ export default function SecretsPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete Secret"
+        description={`Delete "${deleteTarget?.key_name || ""}"?`}
+        onConfirm={confirmDeleteSecret}
+      />
     </div>
   );
 }

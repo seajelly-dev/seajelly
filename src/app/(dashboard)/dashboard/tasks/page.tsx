@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Trash2, RefreshCw } from "lucide-react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 interface TaskRow {
   id: string;
@@ -37,6 +38,7 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<TaskRow | null>(null);
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -55,20 +57,19 @@ export default function TasksPage() {
     fetchTasks();
   }, [fetchTasks]);
 
-  const handleDelete = async (task: TaskRow) => {
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     const name =
-      (task.task_config.job_name as string) || task.task_type;
-    if (!confirm(`Delete task "${name}"? This will also remove the pg_cron job.`))
-      return;
-
-    setDeleting(task.id);
+      (deleteTarget.task_config.job_name as string) || deleteTarget.task_type;
+    setDeleting(deleteTarget.id);
     try {
-      const res = await fetch(`/api/admin/tasks?id=${task.id}`, {
+      const res = await fetch(`/api/admin/tasks?id=${deleteTarget.id}`, {
         method: "DELETE",
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Delete failed");
       toast.success(`Task "${name}" deleted`);
+      setDeleteTarget(null);
       fetchTasks();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
@@ -176,7 +177,7 @@ export default function TasksPage() {
                         variant="ghost"
                         size="sm"
                         disabled={deleting === task.id}
-                        onClick={() => handleDelete(task)}
+                        onClick={() => setDeleteTarget(task)}
                       >
                         <Trash2 className="size-4" />
                       </Button>
@@ -188,6 +189,15 @@ export default function TasksPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete Task"
+        description={`Delete task "${deleteTarget ? (deleteTarget.task_config.job_name as string) || deleteTarget.task_type : ""}"? This will also remove the pg_cron job.`}
+        loading={!!deleting}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

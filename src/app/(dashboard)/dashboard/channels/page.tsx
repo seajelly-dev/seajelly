@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Users, ShieldCheck, ShieldOff, Pencil, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 interface ChannelRow {
   id: string;
@@ -43,6 +44,7 @@ export default function ChannelsPage() {
   const [soulDialog, setSoulDialog] = useState<ChannelRow | null>(null);
   const [soulText, setSoulText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ChannelRow | null>(null);
 
   const fetchChannels = useCallback(async () => {
     try {
@@ -100,15 +102,15 @@ export default function ChannelsPage() {
     }
   };
 
-  const deleteChannel = async (ch: ChannelRow) => {
-    if (!confirm(`Delete channel ${ch.display_name || ch.platform_uid}?`))
-      return;
+  const confirmDeleteChannel = async () => {
+    if (!deleteTarget) return;
     try {
-      const res = await fetch(`/api/admin/channels?id=${ch.id}`, {
+      const res = await fetch(`/api/admin/channels?id=${deleteTarget.id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Delete failed");
       toast.success("Channel deleted");
+      setDeleteTarget(null);
       fetchChannels();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
@@ -230,7 +232,7 @@ export default function ChannelsPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => deleteChannel(ch)}
+                    onClick={() => setDeleteTarget(ch)}
                     className="text-muted-foreground hover:text-destructive"
                   >
                     <Trash2 className="size-3.5" />
@@ -276,6 +278,14 @@ export default function ChannelsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete Channel"
+        description={`Delete channel "${deleteTarget?.display_name || deleteTarget?.platform_uid || ""}"?`}
+        onConfirm={confirmDeleteChannel}
+      />
     </div>
   );
 }
