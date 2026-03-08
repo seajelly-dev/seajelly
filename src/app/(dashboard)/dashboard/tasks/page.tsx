@@ -48,11 +48,16 @@ export default function TasksPage() {
   const [deleteTarget, setDeleteTarget] = useState<TaskRow | null>(null);
 
   const fetchTasks = useCallback(
-    async (p: number) => {
+    async (p: number, forceReconcile = false) => {
       setLoading(true);
       try {
+        const qs = new URLSearchParams({
+          page: String(p),
+          page_size: String(PAGE_SIZE),
+        });
+        if (forceReconcile) qs.set("reconcile", "1");
         const res = await fetch(
-          `/api/admin/tasks?page=${p}&page_size=${PAGE_SIZE}`
+          `/api/admin/tasks?${qs.toString()}`
         );
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || t("tasks.loadFailed"));
@@ -122,7 +127,7 @@ export default function TasksPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => fetchTasks(page)}
+          onClick={() => fetchTasks(page, true)}
         >
           <RefreshCw className="mr-2 size-4" />
           {t("common.refresh")}

@@ -1,6 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { unscheduleCronJob, listCronJobs } from "@/lib/supabase/management";
+
+const RECONCILE_COOLDOWN_MS = 60_000;
+let lastReconcileAt = 0;
 
 function getTaskJobName(taskConfig: unknown): string | null {
   if (!taskConfig || typeof taskConfig !== "object") return null;
@@ -52,11 +55,28 @@ export async function GET(request: NextRequest) {
     100,
     Math.max(1, parseInt(searchParams.get("page_size") ?? "20", 10))
   );
+  const forceReconcile = searchParams.get("reconcile") === "1";
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
   const db = await createAdminClient();
-  await reconcileLocalStatus(db);
+  if (forceReconcile) {
+    try {
+      await reconcileLocalStatus(db);
+      lastReconcileAt = Date.now();
+    } catch (err) {
+      console.warn("Tasks reconcile (forced) failed:", err);
+    }
+  } else if (Date.now() - lastReconcileAt > RECONCILE_COOLDOWN_MS) {
+    lastReconcileAt = Date.now();
+    after(async () => {
+      try {
+        await reconcileLocalStatus(db);
+      } catch (err) {
+        console.warn("Tasks reconcile (background) failed:", err);
+      }
+    });
+  }
 
   const { count } = await db
     .from("cron_jobs")
