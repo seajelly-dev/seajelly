@@ -387,27 +387,29 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
         job_name: z.string().describe("The name of the cron job to cancel"),
       }),
       execute: async ({ job_name }: { job_name: string }) => {
-        const pgResult = await unscheduleCronJob(job_name);
+        const warnings: string[] = [];
 
-        const { error: dbErr } = await supabase
+        try {
+          const pgResult = await unscheduleCronJob(job_name);
+          if (!pgResult.success) warnings.push(`pg_cron: ${pgResult.error}`);
+        } catch (e) {
+          warnings.push(`pg_cron: ${e instanceof Error ? e.message : "unknown error"}`);
+        }
+
+        const { data: updated, error: dbErr } = await supabase
           .from("cron_jobs")
           .update({ enabled: false })
           .eq("agent_id", agentId)
-          .filter("task_config->>'job_name'", "eq", job_name);
+          .eq("enabled", true)
+          .filter("task_config->>'job_name'", "eq", job_name)
+          .select("id");
 
-        const { count } = await supabase
-          .from("cron_jobs")
-          .select("id", { count: "exact", head: true })
-          .eq("agent_id", agentId)
-          .filter("task_config->>'job_name'", "eq", job_name);
+        if (dbErr) warnings.push(`db: ${dbErr.message}`);
 
-        if (!pgResult.success && (!count || count === 0)) {
-          return { success: false, error: `Job "${job_name}" not found in pg_cron or local records` };
+        const dbUpdated = (updated?.length ?? 0) > 0;
+        if (!dbUpdated && warnings.length > 0) {
+          return { success: false, error: `Job "${job_name}" not found or already cancelled` };
         }
-
-        const warnings: string[] = [];
-        if (!pgResult.success) warnings.push(`pg_cron: ${pgResult.error}`);
-        if (dbErr) warnings.push(`db update: ${dbErr.message}`);
 
         return {
           success: true,
