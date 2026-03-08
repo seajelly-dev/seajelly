@@ -45,7 +45,7 @@ export function ConfirmDialog({
         </DialogHeader>
         <DialogFooter>
           <DialogClose
-            render={<Button variant="outline" disabled={loading} />}
+            render={<Button variant="ghost" disabled={loading} />}
           >
             {cancelText ?? t("confirmDialog.cancel")}
           </DialogClose>

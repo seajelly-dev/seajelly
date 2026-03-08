@@ -308,6 +308,13 @@ export default function ChannelsPage() {
           </div>
           <DialogFooter>
             <Button
+              variant="ghost"
+              onClick={() => setSoulDialog(null)}
+              className="w-full sm:w-auto"
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
               onClick={saveSoul}
               disabled={saving}
               className="w-full sm:w-auto"

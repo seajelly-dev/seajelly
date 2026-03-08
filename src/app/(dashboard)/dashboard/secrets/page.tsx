@@ -171,6 +171,13 @@ export default function SecretsPage() {
               </div>
             </div>
             <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => setDialogOpen(false)}
+                className="w-full sm:w-auto"
+              >
+                {t("common.cancel")}
+              </Button>
               <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
                 {saving ? t("common.saving") : t("common.save")}
               </Button>

@@ -130,22 +130,22 @@ export default function SkillsPage() {
     try {
       const payload = editing
         ? {
-            id: editing.id,
+          id: editing.id,
+          name: form.name,
+          description: form.description,
+          content: form.content,
+        }
+        : createMode === "url"
+          ? {
+            name: form.name,
+            description: form.description,
+            source_url: form.source_url,
+          }
+          : {
             name: form.name,
             description: form.description,
             content: form.content,
-          }
-        : createMode === "url"
-          ? {
-              name: form.name,
-              description: form.description,
-              source_url: form.source_url,
-            }
-          : {
-              name: form.name,
-              description: form.description,
-              content: form.content,
-            };
+          };
 
       const res = await fetch("/api/admin/skills", {
         method: editing ? "PUT" : "POST",
@@ -398,6 +398,9 @@ export default function SkillsPage() {
               )}
 
               <DialogFooter>
+                <Button variant="ghost" onClick={() => setDialogOpen(false)}>
+                  {t("common.cancel")}
+                </Button>
                 <Button onClick={handleSave} disabled={saving}>
                   {saving ? t("common.saving") : t("common.save")}
                 </Button>
@@ -545,11 +548,10 @@ export default function SkillsPage() {
                     key={a.id}
                     type="button"
                     onClick={() => toggleAgent(a.id)}
-                    className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors ${
-                      selected
+                    className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors ${selected
                         ? "border-primary bg-primary/10 text-primary"
                         : "border-border hover:bg-muted"
-                    }`}
+                      }`}
                   >
                     <span className="font-medium">{a.name}</span>
                     <span className="font-mono text-xs text-muted-foreground">
@@ -561,6 +563,9 @@ export default function SkillsPage() {
             )}
           </div>
           <DialogFooter>
+            <Button variant="ghost" onClick={() => setBindDialogOpen(false)}>
+              {t("common.cancel")}
+            </Button>
             <Button onClick={handleBindSave} disabled={bindSaving}>
               {bindSaving ? t("common.saving") : t("common.save")}
             </Button>

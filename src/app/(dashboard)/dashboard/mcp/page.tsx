@@ -349,6 +349,9 @@ export default function McpPage() {
                 </div>
               </div>
               <DialogFooter>
+                <Button variant="ghost" onClick={() => setDialogOpen(false)}>
+                  {t("common.cancel")}
+                </Button>
                 <Button onClick={handleSave} disabled={saving}>
                   {saving ? t("common.saving") : t("common.save")}
                 </Button>
@@ -473,11 +476,10 @@ export default function McpPage() {
                     key={a.id}
                     type="button"
                     onClick={() => toggleAgent(a.id)}
-                    className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors ${
-                      selected
+                    className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors ${selected
                         ? "border-primary bg-primary/10 text-primary"
                         : "border-border hover:bg-muted"
-                    }`}
+                      }`}
                   >
                     <span className="font-medium">{a.name}</span>
                     <span className="font-mono text-xs text-muted-foreground">
@@ -489,6 +491,9 @@ export default function McpPage() {
             )}
           </div>
           <DialogFooter>
+            <Button variant="ghost" onClick={() => setBindDialogOpen(false)}>
+              {t("common.cancel")}
+            </Button>
             <Button onClick={handleBindSave} disabled={bindSaving}>
               {bindSaving ? t("common.saving") : t("common.save")}
             </Button>

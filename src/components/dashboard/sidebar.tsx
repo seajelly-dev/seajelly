@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Bot,
@@ -14,7 +15,7 @@ import {
   Sparkles,
   LogOut,
 } from "lucide-react";
-import { CrabLogo } from "@/components/crab-logo";
+import Image from "next/image";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useT } from "@/lib/i18n";
 import {
@@ -64,57 +65,75 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
 
   return (
     <Sidebar>
-      <SidebarHeader className="border-b px-4 py-3">
+      <SidebarHeader className="border-b px-4 py-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <CrabLogo size={28} className="text-primary" />
-            <span className="text-lg font-semibold tracking-tight">
+          <div className="flex items-center gap-3">
+            <Image src="/logo.svg" alt="OpenCrab Logo" width={32} height={32} />
+            <span className="text-xl font-semibold tracking-tight">
               OpenCrab
             </span>
           </div>
           <LanguageSwitcher variant="ghost" size="icon-sm" />
         </div>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="px-2 py-4">
         <SidebarGroup>
-          <SidebarGroupLabel>{t("sidebar.dashboard")}</SidebarGroupLabel>
+          <SidebarGroupLabel className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+            {t("sidebar.dashboard")}
+          </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
-              {NAV_ITEMS.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton
-                    render={<a href={item.href} className="transition-all duration-300" />}
-                    isActive={
-                      item.href === "/dashboard"
-                        ? pathname === "/dashboard"
-                        : pathname.startsWith(item.href)
-                    }
-                  >
-                    <item.icon className="size-4 transition-transform duration-300 group-hover/menu-button:scale-110 group-hover/menu-button:text-primary" />
-                    <span className="transition-colors duration-300">{t(item.titleKey as Parameters<typeof t>[0])}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+            <SidebarMenu className="gap-1.5">
+              {NAV_ITEMS.map((item) => {
+                const isActive = item.href === "/dashboard"
+                  ? pathname === "/dashboard"
+                  : pathname.startsWith(item.href);
+                return (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      render={<a href={item.href} className={cn("transition-all duration-300", isActive && "font-medium bg-sidebar-accent text-sidebar-accent-foreground shadow-sm ring-1 ring-border/50")} />}
+                      isActive={isActive}
+                      size="lg"
+                      className="px-4 rounded-xl"
+                    >
+                      <item.icon className={cn("size-5 transition-transform duration-300 group-hover/menu-button:scale-110 group-hover/menu-button:text-primary", isActive && "text-primary")} />
+                      <span className="transition-colors duration-300">{t(item.titleKey as Parameters<typeof t>[0])}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="border-t p-3">
+      <SidebarFooter className="border-t p-4">
         <DropdownMenu>
           <DropdownMenuTrigger
             id="dashboard-user-menu-trigger"
             render={
               <Button
                 variant="ghost"
-                className="w-full justify-start text-sm"
+                className="w-full justify-between h-auto py-3 px-3 hover:bg-sidebar-accent rounded-xl"
               />
             }
           >
-            <span className="truncate">{userEmail}</span>
+            <div className="flex items-center gap-3 overflow-hidden">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold">
+                {userEmail.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex flex-col items-start overflow-hidden text-sm">
+                <span className="truncate font-medium w-full text-left">
+                  {userEmail.split('@')[0]}
+                </span>
+                <span className="truncate text-xs text-muted-foreground w-full text-left">
+                  {userEmail}
+                </span>
+              </div>
+            </div>
+            <LogOut className="size-4 text-muted-foreground ml-2 shrink-0" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-48">
-            <DropdownMenuItem onClick={handleSignOut}>
-              <LogOut className="mr-2 size-4" />
+          <DropdownMenuContent align="start" className="w-56 rounded-xl">
+            <DropdownMenuItem onClick={handleSignOut} className="gap-2 cursor-pointer text-destructive focus:text-destructive">
+              <LogOut className="size-4" />
               {t("common.signOut")}
             </DropdownMenuItem>
           </DropdownMenuContent>

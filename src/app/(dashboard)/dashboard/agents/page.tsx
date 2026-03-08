@@ -528,6 +528,13 @@ export default function AgentsPage() {
             </div>
             <DialogFooter>
               <Button
+                variant="ghost"
+                onClick={() => setDialogOpen(false)}
+                className="w-full sm:w-auto"
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
                 onClick={handleSave}
                 disabled={saving}
                 className="w-full sm:w-auto"
@@ -658,82 +665,82 @@ export default function AgentsPage() {
                 </p>
                 {(agent as Agent & { has_bot_token?: boolean })
                   .has_bot_token && (
-                  <div className="flex items-center gap-2 rounded-md border p-2 overflow-hidden">
-                    <Webhook className="size-4 shrink-0 text-muted-foreground" />
-                    {(() => {
-                      const info = webhookStatus[agent.id];
-                      const isLoading = !(agent.id in webhookStatus);
-                      const isSet = info && info.url;
-                      const isSetting = settingWebhook === agent.id;
+                    <div className="flex items-center gap-2 rounded-md border p-2 overflow-hidden">
+                      <Webhook className="size-4 shrink-0 text-muted-foreground" />
+                      {(() => {
+                        const info = webhookStatus[agent.id];
+                        const isLoading = !(agent.id in webhookStatus);
+                        const isSet = info && info.url;
+                        const isSetting = settingWebhook === agent.id;
 
-                      if (isLoading) {
-                        return (
-                          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Loader2 className="size-3 animate-spin" />
-                            {t("common.loading")}
-                          </span>
-                        );
-                      }
+                        if (isLoading) {
+                          return (
+                            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Loader2 className="size-3 animate-spin" />
+                              {t("common.loading")}
+                            </span>
+                          );
+                        }
 
-                      if (isSet) {
+                        if (isSet) {
+                          return (
+                            <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                                  <CheckCircle2 className="size-3" />
+                                  {t("agents.webhookActive")}
+                                </span>
+                                <p
+                                  className="truncate text-[10px] text-muted-foreground"
+                                  title={info.url}
+                                >
+                                  {info.url}
+                                </p>
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                className="shrink-0"
+                                onClick={() => handleSetWebhook(agent.id)}
+                                disabled={isSetting}
+                              >
+                                {isSetting ? (
+                                  <Loader2 className="size-3 animate-spin" />
+                                ) : (
+                                  t("agents.setWebhook")
+                                )}
+                              </Button>
+                            </div>
+                          );
+                        }
+
                         return (
                           <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
-                                <CheckCircle2 className="size-3" />
-                                {t("agents.webhookActive")}
-                              </span>
-                              <p
-                                className="truncate text-[10px] text-muted-foreground"
-                                title={info.url}
-                              >
-                                {info.url}
-                              </p>
-                            </div>
+                            <span className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400">
+                              <XCircle className="size-3" />
+                              {t("agents.webhookNotSet")}
+                            </span>
                             <Button
-                              variant="outline"
+                              variant="default"
                               size="xs"
                               className="shrink-0"
                               onClick={() => handleSetWebhook(agent.id)}
                               disabled={isSetting}
                             >
                               {isSetting ? (
-                                <Loader2 className="size-3 animate-spin" />
+                                <>
+                                  <Loader2 className="mr-1 size-3 animate-spin" />
+                                  {t("agents.settingWebhook")}
+                                </>
                               ) : (
                                 t("agents.setWebhook")
                               )}
                             </Button>
                           </div>
                         );
-                      }
-
-                      return (
-                        <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                          <span className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400">
-                            <XCircle className="size-3" />
-                            {t("agents.webhookNotSet")}
-                          </span>
-                          <Button
-                            variant="default"
-                            size="xs"
-                            className="shrink-0"
-                            onClick={() => handleSetWebhook(agent.id)}
-                            disabled={isSetting}
-                          >
-                            {isSetting ? (
-                              <>
-                                <Loader2 className="mr-1 size-3 animate-spin" />
-                                {t("agents.settingWebhook")}
-                              </>
-                            ) : (
-                              t("agents.setWebhook")
-                            )}
-                          </Button>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
+                      })()}
+                    </div>
+                  )}
               </CardContent>
             </Card>
           ))}

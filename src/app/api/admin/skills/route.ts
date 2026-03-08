@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
-import { safeFetch, SSRFError } from "@/lib/security/url-validator";
+import { safeFetch } from "@/lib/security/url-validator";
 
 export async function GET() {
   try {
