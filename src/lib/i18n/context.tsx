@@ -16,22 +16,13 @@ const dictionaries: Record<Locale, TranslationKeys> = { en, zh };
 
 const STORAGE_KEY = "opencrab-locale";
 
-function detectLocale(): Locale {
-  if (typeof window === "undefined") return "en";
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === "en" || stored === "zh") return stored;
-  const nav = navigator.language || "";
-  if (nav.startsWith("zh")) return "zh";
-  return "en";
-}
-
 type NestedKeyOf<T> = T extends string
   ? ""
   : {
-      [K in keyof T & string]: T[K] extends string
-        ? K
-        : `${K}.${NestedKeyOf<T[K]>}`;
-    }[keyof T & string];
+    [K in keyof T & string]: T[K] extends string
+    ? K
+    : `${K}.${NestedKeyOf<T[K]>}`;
+  }[keyof T & string];
 
 type TranslationPath = NestedKeyOf<TranslationKeys>;
 
@@ -63,18 +54,21 @@ interface I18nContextValue {
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
-export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>("en");
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setLocaleState(detectLocale());
-    setMounted(true);
-  }, []);
+export function I18nProvider({
+  children,
+  initialLocale = "en",
+}: {
+  children: ReactNode;
+  initialLocale?: Locale;
+}) {
+  // 使用服务端传入的 initialLocale 作为初始值，避免 Hydration Mismatch
+  const [locale, setLocaleState] = useState<Locale>(initialLocale);
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
+    // 同时写入 localStorage（客户端备用）和 Cookie（供 SSR 读取）
     localStorage.setItem(STORAGE_KEY, l);
+    document.cookie = `${STORAGE_KEY}=${l}; path=/; max-age=31536000; SameSite=Lax`;
     document.documentElement.lang = l === "zh" ? "zh-CN" : "en";
   }, []);
 
@@ -87,10 +81,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (mounted) {
-      document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
-    }
-  }, [locale, mounted]);
+    document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
+  }, [locale]);
 
   return (
     <I18nContext.Provider value={{ locale, setLocale, t }}>
