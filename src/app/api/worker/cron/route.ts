@@ -15,6 +15,44 @@ function getSupabase() {
   );
 }
 
+function getTaskJobName(taskConfig: unknown): string | null {
+  if (!taskConfig || typeof taskConfig !== "object") return null;
+  const raw = (taskConfig as Record<string, unknown>).job_name;
+  return typeof raw === "string" ? raw : null;
+}
+
+async function disableLocalCronJobs(agentId: string, jobName: string): Promise<number> {
+  const supabase = getSupabase();
+  const { data: rows, error: listErr } = await supabase
+    .from("cron_jobs")
+    .select("id, task_config")
+    .eq("agent_id", agentId)
+    .eq("enabled", true);
+
+  if (listErr) {
+    console.warn("Once cleanup local-list failed:", listErr.message);
+    return 0;
+  }
+
+  const ids = (rows ?? [])
+    .filter((r) => getTaskJobName(r.task_config) === jobName)
+    .map((r) => r.id as string);
+
+  if (ids.length === 0) return 0;
+
+  const { error: updateErr } = await supabase
+    .from("cron_jobs")
+    .update({ enabled: false, last_run: new Date().toISOString() })
+    .in("id", ids);
+
+  if (updateErr) {
+    console.warn("Once cleanup local-update failed:", updateErr.message);
+    return 0;
+  }
+
+  return ids.length;
+}
+
 export async function POST(request: Request) {
   const expectedSecret = process.env.CRON_SECRET;
   if (!expectedSecret) {
@@ -103,25 +141,27 @@ export async function POST(request: Request) {
         );
     }
 
-    // Once cleanup runs AFTER the response is sent back to pg_net,
-    // so it won't be killed by pg_net's 5s timeout.
-    if (rest.once && rest.job_name) {
+    // For one-shot tasks, mark local rows disabled immediately (authoritative UI state),
+    // then unschedule pg_cron in background.
+    let localDisabled = 0;
+    const onceJobName =
+      rest.once && typeof rest.job_name === "string" ? rest.job_name : null;
+    if (onceJobName) {
+      localDisabled = await disableLocalCronJobs(agent_id, onceJobName);
       after(async () => {
         try {
-          await unscheduleCronJob(rest.job_name);
-          const supabase = getSupabase();
-          await supabase
-            .from("cron_jobs")
-            .update({ enabled: false })
-            .eq("agent_id", agent_id)
-            .filter("task_config->>'job_name'", "eq", rest.job_name);
+          await unscheduleCronJob(onceJobName);
         } catch (e) {
           console.warn("One-shot cleanup failed:", e);
         }
       });
     }
 
-    return NextResponse.json({ success: true, task_type: type });
+    return NextResponse.json({
+      success: true,
+      task_type: type,
+      once_cleanup: onceJobName ? { local_disabled: localDisabled } : undefined,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("Cron worker error:", msg);

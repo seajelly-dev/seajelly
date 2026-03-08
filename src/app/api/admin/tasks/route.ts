@@ -1,6 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
-import { unscheduleCronJob } from "@/lib/supabase/management";
+import { unscheduleCronJob, listCronJobs } from "@/lib/supabase/management";
+
+function getTaskJobName(taskConfig: unknown): string | null {
+  if (!taskConfig || typeof taskConfig !== "object") return null;
+  const raw = (taskConfig as Record<string, unknown>).job_name;
+  return typeof raw === "string" ? raw : null;
+}
+
+async function reconcileLocalStatus(
+  db: Awaited<ReturnType<typeof createAdminClient>>
+) {
+  const liveCron = await listCronJobs();
+  if (!liveCron.success || !Array.isArray(liveCron.data)) return;
+
+  const liveNames = new Set<string>();
+  for (const row of liveCron.data as Array<Record<string, unknown>>) {
+    if (typeof row.jobname === "string") liveNames.add(row.jobname);
+  }
+
+  // Avoid racing with newly-created jobs that may still be propagating.
+  const cutoff = new Date(Date.now() - 60_000).toISOString();
+  const { data: localRows, error: localErr } = await db
+    .from("cron_jobs")
+    .select("id, task_config")
+    .eq("enabled", true)
+    .lt("created_at", cutoff);
+  if (localErr || !localRows?.length) return;
+
+  const staleIds = localRows
+    .filter((r) => {
+      const jobName = getTaskJobName(r.task_config);
+      return jobName ? !liveNames.has(jobName) : false;
+    })
+    .map((r) => r.id as string);
+  if (!staleIds.length) return;
+
+  await db.from("cron_jobs").update({ enabled: false }).in("id", staleIds);
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,6 +56,7 @@ export async function GET(request: NextRequest) {
   const to = from + pageSize - 1;
 
   const db = await createAdminClient();
+  await reconcileLocalStatus(db);
 
   const { count } = await db
     .from("cron_jobs")

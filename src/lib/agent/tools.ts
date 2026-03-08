@@ -45,6 +45,39 @@ interface ToolsOptions {
 export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions) {
   const supabase = getSupabase();
 
+  function getTaskJobName(taskConfig: unknown): string | null {
+    if (!taskConfig || typeof taskConfig !== "object") return null;
+    const raw = (taskConfig as Record<string, unknown>).job_name;
+    return typeof raw === "string" ? raw : null;
+  }
+
+  async function disableLocalCronJobs(jobName: string): Promise<{ updated: number; error?: string }> {
+    const { data: rows, error: listErr } = await supabase
+      .from("cron_jobs")
+      .select("id, task_config")
+      .eq("agent_id", agentId)
+      .eq("enabled", true);
+    if (listErr) {
+      return { updated: 0, error: listErr.message };
+    }
+
+    const ids = (rows ?? [])
+      .filter((r) => getTaskJobName(r.task_config) === jobName)
+      .map((r) => r.id as string);
+    if (ids.length === 0) {
+      return { updated: 0 };
+    }
+
+    const { error: updateErr } = await supabase
+      .from("cron_jobs")
+      .update({ enabled: false })
+      .in("id", ids);
+    if (updateErr) {
+      return { updated: 0, error: updateErr.message };
+    }
+    return { updated: ids.length };
+  }
+
   function buildSoulTools(cid: string) {
     return {
       user_soul_update: tool({
@@ -351,12 +384,21 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
         if (prompt) taskConfig.prompt = prompt;
         if (once) taskConfig.once = true;
 
-        await supabase.from("cron_jobs").insert({
+        const { error: insertErr } = await supabase.from("cron_jobs").insert({
           agent_id: agentId,
           schedule: cron_expression,
           task_type,
           task_config: taskConfig,
         });
+        if (insertErr) {
+          // Avoid "pg_cron exists but local row missing" drift.
+          try {
+            await unscheduleCronJob(job_name);
+          } catch {
+            // best effort
+          }
+          return { success: false, error: `Failed to save local task record: ${insertErr.message}` };
+        }
 
         const desc = task_type === "reminder" ? message : prompt;
         return {
@@ -388,26 +430,24 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
       }),
       execute: async ({ job_name }: { job_name: string }) => {
         const warnings: string[] = [];
+        let pgSucceeded = true;
 
         try {
           const pgResult = await unscheduleCronJob(job_name);
-          if (!pgResult.success) warnings.push(`pg_cron: ${pgResult.error}`);
+          if (!pgResult.success) {
+            pgSucceeded = false;
+            warnings.push(`pg_cron: ${pgResult.error}`);
+          }
         } catch (e) {
+          pgSucceeded = false;
           warnings.push(`pg_cron: ${e instanceof Error ? e.message : "unknown error"}`);
         }
 
-        const { data: updated, error: dbErr } = await supabase
-          .from("cron_jobs")
-          .update({ enabled: false })
-          .eq("agent_id", agentId)
-          .eq("enabled", true)
-          .filter("task_config->>'job_name'", "eq", job_name)
-          .select("id");
+        const local = await disableLocalCronJobs(job_name);
+        if (local.error) warnings.push(`db: ${local.error}`);
+        const dbUpdated = local.updated > 0;
 
-        if (dbErr) warnings.push(`db: ${dbErr.message}`);
-
-        const dbUpdated = (updated?.length ?? 0) > 0;
-        if (!dbUpdated && warnings.length > 0) {
+        if (!pgSucceeded && !dbUpdated) {
           return { success: false, error: `Job "${job_name}" not found or already cancelled` };
         }
 
