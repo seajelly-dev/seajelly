@@ -221,7 +221,10 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
         "2. agent_invoke — run a full agentic loop with the given prompt at the scheduled time " +
         "(useful for tasks needing external data like weather, summaries, etc.).\n" +
         "Use standard cron syntax: minute hour day month weekday. Timezone is UTC.\n" +
-        "Set once=true for one-shot tasks (e.g. 'remind me in 30 minutes').",
+        "Set once=true for one-shot tasks (e.g. 'remind me in 30 minutes').\n\n" +
+        "IMPORTANT: Do NOT re-create tasks that were already scheduled in earlier messages. " +
+        "Only create NEW tasks explicitly requested in the CURRENT user message. " +
+        "Check conversation history — if a task was already confirmed as scheduled, do not schedule it again.",
       inputSchema: z.object({
         job_name: z
           .string()
@@ -274,6 +277,29 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
         }
         if (task_type === "agent_invoke" && !prompt) {
           return { success: false, error: "prompt is required for agent_invoke tasks" };
+        }
+
+        const { data: existingJobs } = await supabase
+          .from("cron_jobs")
+          .select("id, task_config")
+          .eq("agent_id", agentId)
+          .eq("schedule", cron_expression)
+          .eq("task_type", task_type)
+          .eq("enabled", true);
+
+        if (existingJobs && existingJobs.length > 0) {
+          const content = task_type === "reminder" ? message : prompt;
+          const duplicate = existingJobs.find((j) => {
+            const cfg = j.task_config as Record<string, unknown>;
+            const existing = (cfg?.message ?? cfg?.prompt ?? "") as string;
+            return existing === content;
+          });
+          if (duplicate) {
+            return {
+              success: false,
+              error: `A ${task_type} task with the same schedule and content already exists. No duplicate created.`,
+            };
+          }
         }
 
         const appUrl =
