@@ -2,7 +2,7 @@
 
 import { useI18n } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/types";
-import { Languages } from "lucide-react";
+import { Globe, Check } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,18 +29,19 @@ export function LanguageSwitcher({
     <DropdownMenu>
       <DropdownMenuTrigger
         id="language-switcher-trigger"
-        render={<Button variant={variant} size={size} />}
+        render={<Button variant={variant} size={size} className="group" />}
       >
-        <Languages className="size-4" />
+        <Globe className="size-4 transition-transform duration-300 group-hover:scale-110" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {LOCALES.map((l) => (
           <DropdownMenuItem
             key={l.value}
             onClick={() => setLocale(l.value)}
-            className={locale === l.value ? "bg-accent" : ""}
+            className={`flex items-center justify-between ${locale === l.value ? "bg-accent font-medium" : ""}`}
           >
             {l.label}
+            {locale === l.value && <Check className="ml-2 size-4" />}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
