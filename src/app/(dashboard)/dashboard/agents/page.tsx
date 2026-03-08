@@ -43,6 +43,7 @@ import {
   CheckCircle2,
   XCircle,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
 import type { Agent, McpServer, Skill } from "@/types/database";
@@ -58,6 +59,13 @@ export default function AgentsPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  const PRIVILEGED_TOOLS = [
+    { key: "run_sql", label: "run_sql", desc: "agents.toolRunSql", defaultOn: false },
+    { key: "schedule_task", label: "schedule_task", desc: "agents.toolScheduleTask", defaultOn: true },
+    { key: "cancel_scheduled_job", label: "cancel_scheduled_job", desc: "agents.toolCancelJob", defaultOn: true },
+    { key: "list_scheduled_jobs", label: "list_scheduled_jobs", desc: "agents.toolListJobs", defaultOn: true },
+  ] as const;
+
   const [form, setForm] = useState({
     name: "",
     system_prompt: "",
@@ -65,6 +73,7 @@ export default function AgentsPage() {
     access_mode: "open" as "open" | "whitelist",
     ai_soul: "",
     telegram_bot_token: "",
+    tools_config: {} as Record<string, boolean>,
   });
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
@@ -196,6 +205,10 @@ export default function AgentsPage() {
 
   const openCreate = () => {
     setEditingAgent(null);
+    const defaultToolsConfig: Record<string, boolean> = {};
+    for (const t of PRIVILEGED_TOOLS) {
+      defaultToolsConfig[t.key] = t.defaultOn;
+    }
     setForm({
       name: "",
       system_prompt: "",
@@ -203,6 +216,7 @@ export default function AgentsPage() {
       access_mode: "open",
       ai_soul: "",
       telegram_bot_token: "",
+      tools_config: defaultToolsConfig,
     });
     setBoundMcpNames([]);
     setBoundSkillNames([]);
@@ -211,6 +225,7 @@ export default function AgentsPage() {
 
   const openEdit = (agent: Agent) => {
     setEditingAgent(agent);
+    const tc = (agent.tools_config ?? {}) as Record<string, boolean>;
     setForm({
       name: agent.name,
       system_prompt: agent.system_prompt,
@@ -218,6 +233,7 @@ export default function AgentsPage() {
       access_mode: agent.access_mode || "open",
       ai_soul: agent.ai_soul || "",
       telegram_bot_token: "",
+      tools_config: tc,
     });
     fetchBoundResources(agent.id);
     setDialogOpen(true);
@@ -303,7 +319,7 @@ export default function AgentsPage() {
             <Plus className="mr-1.5 size-4" />
             {t("agents.newAgent")}
           </DialogTrigger>
-          <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-h-[85vh] sm:max-w-4xl overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {editingAgent
@@ -314,39 +330,40 @@ export default function AgentsPage() {
                 {editingAgent ? t("agents.editDesc") : t("agents.createDesc")}
               </DialogDescription>
             </DialogHeader>
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label>{t("agents.name")}</Label>
-                <Input
-                  value={form.name}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, name: e.target.value }))
-                  }
-                  placeholder={t("agents.namePlaceholder")}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>{t("agents.botToken")}</Label>
-                <Input
-                  type="password"
-                  value={form.telegram_bot_token}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      telegram_bot_token: e.target.value,
-                    }))
-                  }
-                  placeholder={
-                    editingAgent?.telegram_bot_token
-                      ? t("agents.botTokenKeep")
-                      : t("agents.botTokenNew")
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t("agents.botTokenHint")}
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-8 md:grid-cols-[1fr_auto_1fr]">
+              {/* ── Left column: Basic settings ── */}
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t("agents.name")}</Label>
+                  <Input
+                    value={form.name}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, name: e.target.value }))
+                    }
+                    placeholder={t("agents.namePlaceholder")}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t("agents.botToken")}</Label>
+                  <Input
+                    type="password"
+                    value={form.telegram_bot_token}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        telegram_bot_token: e.target.value,
+                      }))
+                    }
+                    placeholder={
+                      editingAgent?.telegram_bot_token
+                        ? t("agents.botTokenKeep")
+                        : t("agents.botTokenNew")
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t("agents.botTokenHint")}
+                  </p>
+                </div>
                 <div className="flex flex-col gap-1.5">
                   <Label>{t("agents.model")}</Label>
                   <Select
@@ -396,83 +413,117 @@ export default function AgentsPage() {
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>{t("agents.systemPrompt")}</Label>
-                <Textarea
-                  rows={6}
-                  className="max-h-48 resize-y"
-                  value={form.system_prompt}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      system_prompt: e.target.value,
-                    }))
-                  }
-                  placeholder={t("agents.systemPromptPlaceholder")}
-                />
-              </div>
-
-              {/* Read-only bound MCPs */}
-              {editingAgent && (
                 <div className="flex flex-col gap-1.5">
-                  <Label>{t("agents.mcpServers")}</Label>
-                  {boundMcpNames.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {boundMcpNames.map((name) => (
-                        <Badge key={name} variant="secondary">
-                          {name}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {t("agents.noBindings")}
-                    </p>
-                  )}
+                  <Label>{t("agents.systemPrompt")}</Label>
+                  <Textarea
+                    rows={5}
+                    className="max-h-40 resize-y"
+                    value={form.system_prompt}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        system_prompt: e.target.value,
+                      }))
+                    }
+                    placeholder={t("agents.systemPromptPlaceholder")}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t("agents.aiSoul")}</Label>
+                  <Textarea
+                    rows={3}
+                    className="max-h-28 resize-y"
+                    value={form.ai_soul}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, ai_soul: e.target.value }))
+                    }
+                    placeholder={t("agents.aiSoulPlaceholder")}
+                  />
                   <p className="text-xs text-muted-foreground">
-                    {t("agents.bindFromResourcePage")}
+                    {t("agents.aiSoulHint")}
                   </p>
                 </div>
-              )}
+              </div>
 
-              {/* Read-only bound Skills */}
-              {editingAgent && (
+              {/* ── Divider ── */}
+              <div className="hidden md:block w-px bg-border" />
+
+              {/* ── Right column: Tools & Bindings ── */}
+              <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <Label>{t("agents.skills")}</Label>
-                  {boundSkillNames.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {boundSkillNames.map((name) => (
-                        <Badge key={name} variant="secondary">
-                          {name}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {t("agents.noBindings")}
-                    </p>
-                  )}
+                  <Label>{t("agents.privilegedTools")}</Label>
                   <p className="text-xs text-muted-foreground">
-                    {t("agents.bindFromResourcePage")}
+                    {t("agents.privilegedToolsHint")}
                   </p>
+                  <div className="flex flex-col gap-2">
+                    {PRIVILEGED_TOOLS.map(({ key, label, desc }) => (
+                      <label
+                        key={key}
+                        className="flex items-start gap-3 rounded-md border px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
+                      >
+                        <Switch
+                          className="mt-0.5 shrink-0"
+                          checked={!!form.tools_config[key]}
+                          onCheckedChange={(checked) =>
+                            setForm((f) => ({
+                              ...f,
+                              tools_config: { ...f.tools_config, [key]: checked },
+                            }))
+                          }
+                        />
+                        <div className="min-w-0">
+                          <code className="text-xs font-medium">{label}</code>
+                          <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+                            {t(desc)}
+                          </p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              )}
 
-              <div className="flex flex-col gap-1.5">
-                <Label>{t("agents.aiSoul")}</Label>
-                <Textarea
-                  rows={3}
-                  className="max-h-32 resize-y"
-                  value={form.ai_soul}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, ai_soul: e.target.value }))
-                  }
-                  placeholder={t("agents.aiSoulPlaceholder")}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t("agents.aiSoulHint")}
-                </p>
+                {editingAgent && (
+                  <>
+                    <div className="flex flex-col gap-1.5">
+                      <Label>{t("agents.mcpServers")}</Label>
+                      {boundMcpNames.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {boundMcpNames.map((name) => (
+                            <Badge key={name} variant="secondary">
+                              {name}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          {t("agents.noBindings")}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {t("agents.bindFromResourcePage")}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label>{t("agents.skills")}</Label>
+                      {boundSkillNames.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {boundSkillNames.map((name) => (
+                            <Badge key={name} variant="secondary">
+                              {name}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          {t("agents.noBindings")}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {t("agents.bindFromResourcePage")}
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             <DialogFooter>

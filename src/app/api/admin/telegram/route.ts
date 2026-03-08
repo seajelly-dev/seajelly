@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { randomBytes } from "crypto";
+import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { getBotForAgent, resetBotForAgent } from "@/lib/telegram/bot";
 import { BOT_COMMANDS } from "@/lib/telegram/commands";
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const { action, agent_id, webhook_url } = await request.json();
@@ -32,8 +31,11 @@ export async function POST(request: Request) {
       const webhookWithAgent = webhook_url.includes("/[agentId]")
         ? webhook_url.replace("/[agentId]", `/${agent_id}`)
         : `${webhook_url}/${agent_id}`;
-      await bot.api.setWebhook(webhookWithAgent);
+      const secret = randomBytes(32).toString("hex");
+      await bot.api.setWebhook(webhookWithAgent, { secret_token: secret });
       await bot.api.setMyCommands(BOT_COMMANDS);
+      const db = await createAdminClient();
+      await db.from("agents").update({ webhook_secret: secret }).eq("id", agent_id);
       return NextResponse.json({ success: true, webhook_url: webhookWithAgent });
     } catch (err) {
       return NextResponse.json(

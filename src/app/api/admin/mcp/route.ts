@@ -1,20 +1,12 @@
 import { NextResponse } from "next/server";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
-
-async function requireAuth() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
-  return user;
-}
+import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
+import { validateExternalUrl, SSRFError } from "@/lib/security/url-validator";
 
 export async function GET() {
   try {
-    await requireAuth();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const db = await createAdminClient();
@@ -31,9 +23,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await requireAuth();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const body = await request.json();
@@ -44,6 +36,13 @@ export async function POST(request: Request) {
       { error: "name and url are required" },
       { status: 400 }
     );
+  }
+
+  try {
+    await validateExternalUrl(url);
+  } catch (err) {
+    const msg = err instanceof SSRFError ? err.message : "Invalid URL";
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
 
   const db = await createAdminClient();
@@ -67,9 +66,9 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    await requireAuth();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const body = await request.json();
@@ -77,6 +76,15 @@ export async function PUT(request: Request) {
 
   if (!id) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
+  }
+
+  if (updates.url) {
+    try {
+      await validateExternalUrl(updates.url);
+    } catch (err) {
+      const msg = err instanceof SSRFError ? err.message : "Invalid URL";
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
   }
 
   const db = await createAdminClient();
@@ -95,9 +103,9 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    await requireAuth();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const { searchParams } = new URL(request.url);

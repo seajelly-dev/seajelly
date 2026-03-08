@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
+  const db = await createAdminClient();
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 
   if (id) {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("sessions")
       .select(
         "id, platform_chat_id, agent_id, version, is_active, updated_at, messages, agents(name)"
@@ -36,11 +35,11 @@ export async function GET(request: NextRequest) {
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  const { count } = await supabase
+  const { count } = await db
     .from("sessions")
     .select("id", { count: "exact", head: true });
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("sessions")
     .select(
       "id, platform_chat_id, agent_id, version, is_active, updated_at, messages, agents(name)"

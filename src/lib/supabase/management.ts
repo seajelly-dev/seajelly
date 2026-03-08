@@ -66,8 +66,33 @@ export async function enableExtension(
 
 // ─── pg_cron helpers ───
 
+const JOB_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const CRON_EXPR_RE = /^[0-9*,/\- ]+$/;
+
+function validateJobName(name: string) {
+  if (!JOB_NAME_RE.test(name)) {
+    throw new Error(
+      `Invalid job name "${name}". Must match ${JOB_NAME_RE.source}`
+    );
+  }
+}
+
+function validateCronExpr(expr: string) {
+  if (!CRON_EXPR_RE.test(expr)) {
+    throw new Error(
+      `Invalid cron expression "${expr}". Only digits, *, /, -, comma and spaces allowed.`
+    );
+  }
+}
+
+function escapeSQL(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 export async function listCronJobs(): Promise<MgmtQueryResult> {
-  return executeSQL("SELECT jobid, schedule, command, nodename, active FROM cron.job ORDER BY jobid;");
+  return executeSQL(
+    "SELECT jobid, jobname, schedule, nodename, active FROM cron.job ORDER BY jobid;"
+  );
 }
 
 export async function scheduleCronJob(
@@ -75,16 +100,18 @@ export async function scheduleCronJob(
   schedule: string,
   command: string
 ): Promise<MgmtQueryResult> {
-  const escaped = command.replace(/'/g, "''");
+  validateJobName(jobName);
+  validateCronExpr(schedule);
   return executeSQL(
-    `SELECT cron.schedule('${jobName}', '${schedule}', '${escaped}');`
+    `SELECT cron.schedule('${escapeSQL(jobName)}', '${escapeSQL(schedule)}', '${escapeSQL(command)}');`
   );
 }
 
 export async function unscheduleCronJob(
   jobName: string
 ): Promise<MgmtQueryResult> {
-  return executeSQL(`SELECT cron.unschedule('${jobName}');`);
+  validateJobName(jobName);
+  return executeSQL(`SELECT cron.unschedule('${escapeSQL(jobName)}');`);
 }
 
 export async function getCronJobHistory(

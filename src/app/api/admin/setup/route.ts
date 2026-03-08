@@ -65,6 +65,26 @@ export async function POST(request: Request) {
   const body = await request.json();
   const { step } = body;
 
+  if (step !== "connect") {
+    try {
+      const db = await createAdminClient();
+      const { count } = await db
+        .from("admins")
+        .select("*", { count: "exact", head: true });
+      const { count: agentCount } = await db
+        .from("agents")
+        .select("*", { count: "exact", head: true });
+      if ((count ?? 0) > 0 && (agentCount ?? 0) > 0) {
+        return NextResponse.json(
+          { error: "Setup already completed" },
+          { status: 403 }
+        );
+      }
+    } catch {
+      /* first-time: createAdminClient may fail — allow setup to proceed */
+    }
+  }
+
   if (step === "connect") return handleConnect(body);
   if (step === "register") return handleRegister(body);
   if (step === "secrets") return handleSecrets(body);
@@ -365,12 +385,30 @@ async function handleAgent(body: {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL;
       if (appUrl) {
         try {
+          const { randomBytes } = await import("crypto");
           const { getBotForAgent, resetBotForAgent } = await import("@/lib/telegram/bot");
           const { BOT_COMMANDS } = await import("@/lib/telegram/commands");
           resetBotForAgent(agentId);
           const bot = await getBotForAgent(agentId);
-          await bot.api.setWebhook(`${appUrl}/api/webhook/telegram/${agentId}`);
+          const webhookSecret = randomBytes(32).toString("hex");
+          await bot.api.setWebhook(`${appUrl}/api/webhook/telegram/${agentId}`, {
+            secret_token: webhookSecret,
+          });
           await bot.api.setMyCommands(BOT_COMMANDS);
+          const escapedSecret = webhookSecret.replace(/'/g, "''");
+          await fetch(
+            `${MGMT_BASE}/projects/${project_ref}/database/query`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${access_token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                query: `UPDATE public.agents SET webhook_secret = '${escapedSecret}' WHERE id = '${agentId}';`,
+              }),
+            }
+          );
         } catch (webhookErr) {
           console.warn("Auto-webhook setup failed (non-blocking):", webhookErr);
         }
@@ -441,13 +479,16 @@ CREATE TABLE IF NOT EXISTS public.agents (
   access_mode       text NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','whitelist')),
   ai_soul           text NOT NULL DEFAULT '',
   telegram_bot_token text,
+  webhook_secret    text,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE public.agents ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "agents_admin_all" ON public.agents;
 CREATE POLICY "agents_admin_all" ON public.agents FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "agents_public_select" ON public.agents;
-CREATE POLICY "agents_public_select" ON public.agents FOR SELECT USING (true);
+DROP POLICY IF EXISTS "agents_service_select" ON public.agents;
+CREATE POLICY "agents_service_select" ON public.agents FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
 
 CREATE TABLE IF NOT EXISTS public.channels (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -466,7 +507,16 @@ ALTER TABLE public.channels ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "channels_admin_all" ON public.channels;
 CREATE POLICY "channels_admin_all" ON public.channels FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "channels_public_rw" ON public.channels;
-CREATE POLICY "channels_public_rw" ON public.channels FOR ALL USING (true);
+DROP POLICY IF EXISTS "channels_anon_select" ON public.channels;
+DROP POLICY IF EXISTS "channels_service_select" ON public.channels;
+CREATE POLICY "channels_service_select" ON public.channels FOR SELECT
+  USING (current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "channels_service_write" ON public.channels;
+CREATE POLICY "channels_service_write" ON public.channels FOR INSERT
+  WITH CHECK (current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "channels_service_update" ON public.channels;
+CREATE POLICY "channels_service_update" ON public.channels FOR UPDATE
+  USING (current_setting('role') = 'service_role');
 
 CREATE TABLE IF NOT EXISTS public.sessions (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -486,11 +536,17 @@ ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "sessions_admin_all" ON public.sessions;
 CREATE POLICY "sessions_admin_all" ON public.sessions FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "sessions_public_select" ON public.sessions;
-CREATE POLICY "sessions_public_select" ON public.sessions FOR SELECT USING (true);
 DROP POLICY IF EXISTS "sessions_service_upsert" ON public.sessions;
-CREATE POLICY "sessions_service_upsert" ON public.sessions FOR INSERT WITH CHECK (true);
 DROP POLICY IF EXISTS "sessions_service_update" ON public.sessions;
-CREATE POLICY "sessions_service_update" ON public.sessions FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "sessions_service_select" ON public.sessions;
+CREATE POLICY "sessions_service_select" ON public.sessions FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "sessions_service_insert" ON public.sessions;
+CREATE POLICY "sessions_service_insert" ON public.sessions FOR INSERT
+  WITH CHECK (current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "sessions_service_upd" ON public.sessions;
+CREATE POLICY "sessions_service_upd" ON public.sessions FOR UPDATE
+  USING (current_setting('role') = 'service_role');
 
 CREATE TABLE IF NOT EXISTS public.memories (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -506,7 +562,9 @@ ALTER TABLE public.memories ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "memories_admin_all" ON public.memories;
 CREATE POLICY "memories_admin_all" ON public.memories FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "memories_public_rw" ON public.memories;
-CREATE POLICY "memories_public_rw" ON public.memories FOR ALL USING (true);
+DROP POLICY IF EXISTS "memories_service_all" ON public.memories;
+CREATE POLICY "memories_service_all" ON public.memories FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
 
 CREATE TABLE IF NOT EXISTS public.memory_chunks (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -526,7 +584,9 @@ ALTER TABLE public.memory_chunks ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "memory_chunks_admin_all" ON public.memory_chunks;
 CREATE POLICY "memory_chunks_admin_all" ON public.memory_chunks FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "memory_chunks_public_rw" ON public.memory_chunks;
-CREATE POLICY "memory_chunks_public_rw" ON public.memory_chunks FOR ALL USING (true);
+DROP POLICY IF EXISTS "memory_chunks_service_all" ON public.memory_chunks;
+CREATE POLICY "memory_chunks_service_all" ON public.memory_chunks FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
 
 CREATE TABLE IF NOT EXISTS public.cron_jobs (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -565,7 +625,16 @@ ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "events_admin_all" ON public.events;
 CREATE POLICY "events_admin_all" ON public.events FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "events_public_rw" ON public.events;
-CREATE POLICY "events_public_rw" ON public.events FOR ALL USING (true);
+DROP POLICY IF EXISTS "events_service_select" ON public.events;
+CREATE POLICY "events_service_select" ON public.events FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "events_anon_insert" ON public.events;
+DROP POLICY IF EXISTS "events_service_insert" ON public.events;
+CREATE POLICY "events_service_insert" ON public.events FOR INSERT
+  WITH CHECK (current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "events_service_update" ON public.events;
+CREATE POLICY "events_service_update" ON public.events FOR UPDATE
+  USING (current_setting('role') = 'service_role');
 
 CREATE TABLE IF NOT EXISTS public.skills (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -580,7 +649,9 @@ ALTER TABLE public.skills ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "skills_admin_all" ON public.skills;
 CREATE POLICY "skills_admin_all" ON public.skills FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "skills_public_select" ON public.skills;
-CREATE POLICY "skills_public_select" ON public.skills FOR SELECT USING (true);
+DROP POLICY IF EXISTS "skills_service_select" ON public.skills;
+CREATE POLICY "skills_service_select" ON public.skills FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
 
 CREATE TABLE IF NOT EXISTS public.agent_skills (
   agent_id  uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
@@ -591,7 +662,9 @@ ALTER TABLE public.agent_skills ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "agent_skills_admin_all" ON public.agent_skills;
 CREATE POLICY "agent_skills_admin_all" ON public.agent_skills FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "agent_skills_public_select" ON public.agent_skills;
-CREATE POLICY "agent_skills_public_select" ON public.agent_skills FOR SELECT USING (true);
+DROP POLICY IF EXISTS "agent_skills_service_select" ON public.agent_skills;
+CREATE POLICY "agent_skills_service_select" ON public.agent_skills FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
 
 CREATE TABLE IF NOT EXISTS public.mcp_servers (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -606,7 +679,9 @@ ALTER TABLE public.mcp_servers ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "mcp_servers_admin_all" ON public.mcp_servers;
 CREATE POLICY "mcp_servers_admin_all" ON public.mcp_servers FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "mcp_servers_public_select" ON public.mcp_servers;
-CREATE POLICY "mcp_servers_public_select" ON public.mcp_servers FOR SELECT USING (true);
+DROP POLICY IF EXISTS "mcp_servers_service_select" ON public.mcp_servers;
+CREATE POLICY "mcp_servers_service_select" ON public.mcp_servers FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
 
 CREATE TABLE IF NOT EXISTS public.agent_mcps (
   agent_id      uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
@@ -617,14 +692,19 @@ ALTER TABLE public.agent_mcps ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "agent_mcps_admin_all" ON public.agent_mcps;
 CREATE POLICY "agent_mcps_admin_all" ON public.agent_mcps FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "agent_mcps_public_select" ON public.agent_mcps;
-CREATE POLICY "agent_mcps_public_select" ON public.agent_mcps FOR SELECT USING (true);
+DROP POLICY IF EXISTS "agent_mcps_service_select" ON public.agent_mcps;
+CREATE POLICY "agent_mcps_service_select" ON public.agent_mcps FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
 
 -- Ensure Supabase API roles can reach schema objects (RLS still applies row-level checks)
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT SELECT ON public.events TO anon;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
 

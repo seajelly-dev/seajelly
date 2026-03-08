@@ -76,6 +76,7 @@ interface AgentRow {
   access_mode: string;
   ai_soul: string;
   telegram_bot_token: string;
+  tools_config: Record<string, unknown> | null;
 }
 
 async function startBotForAgent(agent: AgentRow) {
@@ -303,8 +304,27 @@ async function startBotForAgent(agent: AgentRow) {
         channelId: channel.id,
       });
 
+      const TOOL_DEFAULTS: Record<string, boolean> = {
+        run_sql: false,
+        schedule_task: true,
+        cancel_scheduled_job: true,
+        list_scheduled_jobs: true,
+      };
+      const toolsConfig = (agent.tools_config ?? {}) as Record<string, boolean>;
+      const filteredBuiltin: typeof builtinTools = {} as typeof builtinTools;
+      for (const [name, def] of Object.entries(builtinTools)) {
+        if (name in TOOL_DEFAULTS) {
+          const enabled = toolsConfig[name] ?? TOOL_DEFAULTS[name];
+          if (enabled) {
+            (filteredBuiltin as Record<string, unknown>)[name] = def;
+          }
+        } else {
+          (filteredBuiltin as Record<string, unknown>)[name] = def;
+        }
+      }
+
       let mcpResult: MCPResult | null = null;
-      let tools = builtinTools;
+      let tools = filteredBuiltin;
       const { data: mcpRows } = await supabase
         .from("agent_mcps")
         .select("mcp_server_id")
@@ -313,7 +333,7 @@ async function startBotForAgent(agent: AgentRow) {
       if (mcpIds.length > 0) {
         try {
           mcpResult = await connectMCPServers(mcpIds);
-          tools = { ...builtinTools, ...mcpResult.tools } as typeof builtinTools;
+          tools = { ...filteredBuiltin, ...mcpResult.tools } as typeof filteredBuiltin;
         } catch (err) {
           console.warn("MCP tools loading failed:", err);
         }

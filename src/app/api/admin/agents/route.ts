@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
-import { encrypt, decrypt } from "@/lib/crypto/encrypt";
+import { randomBytes } from "crypto";
+import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
+import { encrypt } from "@/lib/crypto/encrypt";
 import { getBotForAgent, resetBotForAgent } from "@/lib/telegram/bot";
 import { BOT_COMMANDS } from "@/lib/telegram/commands";
 
@@ -10,23 +11,21 @@ async function autoSetWebhook(agentId: string) {
   try {
     resetBotForAgent(agentId);
     const bot = await getBotForAgent(agentId);
-    await bot.api.setWebhook(`${appUrl}/api/webhook/telegram/${agentId}`);
+    const secret = randomBytes(32).toString("hex");
+    await bot.api.setWebhook(`${appUrl}/api/webhook/telegram/${agentId}`, {
+      secret_token: secret,
+    });
     await bot.api.setMyCommands(BOT_COMMANDS);
+    const db = await createAdminClient();
+    await db.from("agents").update({ webhook_secret: secret }).eq("id", agentId);
   } catch (err) {
     console.warn("Auto-webhook failed (non-blocking):", err);
   }
 }
 
-async function requireAuth() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
-  return user;
-}
-
 export async function GET() {
-  try { await requireAuth(); } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try { await requireAdmin(); } catch (e) {
+    return authErrorResponse(e);
   }
 
   const db = await createAdminClient();
@@ -49,8 +48,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  try { await requireAuth(); } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try { await requireAdmin(); } catch (e) {
+    return authErrorResponse(e);
   }
 
   const db = await createAdminClient();
@@ -94,8 +93,8 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  try { await requireAuth(); } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try { await requireAdmin(); } catch (e) {
+    return authErrorResponse(e);
   }
 
   const db = await createAdminClient();
@@ -134,8 +133,8 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  try { await requireAuth(); } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try { await requireAdmin(); } catch (e) {
+    return authErrorResponse(e);
   }
 
   const db = await createAdminClient();
@@ -156,8 +155,8 @@ export async function DELETE(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  try { await requireAuth(); } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try { await requireAdmin(); } catch (e) {
+    return authErrorResponse(e);
   }
 
   const db = await createAdminClient();
@@ -172,14 +171,9 @@ export async function PATCH(request: Request) {
     .eq("id", id)
     .single();
 
-  if (error || !data?.telegram_bot_token) {
-    return NextResponse.json({ error: "No token found" }, { status: 404 });
+  if (error) {
+    return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   }
 
-  try {
-    const token = decrypt(data.telegram_bot_token);
-    return NextResponse.json({ token });
-  } catch {
-    return NextResponse.json({ error: "Decryption failed" }, { status: 500 });
-  }
+  return NextResponse.json({ has_token: !!data?.telegram_bot_token });
 }

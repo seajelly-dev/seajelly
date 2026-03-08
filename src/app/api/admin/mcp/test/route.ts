@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { requireAdmin, authErrorResponse } from "@/lib/supabase/server";
 import { testMCPConnection } from "@/lib/mcp/client";
+import { validateExternalUrl, SSRFError } from "@/lib/security/url-validator";
 
 export const maxDuration = 30;
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const body = await request.json();
@@ -18,6 +17,13 @@ export async function POST(request: Request) {
 
   if (!url) {
     return NextResponse.json({ error: "url is required" }, { status: 400 });
+  }
+
+  try {
+    await validateExternalUrl(url);
+  } catch (err) {
+    const msg = err instanceof SSRFError ? err.message : "Invalid URL";
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
 
   const result = await testMCPConnection(

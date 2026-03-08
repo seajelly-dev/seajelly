@@ -281,7 +281,10 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
           (process.env.VERCEL_URL
             ? `https://${process.env.VERCEL_URL}`
             : "http://localhost:3000");
-        const cronSecret = process.env.CRON_SECRET || "opencrab-cron";
+        const cronSecret = process.env.CRON_SECRET;
+        if (!cronSecret) {
+          return { success: false, error: "CRON_SECRET not configured — cannot schedule tasks" };
+        }
 
         const chatIdResult = await supabase
           .from("sessions")
@@ -439,24 +442,43 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
 
     run_sql: tool({
       description:
-        "Execute a read-only SQL query against the Supabase database via Management API. " +
+        "Execute a read-only SELECT query against the Supabase database via Management API. " +
         "Use for diagnostic queries: checking pg_cron status, viewing table sizes, " +
-        "checking extension status, etc. NEVER use for destructive operations.",
+        "checking extension status, etc. Only SELECT statements are allowed. " +
+        "Queries are restricted to safe system catalog tables and public schema tables.",
       inputSchema: z.object({
         query: z
           .string()
           .describe(
-            "SQL query to execute. Should be SELECT only for safety."
+            "SQL SELECT query to execute. Only single SELECT statements are allowed."
           ),
       }),
       execute: async ({ query }: { query: string }) => {
-        const upper = query.trim().toUpperCase();
-        if (
-          upper.startsWith("DROP") ||
-          upper.startsWith("DELETE") ||
-          upper.startsWith("TRUNCATE")
-        ) {
-          return { success: false, error: "Destructive queries are not allowed" };
+        const normalized = query
+          .replace(/--.*$/gm, "")
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .trim();
+        if (!/^SELECT\b/i.test(normalized)) {
+          return { success: false, error: "Only SELECT queries are allowed" };
+        }
+        if (normalized.replace(/;$/, "").includes(";")) {
+          return { success: false, error: "Multiple statements not allowed" };
+        }
+        if (/\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE)\b/i.test(normalized)) {
+          return { success: false, error: "Write operations not allowed" };
+        }
+        const BLOCKED_TABLES = [
+          /\bauth\./i,
+          /\bsecrets\b/i,
+          /\bcron\.job\b/i,
+          /\bcron\.job_run_details\b/i,
+          /\bpg_shadow\b/i,
+          /\bpg_authid\b/i,
+        ];
+        for (const pattern of BLOCKED_TABLES) {
+          if (pattern.test(normalized)) {
+            return { success: false, error: `Access to ${pattern.source} is not allowed` };
+          }
         }
         const result = await executeSQL(query);
         if (!result.success) return { success: false, error: result.error };

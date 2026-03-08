@@ -16,9 +16,11 @@ function getSupabase() {
 }
 
 export async function POST(request: Request) {
+  const expectedSecret = process.env.CRON_SECRET;
+  if (!expectedSecret) {
+    return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
+  }
   const cronSecret = request.headers.get("x-cron-secret");
-  const expectedSecret = process.env.CRON_SECRET || "opencrab-cron";
-
   if (cronSecret !== expectedSecret) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

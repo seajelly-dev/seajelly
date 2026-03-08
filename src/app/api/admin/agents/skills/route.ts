@@ -1,20 +1,11 @@
 import { NextResponse } from "next/server";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
-
-async function requireAuth() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
-  return user;
-}
+import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 
 export async function GET(request: Request) {
   try {
-    await requireAuth();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const { searchParams } = new URL(request.url);
@@ -46,9 +37,9 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    await requireAuth();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const body = await request.json();

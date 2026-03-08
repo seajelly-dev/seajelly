@@ -7,6 +7,30 @@ export const maxDuration = 300;
 
 export async function POST(request: Request) {
   try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
+    const { data: defaultAgent } = await supabase
+      .from("agents")
+      .select("id, access_mode, webhook_secret")
+      .eq("is_default", true)
+      .limit(1)
+      .single();
+
+    const webhookSecret = defaultAgent?.webhook_secret;
+    if (!webhookSecret && process.env.NODE_ENV === "production") {
+      console.error("Webhook secret missing for default agent — rejecting request (fail-close)");
+      return NextResponse.json({ ok: false }, { status: 403 });
+    }
+    if (webhookSecret) {
+      const incoming = request.headers.get("x-telegram-bot-api-secret-token");
+      if (incoming !== webhookSecret) {
+        return NextResponse.json({ ok: false }, { status: 403 });
+      }
+    }
+
     const body = await request.json();
 
     const message = body.message || body.edited_message;
@@ -27,11 +51,6 @@ export async function POST(request: Request) {
     const dedupKey = `tg:${chatId}:${updateId}`;
     const platformUid = message.from?.id ? String(message.from.id) : null;
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-
     const { data: existing } = await supabase
       .from("events")
       .select("id")
@@ -41,13 +60,6 @@ export async function POST(request: Request) {
     if (existing) {
       return NextResponse.json({ ok: true, dedup: true });
     }
-
-    const { data: defaultAgent } = await supabase
-      .from("agents")
-      .select("id, access_mode")
-      .eq("is_default", true)
-      .limit(1)
-      .single();
 
     const agentId = defaultAgent?.id ?? null;
 

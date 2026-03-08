@@ -4,7 +4,16 @@ import { runAgentLoop } from "@/lib/agent/loop";
 
 export const maxDuration = 300;
 
-export async function POST() {
+export async function POST(request: Request) {
+  const expectedSecret = process.env.CRON_SECRET;
+  if (!expectedSecret) {
+    return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
+  }
+  const cronSecret = request.headers.get("x-cron-secret");
+  if (cronSecret !== expectedSecret) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const events = await claimPendingEvents();
 
@@ -43,8 +52,4 @@ export async function POST() {
       { status: 500 }
     );
   }
-}
-
-export async function GET() {
-  return POST();
 }

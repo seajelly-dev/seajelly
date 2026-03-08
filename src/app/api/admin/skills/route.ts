@@ -1,20 +1,12 @@
 import { NextResponse } from "next/server";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
-
-async function requireAuth() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
-  return user;
-}
+import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
+import { safeFetch, SSRFError } from "@/lib/security/url-validator";
 
 export async function GET() {
   try {
-    await requireAuth();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const db = await createAdminClient();
@@ -31,9 +23,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await requireAuth();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const body = await request.json();
@@ -47,7 +39,7 @@ export async function POST(request: Request) {
 
   if (source_url && !content) {
     try {
-      const res = await fetch(source_url, {
+      const res = await safeFetch(source_url, {
         headers: { Accept: "text/plain, text/markdown, */*" },
       });
       if (!res.ok) {
@@ -95,9 +87,9 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    await requireAuth();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const body = await request.json();
@@ -123,9 +115,9 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    await requireAuth();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+  } catch (e) {
+    return authErrorResponse(e);
   }
 
   const { searchParams } = new URL(request.url);

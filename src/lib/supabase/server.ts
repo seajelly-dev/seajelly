@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
 /**
  * SSR client with user session (anon key + cookies).
@@ -66,3 +67,34 @@ export async function createAdminClient() {
 
 /** @deprecated Use createAdminClient instead */
 export const createServiceClient = createAdminClient;
+
+/**
+ * Verify the current request is from a logged-in admin.
+ * Throws "Unauthorized" (no session) or "Forbidden" (not admin).
+ */
+export async function requireAdmin() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const db = await createAdminClient();
+  const { data } = await db
+    .from("admins")
+    .select("id")
+    .eq("auth_uid", user.id)
+    .single();
+  if (!data) throw new Error("Forbidden");
+  return user;
+}
+
+/**
+ * Build a JSON error response from a requireAdmin() rejection.
+ * "Unauthorized" → 401, "Forbidden" → 403.
+ */
+export function authErrorResponse(err: unknown) {
+  const msg = err instanceof Error ? err.message : "Unauthorized";
+  const status = msg === "Forbidden" ? 403 : 401;
+  return NextResponse.json({ error: msg }, { status });
+}
