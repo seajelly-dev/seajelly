@@ -293,7 +293,7 @@ async function startBotForAgent(agent: AgentRow) {
                 messages.push({
                   role: "user" as const,
                   content: [
-                    { type: "image", image: buf.toString("base64"), mimeType: mime },
+                    { type: "image", image: buf.toString("base64"), mediaType: mime },
                     { type: "text", text: text || "Please describe or analyze this image." },
                   ],
                 } as never);
@@ -310,7 +310,7 @@ async function startBotForAgent(agent: AgentRow) {
                 messages.push({
                   role: "user" as const,
                   content: [
-                    { type: "file", data: buf.toString("base64"), mimeType: mime },
+                    { type: "file", data: buf.toString("base64"), mediaType: mime },
                     { type: "text", text: text || `Please analyze this ${mime.split("/")[0]}.` },
                   ],
                 } as never);

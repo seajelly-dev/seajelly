@@ -235,14 +235,13 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         const textPrompt = messageText || "";
 
         if (isImageMime(mime)) {
-          const parts: Array<
-            | { type: "text"; text: string }
-            | { type: "image"; image: string; mimeType: string }
-          > = [
-            { type: "image", image: file.base64, mimeType: mime },
-            { type: "text", text: textPrompt || "Please describe or analyze this image." },
-          ];
-          messages.push({ role: "user" as const, content: parts } as ModelMessage);
+          messages.push({
+            role: "user" as const,
+            content: [
+              { type: "image" as const, image: file.base64, mediaType: mime },
+              { type: "text" as const, text: textPrompt || "Please describe or analyze this image." },
+            ],
+          });
           fileHandled = true;
         } else if (isTextMime(mime)) {
           const decoded = Buffer.from(file.base64, "base64").toString("utf-8");
@@ -252,35 +251,23 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             content: `${label}\n\`\`\`\n${decoded.slice(0, 50_000)}\n\`\`\`\n\n${textPrompt || "Please analyze this file."}`,
           });
           fileHandled = true;
-        } else if (mime === "application/pdf") {
-          const parts: Array<
-            | { type: "text"; text: string }
-            | { type: "file"; data: string; mimeType: string }
-          > = [
-            { type: "file", data: file.base64, mimeType: "application/pdf" },
-            { type: "text", text: textPrompt || "Please analyze this PDF document." },
-          ];
-          messages.push({ role: "user" as const, content: parts } as ModelMessage);
-          fileHandled = true;
-        } else if (mime.startsWith("video/")) {
-          const parts: Array<
-            | { type: "text"; text: string }
-            | { type: "file"; data: string; mimeType: string }
-          > = [
-            { type: "file", data: file.base64, mimeType: mime },
-            { type: "text", text: textPrompt || "Please analyze this video." },
-          ];
-          messages.push({ role: "user" as const, content: parts } as ModelMessage);
-          fileHandled = true;
-        } else if (mime.startsWith("audio/")) {
-          const parts: Array<
-            | { type: "text"; text: string }
-            | { type: "file"; data: string; mimeType: string }
-          > = [
-            { type: "file", data: file.base64, mimeType: mime },
-            { type: "text", text: textPrompt || "Please analyze this audio." },
-          ];
-          messages.push({ role: "user" as const, content: parts } as ModelMessage);
+        } else if (
+          mime === "application/pdf" ||
+          mime.startsWith("video/") ||
+          mime.startsWith("audio/")
+        ) {
+          const defaultPrompt = mime === "application/pdf"
+            ? "Please analyze this PDF document."
+            : mime.startsWith("video/")
+              ? "Please analyze this video."
+              : "Please analyze this audio.";
+          messages.push({
+            role: "user" as const,
+            content: [
+              { type: "file" as const, data: file.base64, mediaType: mime },
+              { type: "text" as const, text: textPrompt || defaultPrompt },
+            ],
+          });
           fileHandled = true;
         } else {
           const label = file.fileName ? `[File: ${file.fileName}, type: ${mime}]` : `[File: ${mime}]`;
