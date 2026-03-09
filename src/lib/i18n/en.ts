@@ -10,6 +10,7 @@ const en = {
     processing: "Processing...",
     refresh: "Refresh",
     actions: "Actions",
+    copy: "Copy",
     name: "Name",
     status: "Status",
     created: "Created",
@@ -237,6 +238,9 @@ const en = {
     replaySuccess: "Event queued for replay",
     replayFailed: "Replay failed",
     loadFailed: "Failed to load events",
+    errorDetail: "Error Detail",
+    copySuccess: "Copied to clipboard",
+    copyFailed: "Copy failed",
   },
 
   secrets: {

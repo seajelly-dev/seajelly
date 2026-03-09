@@ -28,10 +28,17 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { TablePagination } from "@/components/table-pagination";
 import { toast } from "sonner";
-import { RefreshCw, RotateCcw, Radio } from "lucide-react";
+import { RefreshCw, RotateCcw, Radio, Copy } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useT } from "@/lib/i18n";
 import type { AgentEvent } from "@/types/database";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 const STATUS_OPTIONS = [
   "all",
@@ -51,6 +58,7 @@ export default function EventsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedError, setSelectedError] = useState<string | null>(null);
 
   const fetchEvents = useCallback(
     async (p: number) => {
@@ -112,6 +120,13 @@ export default function EventsPage() {
       toast.success(t("events.replaySuccess"));
       fetchEvents(page);
     }
+  };
+
+  const handleCopyError = (text: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => toast.success(t("events.copySuccess")),
+      () => toast.error(t("events.copyFailed"))
+    );
   };
 
   const statusVariant = (status: string) => {
@@ -216,7 +231,10 @@ export default function EventsPage() {
                         <TableCell className="tabular-nums text-sm">
                           {e.retry_count}/{e.max_retries}
                         </TableCell>
-                        <TableCell className="max-w-48 truncate text-xs text-muted-foreground">
+                        <TableCell 
+                          className="max-w-48 truncate text-xs text-muted-foreground cursor-pointer hover:text-foreground hover:underline transition-colors"
+                          onClick={() => e.error_message && setSelectedError(e.error_message)}
+                        >
                           {e.error_message || "--"}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
@@ -251,6 +269,37 @@ export default function EventsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!selectedError} onOpenChange={(open) => !open && setSelectedError(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t("events.errorDetail")}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto rounded-lg bg-muted/50 p-4">
+            <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed">
+              {selectedError}
+            </pre>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => selectedError && handleCopyError(selectedError)}
+            >
+              <Copy className="size-3.5" />
+              {t("common.copy")}
+            </Button>
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={() => setSelectedError(null)}
+            >
+              {t("common.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

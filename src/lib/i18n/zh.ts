@@ -12,6 +12,7 @@ const zh: TranslationKeys = {
     processing: "处理中...",
     refresh: "刷新",
     actions: "操作",
+    copy: "复制",
     name: "名称",
     status: "状态",
     created: "创建时间",
@@ -239,6 +240,9 @@ const zh: TranslationKeys = {
     replaySuccess: "事件已加入重放队列",
     replayFailed: "重放失败",
     loadFailed: "加载事件失败",
+    errorDetail: "错误详情",
+    copySuccess: "已复制到剪贴板",
+    copyFailed: "复制失败",
   },
 
   secrets: {
