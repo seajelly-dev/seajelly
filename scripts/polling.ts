@@ -383,6 +383,15 @@ async function startBotForAgent(agent: AgentRow) {
       }
 
       {
+        const { data: limitRows } = await supabase
+          .from("system_settings")
+          .select("key, value")
+          .in("key", ["memory_inject_limit_channel", "memory_inject_limit_global"]);
+        const limMap: Record<string, number> = {};
+        for (const r of limitRows ?? []) limMap[r.key as string] = parseInt(r.value as string, 10) || 25;
+        const chLimit = limMap.memory_inject_limit_channel ?? 25;
+        const glLimit = limMap.memory_inject_limit_global ?? 25;
+
         const [chRes, glRes] = await Promise.all([
           supabase
             .from("memories")
@@ -391,14 +400,14 @@ async function startBotForAgent(agent: AgentRow) {
             .eq("channel_id", channel.id)
             .eq("scope", "channel")
             .order("created_at", { ascending: false })
-            .limit(50),
+            .limit(chLimit),
           supabase
             .from("memories")
             .select("category, content")
             .eq("agent_id", agent.id)
             .eq("scope", "global")
             .order("created_at", { ascending: false })
-            .limit(50),
+            .limit(glLimit),
         ]);
 
         const chMems = chRes.data ?? [];

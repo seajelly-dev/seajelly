@@ -334,8 +334,17 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       systemPrompt += `\n\n## About This User\n${channel.user_soul}`;
     }
 
-    // ── Auto-inject channel + global memories (50 each, 100 max) ──
+    // ── Auto-inject channel + global memories ──
     {
+      const { data: limitRows } = await supabase
+        .from("system_settings")
+        .select("key, value")
+        .in("key", ["memory_inject_limit_channel", "memory_inject_limit_global"]);
+      const limMap: Record<string, number> = {};
+      for (const r of limitRows ?? []) limMap[r.key] = parseInt(r.value, 10) || 25;
+      const chLimit = limMap.memory_inject_limit_channel ?? 25;
+      const glLimit = limMap.memory_inject_limit_global ?? 25;
+
       const [channelRes, globalRes] = await Promise.all([
         channel
           ? supabase
@@ -345,7 +354,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
               .eq("channel_id", channel.id)
               .eq("scope", "channel")
               .order("created_at", { ascending: false })
-              .limit(50)
+              .limit(chLimit)
           : Promise.resolve({ data: null }),
         supabase
           .from("memories")
@@ -353,7 +362,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           .eq("agent_id", typedAgent.id)
           .eq("scope", "global")
           .order("created_at", { ascending: false })
-          .limit(50),
+          .limit(glLimit),
       ]);
 
       const channelMems = channelRes.data ?? [];

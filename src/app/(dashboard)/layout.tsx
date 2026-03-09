@@ -30,7 +30,7 @@ export default async function DashboardLayout({
               <span>OpenCrab</span>
             </div>
           </div>
-          <div className="mx-auto w-full max-w-[1400px] flex-1 px-6 py-8 md:px-10 md:py-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div className="mx-auto w-full max-w-[1400px] flex-1 px-6 py-8 md:px-10 md:py-12">
             {children}
           </div>
         </main>

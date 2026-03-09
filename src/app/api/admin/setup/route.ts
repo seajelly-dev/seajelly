@@ -698,6 +698,23 @@ DROP POLICY IF EXISTS "agent_mcps_service_select" ON public.agent_mcps;
 CREATE POLICY "agent_mcps_service_select" ON public.agent_mcps FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+CREATE TABLE IF NOT EXISTS public.system_settings (
+  key         text PRIMARY KEY,
+  value       text NOT NULL,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "system_settings_admin_all" ON public.system_settings;
+CREATE POLICY "system_settings_admin_all" ON public.system_settings FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "system_settings_service_read" ON public.system_settings;
+CREATE POLICY "system_settings_service_read" ON public.system_settings FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+INSERT INTO public.system_settings (key, value) VALUES
+  ('memory_inject_limit_channel', '25'),
+  ('memory_inject_limit_global', '25')
+ON CONFLICT (key) DO NOTHING;
+
 -- Ensure Supabase API roles can reach schema objects (RLS still applies row-level checks)
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
