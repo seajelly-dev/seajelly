@@ -14,7 +14,7 @@ export interface Secret {
   updated_at: string;
 }
 
-export type AccessMode = "open" | "whitelist";
+export type AccessMode = "open" | "approval" | "whitelist";
 
 export interface Agent {
   id: string;
@@ -40,6 +40,7 @@ export interface Channel {
   display_name: string | null;
   user_soul: string;
   is_allowed: boolean;
+  is_owner: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -164,6 +165,7 @@ export const SECRET_KEYS = [
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "DEEPSEEK_API_KEY",
   "EMBEDDING_API_KEY",
+  "E2B_API_KEY",
 ] as const;
 
 export type SecretKeyName = (typeof SECRET_KEYS)[number];

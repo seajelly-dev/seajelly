@@ -64,13 +64,18 @@ export default function AgentsPage() {
     { key: "schedule_task", label: "schedule_task", desc: "agents.toolScheduleTask", defaultOn: true },
     { key: "cancel_scheduled_job", label: "cancel_scheduled_job", desc: "agents.toolCancelJob", defaultOn: true },
     { key: "list_scheduled_jobs", label: "list_scheduled_jobs", desc: "agents.toolListJobs", defaultOn: true },
+    { key: "run_python_code", label: "run_python_code", desc: "coding.toolRunPython", defaultOn: false },
+    { key: "run_javascript_code", label: "run_javascript_code", desc: "coding.toolRunJS", defaultOn: false },
+    { key: "run_html_preview", label: "run_html_preview", desc: "coding.toolRunHTML", defaultOn: false },
+    { key: "install_packages", label: "install_packages", desc: "coding.toolInstallPkg", defaultOn: false },
+    { key: "sandbox_file_ops", label: "sandbox_file_ops", desc: "coding.toolFileOps", defaultOn: false },
   ] as const;
 
   const [form, setForm] = useState({
     name: "",
     system_prompt: "",
     model: "",
-    access_mode: "open" as "open" | "whitelist",
+    access_mode: "open" as "open" | "approval" | "whitelist",
     ai_soul: "",
     telegram_bot_token: "",
     tools_config: {} as Record<string, boolean>,
@@ -396,6 +401,7 @@ export default function AgentsPage() {
                         ...f,
                         access_mode: (v ?? f.access_mode) as
                           | "open"
+                          | "approval"
                           | "whitelist",
                       }))
                     }
@@ -405,10 +411,22 @@ export default function AgentsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="open">
-                        {t("agents.open")}
+                        <div>
+                          <div>{t("agents.open")}</div>
+                          <div className="text-xs text-muted-foreground">{t("agents.accessModeOpenDesc")}</div>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="approval">
+                        <div>
+                          <div>{t("agents.approval")}</div>
+                          <div className="text-xs text-muted-foreground">{t("agents.accessModeApprovalDesc")}</div>
+                        </div>
                       </SelectItem>
                       <SelectItem value="whitelist">
-                        {t("agents.whitelist")}
+                        <div>
+                          <div>{t("agents.whitelist")}</div>
+                          <div className="text-xs text-muted-foreground">{t("agents.accessModeWhitelistDesc")}</div>
+                        </div>
                       </SelectItem>
                     </SelectContent>
                   </Select>
@@ -604,7 +622,9 @@ export default function AgentsPage() {
                         variant={
                           agent.access_mode === "whitelist"
                             ? "destructive"
-                            : "outline"
+                            : agent.access_mode === "approval"
+                              ? "secondary"
+                              : "outline"
                         }
                         className="gap-1 text-xs"
                       >
@@ -615,7 +635,9 @@ export default function AgentsPage() {
                         )}
                         {agent.access_mode === "whitelist"
                           ? t("agents.whitelist")
-                          : t("agents.open")}
+                          : agent.access_mode === "approval"
+                            ? t("agents.approval")
+                            : t("agents.open")}
                       </Badge>
                       <Badge
                         variant={
@@ -754,6 +776,7 @@ export default function AgentsPage() {
         description={t("agents.deleteAgentConfirm", {
           name: deleteTarget?.name || "",
         })}
+        confirmText={t("common.delete")}
         onConfirm={confirmDeleteAgent}
       />
     </div>

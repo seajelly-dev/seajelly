@@ -1,8 +1,10 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { LOGIN_GATE_QUERY_PARAM } from "@/lib/security/login-gate";
 import {
   LayoutDashboard,
   Bot,
@@ -14,6 +16,8 @@ import {
   Clock,
   Plug,
   Sparkles,
+  Code2,
+  Settings,
   LogOut,
 } from "lucide-react";
 import Image from "next/image";
@@ -50,18 +54,32 @@ const NAV_ITEMS: { titleKey: string; href: string; icon: LucideIcon }[] = [
   { titleKey: "sidebar.tasks", href: "/dashboard/tasks", icon: Clock },
   { titleKey: "sidebar.mcpServers", href: "/dashboard/mcp", icon: Plug },
   { titleKey: "sidebar.skills", href: "/dashboard/skills", icon: Sparkles },
+  { titleKey: "sidebar.coding", href: "/dashboard/coding", icon: Code2 },
   { titleKey: "sidebar.events", href: "/dashboard/events", icon: Radio },
+  { titleKey: "sidebar.settings", href: "/dashboard/settings", icon: Settings },
 ];
 
 export function DashboardSidebar({ userEmail }: { userEmail: string }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const t = useT();
+
+  useEffect(() => {
+    const key = searchParams.get(LOGIN_GATE_QUERY_PARAM);
+    if (key) {
+      sessionStorage.setItem("opencrab_login_gate_key", key);
+    }
+  }, [searchParams]);
 
   const handleSignOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push("/login");
+    const savedKey = sessionStorage.getItem("opencrab_login_gate_key");
+    const loginPath = savedKey
+      ? `/login?${LOGIN_GATE_QUERY_PARAM}=${encodeURIComponent(savedKey)}`
+      : "/login";
+    router.push(loginPath);
     router.refresh();
   };
 

@@ -246,6 +246,7 @@ You have persistent memory across conversations. Use it wisely:
           system_prompt: systemPrompt,
           model,
           telegram_bot_token: botToken,
+          app_origin: window.location.origin,
           access_token: supabasePAT,
           project_ref: projectRef,
         }),
@@ -253,7 +254,18 @@ You have persistent memory across conversations. Use it wisely:
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       toast.success(t("setup.success.agentCreated"));
-      setTimeout(() => router.push("/dashboard"), 1500);
+      if (data.loginGateEnabled && data.loginUrl) {
+        window.alert(
+          t("setup.loginGateWarning", {
+            url: data.loginUrl,
+          })
+        );
+      }
+      const nextUrl =
+        (data.loginUrl as string | undefined) ||
+        (data.dashboardUrl as string | undefined) ||
+        "/dashboard";
+      setTimeout(() => router.push(nextUrl), 200);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("setup.errors.createAgentFailed")

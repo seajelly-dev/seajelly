@@ -508,6 +508,7 @@ export default function McpPage() {
         description={t("mcp.deleteConfirm", {
           name: deleteTarget?.name || "",
         })}
+        confirmText={t("common.delete")}
         loading={!!deleting}
         onConfirm={confirmDelete}
       />

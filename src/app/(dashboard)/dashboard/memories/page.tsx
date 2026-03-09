@@ -441,6 +441,7 @@ export default function MemoriesPage() {
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         title={t("memories.deleteTitle")}
         description={t("memories.deleteConfirm")}
+        confirmText={t("common.delete")}
         onConfirm={confirmDelete}
         variant="destructive"
       />

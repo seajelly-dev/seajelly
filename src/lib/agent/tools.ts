@@ -7,6 +7,14 @@ import {
   listCronJobs,
   executeSQL,
 } from "@/lib/supabase/management";
+import {
+  getE2BApiKey,
+  runPythonCode,
+  runJavaScriptCode,
+  saveHTMLPreview,
+  installPackages as e2bInstallPackages,
+  sandboxFileOps as e2bFileOps,
+} from "@/lib/e2b/sandbox";
 
 function bigrams(text: string): Set<string> {
   const clean = text.replace(/\s+/g, "");
@@ -39,9 +47,10 @@ function getSupabase() {
 interface ToolsOptions {
   agentId: string;
   channelId?: string;
+  isOwner?: boolean;
 }
 
-export function createAgentTools({ agentId, channelId }: ToolsOptions) {
+export function createAgentTools({ agentId, channelId, isOwner }: ToolsOptions) {
   const supabase = getSupabase();
 
   function getTaskJobName(taskConfig: unknown): string | null {
@@ -77,8 +86,9 @@ export function createAgentTools({ agentId, channelId }: ToolsOptions) {
     return { updated: ids.length };
   }
 
-  function buildSoulTools(cid: string) {
-    return {
+  function buildSoulTools(cid: string, ownerFlag: boolean) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const soulTools: Record<string, any> = {
       user_soul_update: tool({
         description:
           "Update the HUMAN USER's identity profile. Use for: real name, nickname/preferred address, " +
@@ -101,8 +111,10 @@ export function createAgentTools({ agentId, channelId }: ToolsOptions) {
           return { success: true, message: "User soul updated" };
         },
       }),
+    };
 
-      ai_soul_update: tool({
+    if (ownerFlag) {
+      soulTools.ai_soul_update = tool({
         description:
           "Update YOUR OWN (the AI's) identity profile. Use when the user gives you a name, " +
           "persona, role, or character trait. This is shared across ALL users of this agent. " +
@@ -123,8 +135,10 @@ export function createAgentTools({ agentId, channelId }: ToolsOptions) {
           if (error) return { success: false, error: error.message };
           return { success: true, message: "AI soul updated" };
         },
-      }),
-    };
+      });
+    }
+
+    return soulTools;
   }
 
   const baseTools = {
@@ -591,10 +605,145 @@ export function createAgentTools({ agentId, channelId }: ToolsOptions) {
         return { success: true, data: result.data };
       },
     }),
+
+    run_python_code: tool({
+      description:
+        "Execute Python code in a secure E2B cloud sandbox. Returns stdout, stderr, and any " +
+        "generated charts/images as base64 PNG. The sandbox has internet access and comes with " +
+        "Python standard library. Use install_packages first if you need external libraries " +
+        "like pandas, numpy, or matplotlib. Each execution creates a fresh sandbox (stateless). " +
+        "Sandbox max lifetime: 1 hour (Hobby plan).",
+      inputSchema: z.object({
+        code: z.string().describe("Python code to execute"),
+      }),
+      execute: async ({ code }: { code: string }) => {
+        const apiKey = await getE2BApiKey();
+        if (!apiKey) {
+          return { success: false, error: "E2B_API_KEY not configured. Ask the admin to add it in Dashboard > Secrets." };
+        }
+        try {
+          const result = await runPythonCode(apiKey, code);
+          return {
+            success: true,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            error: result.error,
+            results: result.results,
+            executionTimeMs: result.executionTimeMs,
+          };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Execution failed" };
+        }
+      },
+    }),
+
+    run_javascript_code: tool({
+      description:
+        "Execute JavaScript/TypeScript code in a secure E2B cloud sandbox. Returns stdout and stderr. " +
+        "Supports top-level await, ESM imports, and Node.js APIs. Each execution creates a fresh sandbox.",
+      inputSchema: z.object({
+        code: z.string().describe("JavaScript or TypeScript code to execute"),
+      }),
+      execute: async ({ code }: { code: string }) => {
+        const apiKey = await getE2BApiKey();
+        if (!apiKey) {
+          return { success: false, error: "E2B_API_KEY not configured. Ask the admin to add it in Dashboard > Secrets." };
+        }
+        try {
+          const result = await runJavaScriptCode(apiKey, code);
+          return {
+            success: true,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            error: result.error,
+            results: result.results,
+            executionTimeMs: result.executionTimeMs,
+          };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Execution failed" };
+        }
+      },
+    }),
+
+    run_html_preview: tool({
+      description:
+        "Preview HTML/CSS/JS by storing the HTML and returning a permanent public URL. " +
+        "The preview link never expires and does not require login to access. " +
+        "No E2B sandbox or credits are consumed. " +
+        "Include all CSS and JS inline in the HTML for best results.",
+      inputSchema: z.object({
+        html: z.string().describe("Complete HTML document to preview"),
+        title: z.string().optional().describe("Title for the preview page"),
+      }),
+      execute: async ({ html, title }: { html: string; title?: string }) => {
+        try {
+          const result = await saveHTMLPreview(html, title);
+          return {
+            success: true,
+            previewUrl: result.previewUrl,
+            message: `Preview ready: ${result.previewUrl}`,
+          };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Preview failed" };
+        }
+      },
+    }),
+
+    install_packages: tool({
+      description:
+        "Install Python (pip) or Node.js (npm) packages in an E2B sandbox. " +
+        "Note: packages are only available in that sandbox instance and won't persist. " +
+        "For frequently needed packages, consider using a custom E2B template.",
+      inputSchema: z.object({
+        packages: z.array(z.string()).describe("Package names to install, e.g. ['pandas', 'matplotlib']"),
+        manager: z.enum(["pip", "npm"]).optional().describe("Package manager: 'pip' (default) or 'npm'"),
+      }),
+      execute: async ({ packages, manager }: { packages: string[]; manager?: "pip" | "npm" }) => {
+        const apiKey = await getE2BApiKey();
+        if (!apiKey) {
+          return { success: false, error: "E2B_API_KEY not configured. Ask the admin to add it in Dashboard > Secrets." };
+        }
+        try {
+          const result = await e2bInstallPackages(apiKey, packages, manager ?? "pip");
+          return {
+            success: !result.error,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            error: result.error,
+          };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Install failed" };
+        }
+      },
+    }),
+
+    sandbox_file_ops: tool({
+      description:
+        "Perform file operations (read, write, list) in an E2B sandbox. " +
+        "Use 'write' to create files, 'read' to get file contents, 'list' to list directory entries. " +
+        "Each call creates a fresh sandbox — files do not persist between calls.",
+      inputSchema: z.object({
+        operation: z.enum(["write", "read", "list"]).describe("File operation type"),
+        path: z.string().describe("File or directory path, e.g. '/home/user/script.py'"),
+        content: z.string().optional().describe("File content (required for 'write')"),
+      }),
+      execute: async ({ operation, path, content }: { operation: "write" | "read" | "list"; path: string; content?: string }) => {
+        const apiKey = await getE2BApiKey();
+        if (!apiKey) {
+          return { success: false, error: "E2B_API_KEY not configured. Ask the admin to add it in Dashboard > Secrets." };
+        }
+        try {
+          const result = await e2bFileOps(apiKey, operation, path, content);
+          return { success: !result.error, data: result.data, error: result.error };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "File operation failed" };
+        }
+      },
+    }),
   };
 
   if (channelId) {
-    return { ...baseTools, ...buildSoulTools(channelId) };
+    return { ...baseTools, ...buildSoulTools(channelId, !!isOwner) };
   }
   return baseTools;
 }

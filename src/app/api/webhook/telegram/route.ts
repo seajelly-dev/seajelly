@@ -33,6 +33,12 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
+    if (body.callback_query) {
+      const { handleApprovalCallback } = await import("@/lib/telegram/approval");
+      await handleApprovalCallback(body.callback_query, defaultAgent?.id ?? null);
+      return NextResponse.json({ ok: true });
+    }
+
     const message = body.message || body.edited_message;
     if (!message) {
       return NextResponse.json({ ok: true });
@@ -82,6 +88,7 @@ export async function POST(request: Request) {
       if (!channel && defaultAgent?.access_mode === "whitelist") {
         return NextResponse.json({ ok: true, blocked: true });
       }
+      // approval mode: let unknown users through so loop.ts creates the pending channel
     }
 
     let fileId: string | null = null;

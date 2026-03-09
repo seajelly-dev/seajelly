@@ -57,10 +57,17 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  const allowed = ["is_allowed", "display_name", "user_soul"];
+  const allowed = ["is_allowed", "display_name", "user_soul", "is_owner"];
   const filtered: Record<string, unknown> = {};
   for (const key of allowed) {
     if (key in updates) filtered[key] = updates[key];
+  }
+
+  if (filtered.is_owner === true) {
+    const { data: ch } = await db.from("channels").select("agent_id").eq("id", id).single();
+    if (ch) {
+      await db.from("channels").update({ is_owner: false }).eq("agent_id", ch.agent_id).eq("is_owner", true);
+    }
   }
 
   const { data, error } = await db

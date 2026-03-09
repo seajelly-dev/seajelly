@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS public.agents (
   memory_namespace  text NOT NULL DEFAULT 'default',
   model             text NOT NULL DEFAULT 'claude-sonnet-4-20250514',
   is_default        boolean NOT NULL DEFAULT false,
-  access_mode       text NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','whitelist')),
+  access_mode       text NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','approval','whitelist')),
   ai_soul           text NOT NULL DEFAULT '',
   telegram_bot_token text,
   webhook_secret    text,
@@ -84,11 +84,13 @@ CREATE TABLE IF NOT EXISTS public.channels (
   display_name  text,
   user_soul     text NOT NULL DEFAULT '',
   is_allowed    boolean NOT NULL DEFAULT true,
+  is_owner      boolean NOT NULL DEFAULT false,
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS channels_agent_platform_uid ON public.channels(agent_id, platform, platform_uid);
 CREATE INDEX IF NOT EXISTS channels_platform_uid ON public.channels(platform, platform_uid);
+CREATE UNIQUE INDEX IF NOT EXISTS channels_agent_owner ON public.channels(agent_id) WHERE is_owner = true;
 ALTER TABLE public.channels ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "channels_admin_all" ON public.channels;
 CREATE POLICY "channels_admin_all" ON public.channels FOR ALL USING (public.is_admin());
@@ -325,17 +327,44 @@ CREATE POLICY "system_settings_admin_all" ON public.system_settings FOR ALL USIN
 DROP POLICY IF EXISTS "system_settings_service_read" ON public.system_settings;
 CREATE POLICY "system_settings_service_read" ON public.system_settings FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "system_settings_gate_public_read" ON public.system_settings;
+CREATE POLICY "system_settings_gate_public_read" ON public.system_settings FOR SELECT
+  USING (key IN ('login_gate_enabled', 'login_gate_key_hash'));
 
 INSERT INTO public.system_settings (key, value) VALUES
   ('memory_inject_limit_channel', '25'),
-  ('memory_inject_limit_global', '25')
+  ('memory_inject_limit_global', '25'),
+  ('login_gate_enabled', 'false'),
+  ('login_gate_key_hash', '')
 ON CONFLICT (key) DO NOTHING;
+
+-- ============================================================
+-- 15. html_previews (public HTML preview storage for coding module)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.html_previews (
+  id          text PRIMARY KEY DEFAULT encode(gen_random_bytes(12), 'hex'),
+  html        text NOT NULL,
+  title       text NOT NULL DEFAULT 'Untitled',
+  agent_id    uuid REFERENCES public.agents(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  expires_at  timestamptz
+);
+ALTER TABLE public.html_previews ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "html_previews_admin_all" ON public.html_previews;
+CREATE POLICY "html_previews_admin_all" ON public.html_previews FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "html_previews_service_all" ON public.html_previews;
+CREATE POLICY "html_previews_service_all" ON public.html_previews FOR ALL
+  USING (current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "html_previews_anon_select" ON public.html_previews;
+CREATE POLICY "html_previews_anon_select" ON public.html_previews FOR SELECT
+  USING (true);
 
 -- Ensure Supabase API roles can reach schema objects (RLS still applies row-level checks)
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT SELECT ON public.events TO anon;
+GRANT SELECT ON public.html_previews TO anon;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;

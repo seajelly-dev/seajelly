@@ -54,7 +54,7 @@ export function ConfirmDialog({
             disabled={loading}
             onClick={() => onConfirm()}
           >
-            {loading ? t("common.processing") : (confirmText ?? t("confirmDialog.delete"))}
+            {loading ? t("common.processing") : (confirmText ?? t("confirmDialog.confirm"))}
           </Button>
         </DialogFooter>
       </DialogContent>

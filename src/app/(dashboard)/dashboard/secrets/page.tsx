@@ -250,6 +250,7 @@ export default function SecretsPage() {
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         title={t("secrets.deleteSecret")}
         description={t("secrets.deleteSecretConfirm", { name: deleteTarget?.key_name || "" })}
+        confirmText={t("common.delete")}
         onConfirm={confirmDeleteSecret}
       />
     </div>

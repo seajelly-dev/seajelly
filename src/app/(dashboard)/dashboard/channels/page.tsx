@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TablePagination } from "@/components/table-pagination";
 import { toast } from "sonner";
-import { Users, ShieldCheck, ShieldOff, Pencil, Trash2 } from "lucide-react";
+import { Users, ShieldCheck, ShieldOff, Pencil, Trash2, Crown } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
 
@@ -37,6 +37,7 @@ interface ChannelRow {
   display_name: string | null;
   user_soul: string;
   is_allowed: boolean;
+  is_owner: boolean;
   created_at: string;
   updated_at: string;
   agents: { name: string } | null;
@@ -52,6 +53,7 @@ export default function ChannelsPage() {
   const [soulText, setSoulText] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ChannelRow | null>(null);
+  const [ownerTarget, setOwnerTarget] = useState<ChannelRow | null>(null);
 
   const fetchChannels = useCallback(
     async (p: number) => {
@@ -135,6 +137,23 @@ export default function ChannelsPage() {
     }
   };
 
+  const confirmToggleOwner = async () => {
+    if (!ownerTarget) return;
+    try {
+      const res = await fetch("/api/admin/channels", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: ownerTarget.id, is_owner: !ownerTarget.is_owner }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast.success(ownerTarget.is_owner ? t("channels.ownerRevoked") : t("channels.ownerSet"));
+      setOwnerTarget(null);
+      fetchChannels(page);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    }
+  };
+
   return (
     <div className="flex flex-col gap-8">
       <div>
@@ -189,18 +208,30 @@ export default function ChannelsPage() {
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <div className="min-w-0">
-                      <CardTitle className="flex items-center gap-2 text-base">
+                      <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                         {ch.display_name || "Unknown"}
                         <Badge
                           variant={
-                            ch.is_allowed ? "secondary" : "destructive"
+                            ch.is_allowed
+                              ? "secondary"
+                              : !ch.user_soul
+                                ? "outline"
+                                : "destructive"
                           }
-                          className="text-xs"
+                          className={`text-xs ${!ch.is_allowed && !ch.user_soul ? "border-amber-500 text-amber-600" : ""}`}
                         >
                           {ch.is_allowed
                             ? t("channels.allowed")
-                            : t("channels.blocked")}
+                            : !ch.user_soul
+                              ? t("channels.pending")
+                              : t("channels.blocked")}
                         </Badge>
+                        {ch.is_owner && (
+                          <Badge variant="default" className="gap-1 text-xs bg-amber-500 hover:bg-amber-600">
+                            <Crown className="size-3" />
+                            {t("channels.ownerBadge")}
+                          </Badge>
+                        )}
                       </CardTitle>
                       <CardDescription className="mt-1 font-mono text-xs">
                         {ch.platform}:{ch.platform_uid}
@@ -233,7 +264,18 @@ export default function ChannelsPage() {
                     </div>
                   )}
 
-                  <div className="flex gap-1.5 pt-1">
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <Button
+                      variant={ch.is_owner ? "outline" : "secondary"}
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => setOwnerTarget(ch)}
+                    >
+                      <Crown className="size-3.5" />
+                      {ch.is_owner
+                        ? t("channels.revokeOwner")
+                        : t("channels.setOwner")}
+                    </Button>
                     <Button
                       variant={ch.is_allowed ? "destructive" : "default"}
                       size="sm"
@@ -335,7 +377,25 @@ export default function ChannelsPage() {
             deleteTarget?.platform_uid ||
             "",
         })}
+        confirmText={t("common.delete")}
         onConfirm={confirmDeleteChannel}
+      />
+
+      <ConfirmDialog
+        open={!!ownerTarget}
+        onOpenChange={(open) => !open && setOwnerTarget(null)}
+        title={ownerTarget?.is_owner ? t("channels.revokeOwner") : t("channels.setOwner")}
+        description={
+          ownerTarget?.is_owner
+            ? t("channels.revokeOwnerConfirm", {
+                name: ownerTarget?.display_name || ownerTarget?.platform_uid || "",
+              })
+            : t("channels.setOwnerConfirm", {
+                name: ownerTarget?.display_name || ownerTarget?.platform_uid || "",
+              })
+        }
+        variant="default"
+        onConfirm={confirmToggleOwner}
       />
     </div>
   );

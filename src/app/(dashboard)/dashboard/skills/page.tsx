@@ -580,6 +580,7 @@ export default function SkillsPage() {
         description={t("skills.deleteConfirm", {
           name: deleteTarget?.name || "",
         })}
+        confirmText={t("common.delete")}
         loading={!!deleting}
         onConfirm={confirmDelete}
       />

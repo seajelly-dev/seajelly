@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/crypto/encrypt";
+import {
+  LOGIN_GATE_ENABLED_KEY,
+  LOGIN_GATE_HASH_KEY,
+  LOGIN_GATE_QUERY_PARAM,
+  sha256Hex,
+} from "@/lib/security/login-gate";
 
 const MGMT_BASE = "https://api.supabase.com/v1";
 
@@ -336,6 +342,7 @@ async function handleAgent(body: {
   system_prompt: string;
   model: string;
   telegram_bot_token?: string;
+  app_origin?: string;
   access_token: string;
   project_ref: string;
 }) {
@@ -348,44 +355,54 @@ async function handleAgent(body: {
   }
 
   try {
+    async function execSQL(sql: string) {
+      const res = await fetch(
+        `${MGMT_BASE}/projects/${project_ref}/database/query`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ query: sql }),
+        }
+      );
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`SQL failed (HTTP ${res.status}): ${text}`);
+      }
+      return res.json();
+    }
+
     const escapedName = body.name.replace(/'/g, "''");
     const escapedPrompt = body.system_prompt.replace(/'/g, "''");
     const escapedModel = body.model.replace(/'/g, "''");
     const tokenValue = body.telegram_bot_token
       ? `'${encrypt(body.telegram_bot_token).replace(/'/g, "''")}'`
       : "NULL";
-
-    const res = await fetch(
-      `${MGMT_BASE}/projects/${project_ref}/database/query`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: `
-            INSERT INTO public.agents (name, system_prompt, model, is_default, telegram_bot_token)
-            VALUES ('${escapedName}', '${escapedPrompt}', '${escapedModel}', true, ${tokenValue})
-            RETURNING id, name;
-          `,
-        }),
-      }
-    );
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Failed to create agent (HTTP ${res.status}): ${text}`);
-    }
-
-    const data = await res.json();
+    const data = await execSQL(`
+      INSERT INTO public.agents (name, system_prompt, model, is_default, telegram_bot_token)
+      VALUES ('${escapedName}', '${escapedPrompt}', '${escapedModel}', true, ${tokenValue})
+      RETURNING id, name;
+    `);
     const agentId = data?.[0]?.id;
+
+    const { randomBytes } = await import("crypto");
+    const loginGateKey = randomBytes(24).toString("hex");
+    const loginGateHash = (await sha256Hex(loginGateKey)).replace(/'/g, "''");
+    const gateEnabledValue = process.env.NODE_ENV === "production" ? "true" : "false";
+    await execSQL(`
+      INSERT INTO public.system_settings (key, value)
+      VALUES
+        ('${LOGIN_GATE_ENABLED_KEY}', '${gateEnabledValue}'),
+        ('${LOGIN_GATE_HASH_KEY}', '${loginGateHash}')
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+    `);
 
     if (agentId && body.telegram_bot_token) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL;
       if (appUrl) {
         try {
-          const { randomBytes } = await import("crypto");
           const { getBotForAgent, resetBotForAgent } = await import("@/lib/telegram/bot");
           const { BOT_COMMANDS } = await import("@/lib/telegram/commands");
           resetBotForAgent(agentId);
@@ -396,18 +413,8 @@ async function handleAgent(body: {
           });
           await bot.api.setMyCommands(BOT_COMMANDS);
           const escapedSecret = webhookSecret.replace(/'/g, "''");
-          await fetch(
-            `${MGMT_BASE}/projects/${project_ref}/database/query`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${access_token}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                query: `UPDATE public.agents SET webhook_secret = '${escapedSecret}' WHERE id = '${agentId}';`,
-              }),
-            }
+          await execSQL(
+            `UPDATE public.agents SET webhook_secret = '${escapedSecret}' WHERE id = '${agentId}';`
           );
         } catch (webhookErr) {
           console.warn("Auto-webhook setup failed (non-blocking):", webhookErr);
@@ -415,7 +422,17 @@ async function handleAgent(body: {
       }
     }
 
-    return NextResponse.json({ success: true, agent: data });
+    const origin = (body.app_origin || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
+    const loginPath = `/login?${LOGIN_GATE_QUERY_PARAM}=${encodeURIComponent(loginGateKey)}`;
+    const dashboardPath = `/dashboard?${LOGIN_GATE_QUERY_PARAM}=${encodeURIComponent(loginGateKey)}`;
+
+    return NextResponse.json({
+      success: true,
+      agent: data,
+      loginUrl: origin ? `${origin}${loginPath}` : loginPath,
+      dashboardUrl: origin ? `${origin}${dashboardPath}` : dashboardPath,
+      loginGateEnabled: gateEnabledValue === "true",
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to create agent" },
@@ -476,7 +493,7 @@ CREATE TABLE IF NOT EXISTS public.agents (
   memory_namespace  text NOT NULL DEFAULT 'default',
   model             text NOT NULL DEFAULT 'claude-sonnet-4-20250514',
   is_default        boolean NOT NULL DEFAULT false,
-  access_mode       text NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','whitelist')),
+  access_mode       text NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','approval','whitelist')),
   ai_soul           text NOT NULL DEFAULT '',
   telegram_bot_token text,
   webhook_secret    text,
@@ -498,11 +515,13 @@ CREATE TABLE IF NOT EXISTS public.channels (
   display_name  text,
   user_soul     text NOT NULL DEFAULT '',
   is_allowed    boolean NOT NULL DEFAULT true,
+  is_owner      boolean NOT NULL DEFAULT false,
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS channels_agent_platform_uid ON public.channels(agent_id, platform, platform_uid);
 CREATE INDEX IF NOT EXISTS channels_platform_uid ON public.channels(platform, platform_uid);
+CREATE UNIQUE INDEX IF NOT EXISTS channels_agent_owner ON public.channels(agent_id) WHERE is_owner = true;
 ALTER TABLE public.channels ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "channels_admin_all" ON public.channels;
 CREATE POLICY "channels_admin_all" ON public.channels FOR ALL USING (public.is_admin());
@@ -709,17 +728,41 @@ CREATE POLICY "system_settings_admin_all" ON public.system_settings FOR ALL USIN
 DROP POLICY IF EXISTS "system_settings_service_read" ON public.system_settings;
 CREATE POLICY "system_settings_service_read" ON public.system_settings FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "system_settings_gate_public_read" ON public.system_settings;
+CREATE POLICY "system_settings_gate_public_read" ON public.system_settings FOR SELECT
+  USING (key IN ('login_gate_enabled', 'login_gate_key_hash'));
 
 INSERT INTO public.system_settings (key, value) VALUES
   ('memory_inject_limit_channel', '25'),
-  ('memory_inject_limit_global', '25')
+  ('memory_inject_limit_global', '25'),
+  ('login_gate_enabled', 'false'),
+  ('login_gate_key_hash', '')
 ON CONFLICT (key) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.html_previews (
+  id          text PRIMARY KEY DEFAULT encode(gen_random_bytes(12), 'hex'),
+  html        text NOT NULL,
+  title       text NOT NULL DEFAULT 'Untitled',
+  agent_id    uuid REFERENCES public.agents(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  expires_at  timestamptz
+);
+ALTER TABLE public.html_previews ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "html_previews_admin_all" ON public.html_previews;
+CREATE POLICY "html_previews_admin_all" ON public.html_previews FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "html_previews_service_all" ON public.html_previews;
+CREATE POLICY "html_previews_service_all" ON public.html_previews FOR ALL
+  USING (current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "html_previews_anon_select" ON public.html_previews;
+CREATE POLICY "html_previews_anon_select" ON public.html_previews FOR SELECT
+  USING (true);
 
 -- Ensure Supabase API roles can reach schema objects (RLS still applies row-level checks)
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT SELECT ON public.events TO anon;
+GRANT SELECT ON public.html_previews TO anon;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;

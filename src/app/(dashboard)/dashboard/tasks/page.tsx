@@ -238,6 +238,7 @@ export default function TasksPage() {
               deleteTarget.task_type
             : "",
         })}
+        confirmText={t("common.delete")}
         loading={!!deleting}
         onConfirm={confirmDelete}
       />
