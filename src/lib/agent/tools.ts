@@ -38,11 +38,10 @@ function getSupabase() {
 
 interface ToolsOptions {
   agentId: string;
-  namespace: string;
   channelId?: string;
 }
 
-export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions) {
+export function createAgentTools({ agentId, channelId }: ToolsOptions) {
   const supabase = getSupabase();
 
   function getTaskJobName(taskConfig: unknown): string | null {
@@ -134,7 +133,9 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
         "Save a fact, decision, or summary to long-term memory. " +
         "Use this for KNOWLEDGE — things the user told you, decisions made, conversation summaries. " +
         "Do NOT use this for identity info — use user_soul_update or ai_soul_update instead. " +
-        "Auto-deduplicates similar entries in the same category.",
+        "Auto-deduplicates similar entries in the same category.\n\n" +
+        "scope='channel' (default): private to this user only.\n" +
+        "scope='global': shared across ALL users of this agent (use for agent-wide knowledge only).",
       inputSchema: z.object({
         category: z
           .enum(["fact", "preference", "decision", "summary", "other"])
@@ -142,20 +143,35 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
         content: z
           .string()
           .describe("The memory content. Must be self-contained."),
+        scope: z
+          .enum(["channel", "global"])
+          .optional()
+          .describe("'channel' = user-private (default), 'global' = shared across all users"),
       }),
       execute: async ({
         category,
         content,
+        scope: rawScope,
       }: {
         category: string;
         content: string;
+        scope?: string;
       }) => {
-        const { data: existing } = await supabase
+        const scope = rawScope === "global" ? "global" : "channel";
+        if (scope === "channel" && !channelId) {
+          return { success: false, error: "No channel context — cannot write channel-scoped memory" };
+        }
+
+        const q = supabase
           .from("memories")
           .select("id, content")
           .eq("agent_id", agentId)
-          .eq("namespace", namespace)
-          .eq("category", category);
+          .eq("category", category)
+          .eq("scope", scope);
+        if (scope === "channel") q.eq("channel_id", channelId!);
+        else q.is("channel_id", null);
+
+        const { data: existing } = await q;
 
         let replaced = 0;
         if (existing && existing.length > 0) {
@@ -173,7 +189,8 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
 
         const { error } = await supabase.from("memories").insert({
           agent_id: agentId,
-          namespace,
+          channel_id: scope === "channel" ? channelId! : null,
+          scope,
           category,
           content,
         });
@@ -181,8 +198,8 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
 
         const msg =
           replaced > 0
-            ? `Memory saved (replaced ${replaced} older entries)`
-            : "Memory saved";
+            ? `Memory saved [${scope}] (replaced ${replaced} older entries)`
+            : `Memory saved [${scope}]`;
         return { success: true, message: msg };
       },
     }),
@@ -190,16 +207,21 @@ export function createAgentTools({ agentId, namespace, channelId }: ToolsOptions
     memory_search: tool({
       description:
         "Search long-term memories for relevant information. " +
-        "Use this to recall facts, decisions, or summaries from past conversations.",
+        "Use this to recall facts, decisions, or summaries from past conversations. " +
+        "Searches both user-private memories and agent-wide global memories.",
       inputSchema: z.object({
         query: z.string().describe("Search query to find relevant memories"),
       }),
       execute: async ({ query }: { query: string }) => {
         const { data, error } = await supabase
           .from("memories")
-          .select("category, content, created_at")
+          .select("category, content, scope, created_at")
           .eq("agent_id", agentId)
-          .eq("namespace", namespace)
+          .or(
+            channelId
+              ? `and(channel_id.eq.${channelId},scope.eq.channel),scope.eq.global`
+              : `scope.eq.global`
+          )
           .ilike("content", `%${query}%`)
           .order("created_at", { ascending: false })
           .limit(10);

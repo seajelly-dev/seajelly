@@ -69,10 +69,13 @@ export type MemoryCategory =
   | "summary"
   | "other";
 
+export type MemoryScope = "channel" | "global";
+
 export interface Memory {
   id: string;
   agent_id: string;
-  namespace: string;
+  channel_id: string | null;
+  scope: MemoryScope;
   category: MemoryCategory;
   content: string;
   metadata: Record<string, unknown>;

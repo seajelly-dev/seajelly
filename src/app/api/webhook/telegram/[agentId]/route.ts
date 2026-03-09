@@ -42,8 +42,11 @@ export async function POST(
 
     const hasText = !!message.text;
     const hasPhoto = Array.isArray(message.photo) && message.photo.length > 0;
-    const hasDocument = message.document?.mime_type?.startsWith("image/");
-    if (!hasText && !hasPhoto && !hasDocument) {
+    const hasVideo = !!message.video;
+    const hasDocument = !!message.document;
+    const hasVoice = !!message.voice;
+    const hasAudio = !!message.audio;
+    if (!hasText && !hasPhoto && !hasVideo && !hasDocument && !hasVoice && !hasAudio) {
       return NextResponse.json({ ok: true });
     }
 
@@ -92,11 +95,23 @@ export async function POST(
       }
     }
 
-    let photoFileId: string | null = null;
+    let fileId: string | null = null;
+    let fileMime: string | null = null;
     if (hasPhoto) {
-      photoFileId = message.photo[message.photo.length - 1].file_id;
+      fileId = message.photo[message.photo.length - 1].file_id;
+      fileMime = "image/jpeg";
+    } else if (hasVideo) {
+      fileId = message.video.file_id;
+      fileMime = message.video.mime_type || "video/mp4";
     } else if (hasDocument) {
-      photoFileId = message.document.file_id;
+      fileId = message.document.file_id;
+      fileMime = message.document.mime_type || "application/octet-stream";
+    } else if (hasVoice) {
+      fileId = message.voice.file_id;
+      fileMime = message.voice.mime_type || "audio/ogg";
+    } else if (hasAudio) {
+      fileId = message.audio.file_id;
+      fileMime = message.audio.mime_type || "audio/mpeg";
     }
 
     await supabase.from("events").insert({
@@ -113,7 +128,9 @@ export async function POST(
           from: message.from,
           chat: message.chat,
           date: message.date,
-          photo_file_id: photoFileId,
+          file_id: fileId,
+          file_mime: fileMime,
+          file_name: message.document?.file_name || null,
         },
       },
       status: "pending",

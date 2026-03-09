@@ -1,23 +1,29 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Memory, MemoryCategory } from "@/types/database";
+import type { Memory, MemoryCategory, MemoryScope } from "@/types/database";
 
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 }
 
 export async function writeFact(
   agentId: string,
-  namespace: string,
+  channelId: string | null,
   category: MemoryCategory,
-  content: string
+  content: string,
+  scope: MemoryScope = "channel"
 ): Promise<{ success: boolean; error?: string }> {
+  if (scope === "channel" && !channelId) {
+    return { success: false, error: "channelId required for channel-scoped memory" };
+  }
+
   const supabase = getSupabase();
   const { error } = await supabase.from("memories").insert({
     agent_id: agentId,
-    namespace,
+    channel_id: scope === "channel" ? channelId : null,
+    scope,
     category,
     content,
   });
@@ -28,16 +34,20 @@ export async function writeFact(
 
 export async function searchFacts(
   agentId: string,
-  namespace: string,
+  channelId: string | null,
   query: string,
   limit = 10
 ): Promise<Memory[]> {
   const supabase = getSupabase();
+  const orFilter = channelId
+    ? `and(channel_id.eq.${channelId},scope.eq.channel),scope.eq.global`
+    : `scope.eq.global`;
+
   const { data } = await supabase
     .from("memories")
     .select("*")
     .eq("agent_id", agentId)
-    .eq("namespace", namespace)
+    .or(orFilter)
     .ilike("content", `%${query}%`)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -47,15 +57,19 @@ export async function searchFacts(
 
 export async function getRecentFacts(
   agentId: string,
-  namespace: string,
+  channelId: string | null,
   limit = 5
 ): Promise<Memory[]> {
   const supabase = getSupabase();
+  const orFilter = channelId
+    ? `and(channel_id.eq.${channelId},scope.eq.channel),scope.eq.global`
+    : `scope.eq.global`;
+
   const { data } = await supabase
     .from("memories")
     .select("*")
     .eq("agent_id", agentId)
-    .eq("namespace", namespace)
+    .or(orFilter)
     .order("created_at", { ascending: false })
     .limit(limit);
 

@@ -4,7 +4,7 @@ import { getModel } from "./provider";
 import { createAgentTools } from "./tools";
 import { AGENT_LIMITS } from "./limits";
 import { getBotForAgent } from "@/lib/telegram/bot";
-import { downloadTelegramPhoto } from "@/lib/telegram/photo";
+import { downloadTelegramFile, isImageMime, isTextMime } from "@/lib/telegram/photo";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
 
@@ -51,10 +51,12 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       | Record<string, unknown>
       | undefined;
     const messageText = (msgPayload?.text as string) || "";
-    const photoFileId = (msgPayload?.photo_file_id as string) || null;
+    const fileId = (msgPayload?.file_id as string) || (msgPayload?.photo_file_id as string) || null;
+    const fileMime = (msgPayload?.file_mime as string) || null;
+    const fileName = (msgPayload?.file_name as string) || null;
 
-    if (!messageText && !photoFileId) {
-      throw new Error("No message text or image in payload");
+    if (!messageText && !fileId) {
+      throw new Error("No message text or file in payload");
     }
 
     const command = messageText.startsWith("/")
@@ -224,43 +226,79 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         content: m.content,
       }));
 
-    // Build multimodal user message if image is present
-    let imageDownloaded = false;
-    if (photoFileId && event.agent_id) {
-      const photo = await downloadTelegramPhoto(event.agent_id, photoFileId);
-      if (photo) {
-        imageDownloaded = true;
-        const parts: Array<
-          | { type: "text"; text: string }
-          | { type: "image"; image: string; mimeType: string }
-        > = [];
-        parts.push({
-          type: "image",
-          image: photo.base64,
-          mimeType: photo.mimeType,
-        });
-        if (messageText) {
-          parts.push({ type: "text", text: messageText });
-        } else {
-          parts.push({
-            type: "text",
-            text: "Please describe or analyze this image.",
+    // Build multimodal user message if file is present
+    let fileHandled = false;
+    if (fileId && event.agent_id) {
+      const file = await downloadTelegramFile(event.agent_id, fileId, fileMime, fileName);
+      if (file) {
+        const mime = file.mimeType;
+        const textPrompt = messageText || "";
+
+        if (isImageMime(mime)) {
+          const parts: Array<
+            | { type: "text"; text: string }
+            | { type: "image"; image: string; mimeType: string }
+          > = [
+            { type: "image", image: file.base64, mimeType: mime },
+            { type: "text", text: textPrompt || "Please describe or analyze this image." },
+          ];
+          messages.push({ role: "user" as const, content: parts } as ModelMessage);
+          fileHandled = true;
+        } else if (isTextMime(mime)) {
+          const decoded = Buffer.from(file.base64, "base64").toString("utf-8");
+          const label = file.fileName ? `[File: ${file.fileName}]` : "[Text file]";
+          messages.push({
+            role: "user" as const,
+            content: `${label}\n\`\`\`\n${decoded.slice(0, 50_000)}\n\`\`\`\n\n${textPrompt || "Please analyze this file."}`,
           });
+          fileHandled = true;
+        } else if (mime === "application/pdf") {
+          const parts: Array<
+            | { type: "text"; text: string }
+            | { type: "file"; data: string; mimeType: string }
+          > = [
+            { type: "file", data: file.base64, mimeType: "application/pdf" },
+            { type: "text", text: textPrompt || "Please analyze this PDF document." },
+          ];
+          messages.push({ role: "user" as const, content: parts } as ModelMessage);
+          fileHandled = true;
+        } else if (mime.startsWith("video/")) {
+          const parts: Array<
+            | { type: "text"; text: string }
+            | { type: "file"; data: string; mimeType: string }
+          > = [
+            { type: "file", data: file.base64, mimeType: mime },
+            { type: "text", text: textPrompt || "Please analyze this video." },
+          ];
+          messages.push({ role: "user" as const, content: parts } as ModelMessage);
+          fileHandled = true;
+        } else if (mime.startsWith("audio/")) {
+          const parts: Array<
+            | { type: "text"; text: string }
+            | { type: "file"; data: string; mimeType: string }
+          > = [
+            { type: "file", data: file.base64, mimeType: mime },
+            { type: "text", text: textPrompt || "Please analyze this audio." },
+          ];
+          messages.push({ role: "user" as const, content: parts } as ModelMessage);
+          fileHandled = true;
+        } else {
+          const label = file.fileName ? `[File: ${file.fileName}, type: ${mime}]` : `[File: ${mime}]`;
+          messages.push({
+            role: "user" as const,
+            content: `${label}\n(Binary file — ${file.sizeBytes} bytes)\n\n${textPrompt || "I sent you a file. What can you help me with?"}`,
+          });
+          fileHandled = true;
         }
-        messages.push({
-          role: "user" as const,
-          content: parts,
-        } as ModelMessage);
       }
     }
-    if (!imageDownloaded) {
+    if (!fileHandled) {
       messages.push({ role: "user" as const, content: messageText });
     }
 
     const model = await getModel(typedAgent.model);
     const builtinTools = createAgentTools({
       agentId: typedAgent.id,
-      namespace: typedAgent.memory_namespace,
       channelId: channel?.id,
     });
 
@@ -307,6 +345,49 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
     if (channel?.user_soul) {
       systemPrompt += `\n\n## About This User\n${channel.user_soul}`;
+    }
+
+    // ── Auto-inject channel + global memories (50 each, 100 max) ──
+    {
+      const [channelRes, globalRes] = await Promise.all([
+        channel
+          ? supabase
+              .from("memories")
+              .select("category, content")
+              .eq("agent_id", typedAgent.id)
+              .eq("channel_id", channel.id)
+              .eq("scope", "channel")
+              .order("created_at", { ascending: false })
+              .limit(50)
+          : Promise.resolve({ data: null }),
+        supabase
+          .from("memories")
+          .select("category, content")
+          .eq("agent_id", typedAgent.id)
+          .eq("scope", "global")
+          .order("created_at", { ascending: false })
+          .limit(50),
+      ]);
+
+      const channelMems = channelRes.data ?? [];
+      const globalMems = globalRes.data ?? [];
+
+      if (channelMems.length || globalMems.length) {
+        let section = "\n\n## Memories\n";
+        if (channelMems.length) {
+          section += "### About This User (private)\n";
+          for (const m of channelMems) {
+            section += `- [${m.category}] ${m.content}\n`;
+          }
+        }
+        if (globalMems.length) {
+          section += "### Agent Knowledge (shared)\n";
+          for (const m of globalMems) {
+            section += `- [${m.category}] ${m.content}\n`;
+          }
+        }
+        systemPrompt += section;
+      }
     }
 
     // ── Skills injection ──
@@ -362,8 +443,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         await bot.api.sendMessage(telegramChatId, reply);
       });
 
-    const userContent = imageDownloaded
-      ? `[Image]${messageText ? ` ${messageText}` : ""}`
+    const userContent = fileHandled
+      ? `[File${fileName ? `: ${fileName}` : ""}]${messageText ? ` ${messageText}` : ""}`
       : messageText;
 
     const updatedMessages: ChatMessage[] = [

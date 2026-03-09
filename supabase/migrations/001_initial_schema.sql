@@ -143,13 +143,15 @@ CREATE POLICY "sessions_service_upd" ON public.sessions FOR UPDATE
 CREATE TABLE IF NOT EXISTS public.memories (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
-  namespace   text NOT NULL DEFAULT 'default',
+  channel_id  uuid REFERENCES public.channels(id) ON DELETE CASCADE,
+  scope       text NOT NULL DEFAULT 'channel' CHECK (scope IN ('channel','global')),
   category    text NOT NULL CHECK (category IN ('fact','preference','decision','summary','other')),
   content     text NOT NULL,
   metadata    jsonb NOT NULL DEFAULT '{}',
   created_at  timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS memories_agent_ns ON public.memories(agent_id, namespace);
+CREATE INDEX IF NOT EXISTS memories_channel ON public.memories(channel_id) WHERE channel_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS memories_agent_global ON public.memories(agent_id) WHERE scope = 'global';
 ALTER TABLE public.memories ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "memories_admin_all" ON public.memories;
 CREATE POLICY "memories_admin_all" ON public.memories FOR ALL USING (public.is_admin());

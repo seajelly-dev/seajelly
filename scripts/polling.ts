@@ -72,7 +72,6 @@ interface AgentRow {
   name: string;
   model: string;
   system_prompt: string;
-  memory_namespace: string;
   access_mode: string;
   ai_soul: string;
   telegram_bot_token: string;
@@ -183,14 +182,16 @@ async function startBotForAgent(agent: AgentRow) {
   async function handleMessage(
     ctx: { chat: { id: number }; from: { id: number; first_name: string }; reply: (text: string) => Promise<unknown>; replyWithChatAction: (action: ChatAction) => Promise<unknown> },
     text: string,
-    photoFileId: string | null
+    fileId: string | null,
+    fileMime: string | null = null,
+    fileName: string | null = null,
   ) {
     const chatId = ctx.chat.id;
     const from = ctx.from;
     const platformUid = String(from.id);
 
     console.log(
-      `[${new Date().toISOString()}] [${agent.name}] ${from?.first_name}: ${photoFileId ? "[Image] " : ""}${text}`
+      `[${new Date().toISOString()}] [${agent.name}] ${from?.first_name}: ${fileId ? "[File] " : ""}${text}`
     );
 
     try {
@@ -250,10 +251,6 @@ async function startBotForAgent(agent: AgentRow) {
         ? (session.messages as ChatMessage[])
         : [];
 
-      type MsgPart =
-        | { type: "text"; text: string }
-        | { type: "image"; image: string; mimeType: string };
-
       const messages = [
         ...history
           .slice(-AGENT_LIMITS.MAX_SESSION_MESSAGES)
@@ -263,44 +260,82 @@ async function startBotForAgent(agent: AgentRow) {
           })),
       ];
 
-      let imageDownloaded = false;
-      if (photoFileId) {
+      let fileHandled = false;
+      if (fileId) {
         try {
           const botToken = decrypt(agent.telegram_bot_token);
           const fileRes = await fetch(
-            `https://api.telegram.org/bot${botToken}/getFile?file_id=${photoFileId}`
+            `https://api.telegram.org/bot${botToken}/getFile?file_id=${fileId}`
           );
           const fileData = await fileRes.json();
           if (fileData.ok && fileData.result.file_path) {
             const dlUrl = `https://api.telegram.org/file/bot${botToken}/${fileData.result.file_path}`;
-            const imgRes = await fetch(dlUrl);
-            if (imgRes.ok) {
-              const buf = Buffer.from(await imgRes.arrayBuffer());
-              const ext = fileData.result.file_path.split(".").pop()?.toLowerCase() || "jpg";
-              const mimeMap: Record<string, string> = {
+            const dlRes = await fetch(dlUrl);
+            if (dlRes.ok) {
+              const buf = Buffer.from(await dlRes.arrayBuffer());
+              const ext = fileData.result.file_path.split(".").pop()?.toLowerCase() || "";
+              const MIME_MAP: Record<string, string> = {
                 jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
-                gif: "image/gif", webp: "image/webp",
+                gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
+                pdf: "application/pdf",
+                mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+                ogg: "audio/ogg", mp3: "audio/mpeg", wav: "audio/wav",
+                txt: "text/plain", csv: "text/csv", json: "application/json",
+                md: "text/markdown", html: "text/html", xml: "text/xml",
               };
-              const parts: MsgPart[] = [
-                { type: "image", image: buf.toString("base64"), mimeType: mimeMap[ext] || "image/jpeg" },
-                { type: "text", text: text || "Please describe or analyze this image." },
-              ];
-              messages.push({ role: "user" as const, content: parts } as never);
-              imageDownloaded = true;
+              const mime = (fileMime && fileMime !== "application/octet-stream")
+                ? fileMime : (MIME_MAP[ext] || "application/octet-stream");
+
+              const isImage = mime.startsWith("image/");
+              const isText = mime.startsWith("text/") || mime === "application/json";
+
+              if (isImage) {
+                messages.push({
+                  role: "user" as const,
+                  content: [
+                    { type: "image", image: buf.toString("base64"), mimeType: mime },
+                    { type: "text", text: text || "Please describe or analyze this image." },
+                  ],
+                } as never);
+                fileHandled = true;
+              } else if (isText) {
+                const decoded = buf.toString("utf-8");
+                const label = fileName ? `[File: ${fileName}]` : "[Text file]";
+                messages.push({
+                  role: "user" as const,
+                  content: `${label}\n\`\`\`\n${decoded.slice(0, 50_000)}\n\`\`\`\n\n${text || "Please analyze this file."}`,
+                });
+                fileHandled = true;
+              } else if (mime === "application/pdf" || mime.startsWith("video/") || mime.startsWith("audio/")) {
+                messages.push({
+                  role: "user" as const,
+                  content: [
+                    { type: "file", data: buf.toString("base64"), mimeType: mime },
+                    { type: "text", text: text || `Please analyze this ${mime.split("/")[0]}.` },
+                  ],
+                } as never);
+                fileHandled = true;
+              } else {
+                const label = fileName ? `[File: ${fileName}, type: ${mime}]` : `[File: ${mime}]`;
+                messages.push({
+                  role: "user" as const,
+                  content: `${label}\n(Binary file — ${buf.length} bytes)\n\n${text || "I sent you a file."}`,
+                });
+                fileHandled = true;
+              }
             }
           }
         } catch (err) {
-          console.warn("Photo download failed:", err);
+          console.warn("File download failed:", err);
         }
       }
-      if (!imageDownloaded) {
+      if (!fileHandled) {
         messages.push({ role: "user" as const, content: text });
       }
 
       const model = await getModel(agent.model);
       const builtinTools = createAgentTools({
         agentId: agent.id,
-        namespace: agent.memory_namespace || "default",
         channelId: channel.id,
       });
 
@@ -347,6 +382,42 @@ async function startBotForAgent(agent: AgentRow) {
         systemPrompt += `\n\n## About This User\n${channel.user_soul}`;
       }
 
+      {
+        const [chRes, glRes] = await Promise.all([
+          supabase
+            .from("memories")
+            .select("category, content")
+            .eq("agent_id", agent.id)
+            .eq("channel_id", channel.id)
+            .eq("scope", "channel")
+            .order("created_at", { ascending: false })
+            .limit(50),
+          supabase
+            .from("memories")
+            .select("category, content")
+            .eq("agent_id", agent.id)
+            .eq("scope", "global")
+            .order("created_at", { ascending: false })
+            .limit(50),
+        ]);
+
+        const chMems = chRes.data ?? [];
+        const glMems = glRes.data ?? [];
+
+        if (chMems.length || glMems.length) {
+          let section = "\n\n## Memories\n";
+          if (chMems.length) {
+            section += "### About This User (private)\n";
+            for (const m of chMems) section += `- [${m.category}] ${m.content}\n`;
+          }
+          if (glMems.length) {
+            section += "### Agent Knowledge (shared)\n";
+            for (const m of glMems) section += `- [${m.category}] ${m.content}\n`;
+          }
+          systemPrompt += section;
+        }
+      }
+
       const { data: agentSkillRows } = await supabase
         .from("agent_skills")
         .select("skill_id, skills(name, content)")
@@ -391,8 +462,8 @@ async function startBotForAgent(agent: AgentRow) {
 
       await ctx.reply(reply);
 
-      const userContent = imageDownloaded
-        ? `[Image]${text ? ` ${text}` : ""}`
+      const userContent = fileHandled
+        ? `[File${fileName ? `: ${fileName}` : ""}]${text ? ` ${text}` : ""}`
         : text;
 
       const updatedMessages: ChatMessage[] = [
@@ -414,25 +485,35 @@ async function startBotForAgent(agent: AgentRow) {
     }
   }
 
-  // Text messages
   bot.on("message:text", async (ctx) => {
     await handleMessage(ctx, ctx.message.text, null);
   });
 
-  // Photo messages
   bot.on("message:photo", async (ctx) => {
     const photos = ctx.message.photo;
-    const fileId = photos[photos.length - 1].file_id;
+    const fid = photos[photos.length - 1].file_id;
     const caption = ctx.message.caption || "";
-    await handleMessage(ctx, caption, fileId);
+    await handleMessage(ctx, caption, fid, "image/jpeg");
   });
 
-  // Document (image files sent as documents)
+  bot.on("message:video", async (ctx) => {
+    const v = ctx.message.video;
+    await handleMessage(ctx, ctx.message.caption || "", v.file_id, v.mime_type || "video/mp4");
+  });
+
   bot.on("message:document", async (ctx) => {
     const doc = ctx.message.document;
-    if (!doc.mime_type?.startsWith("image/")) return;
-    const caption = ctx.message.caption || "";
-    await handleMessage(ctx, caption, doc.file_id);
+    await handleMessage(ctx, ctx.message.caption || "", doc.file_id, doc.mime_type || null, doc.file_name || null);
+  });
+
+  bot.on("message:voice", async (ctx) => {
+    const v = ctx.message.voice;
+    await handleMessage(ctx, ctx.message.caption || "", v.file_id, v.mime_type || "audio/ogg");
+  });
+
+  bot.on("message:audio", async (ctx) => {
+    const a = ctx.message.audio;
+    await handleMessage(ctx, ctx.message.caption || "", a.file_id, a.mime_type || "audio/mpeg", a.file_name || null);
   });
 
   bot.start({
@@ -447,7 +528,7 @@ async function main() {
 
   const { data: agents, error } = await supabase
     .from("agents")
-    .select("id, name, model, system_prompt, memory_namespace, access_mode, ai_soul, telegram_bot_token")
+    .select("id, name, model, system_prompt, access_mode, ai_soul, telegram_bot_token, tools_config")
     .not("telegram_bot_token", "is", null);
 
   if (error) {
