@@ -237,6 +237,7 @@ const zh: TranslationKeys = {
     platformConnected: "已连接",
     platformNotConnected: "未连接",
     platformClickToConfigure: "点击配置",
+    qqbotWebhookHint: "根据社区反馈，测试正常仍然无法正常通信，是由于 QQBot 目前对 Webhook URL 的回调测试存在校验问题。",
     credentialKeepHint: "留空则保持现有值",
     channelsTitle: "渠道管理",
     channelsDesc: "为此 Agent 接入 IM 平台。",

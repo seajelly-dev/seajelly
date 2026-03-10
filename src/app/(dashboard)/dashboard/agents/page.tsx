@@ -277,19 +277,17 @@ export default function AgentsPage() {
     ?? allModels.find((m) => m.model_id === form.model)?.label
     ?? form.model;
 
-  const enabledToolCount = Object.values(form.tools_config).filter(Boolean).length;
+  const enabledToolCount = PRIVILEGED_TOOLS.filter((t) => form.tools_config[t.key]).length;
   const configuredPlatformCount = (() => {
     let count = 0;
     if (form.telegram_bot_token || (editingAgent as AgentExt)?.has_bot_token) count++;
     const pc = form.platform_credentials;
-    if (pc.feishu?.app_id && pc.feishu?.app_secret) count++;
-    if (pc.wecom?.corp_id && pc.wecom?.corp_secret) count++;
-    if (pc.slack?.bot_token && pc.slack?.signing_secret) count++;
-    if (editingAgent) {
-      const p = (editingAgent as AgentExt).platforms || {};
-      if (p.feishu && !pc.feishu?.app_id) count++;
-      if (p.wecom && !pc.wecom?.corp_id) count++;
-      if (p.slack && !pc.slack?.bot_token) count++;
+    const p = (editingAgent as AgentExt)?.platforms || {};
+    for (const plat of PLATFORMS) {
+      if (plat.key === "telegram") continue;
+      const hasNewCreds = plat.fields.every((f) => pc[plat.key]?.[f.name]?.trim());
+      const hadSavedCreds = p[plat.key];
+      if (hasNewCreds || hadSavedCreds) count++;
     }
     return count;
   })();
@@ -414,16 +412,29 @@ export default function AgentsPage() {
     if (!editingAgent) return;
     setTestingPlatform(platform);
     try {
+      const payload: Record<string, unknown> = {
+        platform,
+        action: "test-connection",
+        agent_id: editingAgent.id,
+      };
+      if (platform === "telegram" && form.telegram_bot_token) {
+        payload.inline_token = form.telegram_bot_token;
+      } else if (platform !== "telegram") {
+        const creds = form.platform_credentials[platform];
+        if (creds && Object.values(creds).some((v) => v?.trim())) {
+          payload.inline_credentials = creds;
+        }
+      }
       const res = await fetch("/api/admin/platform", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform, action: "test-connection", agent_id: editingAgent.id }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (res.ok) {
-        toast.success(t("agents.testSuccess"));
+      if (data.success) {
+        toast.success(data.message || t("agents.testSuccess"));
       } else {
-        toast.error(data.error || t("agents.testFailed"));
+        toast.error(data.error || data.message || t("agents.testFailed"));
       }
     } catch {
       toast.error(t("agents.testFailed"));
@@ -581,18 +592,23 @@ export default function AgentsPage() {
                       </div>
                     </div>
                     {isConnected && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-fit"
-                        onClick={() => handleTestConnection(channelExpanded)}
-                        disabled={testingPlatform === channelExpanded}
-                      >
-                        {testingPlatform === channelExpanded
-                          ? <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                          : <CheckCircle2 className="mr-1.5 size-3.5" />}
-                        {testingPlatform === channelExpanded ? t("agents.testing") : t("agents.testConnection")}
-                      </Button>
+                      <div className="flex items-center gap-3">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() => handleTestConnection(channelExpanded)}
+                          disabled={testingPlatform === channelExpanded}
+                        >
+                          {testingPlatform === channelExpanded
+                            ? <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                            : <CheckCircle2 className="mr-1.5 size-3.5" />}
+                          {testingPlatform === channelExpanded ? t("agents.testing") : t("agents.testConnection")}
+                        </Button>
+                        {channelExpanded === "qqbot" && (
+                          <p className="text-xs text-muted-foreground">{t("agents.qqbotWebhookHint")}</p>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}

@@ -235,6 +235,7 @@ const en = {
     platformConnected: "Connected",
     platformNotConnected: "Not Connected",
     platformClickToConfigure: "Click to configure",
+    qqbotWebhookHint: "Per community reports, QQBot's webhook callback validation may fail even when credentials are correct.",
     credentialKeepHint: "Leave empty to keep current",
     channelsTitle: "Channels",
     channelsDesc: "Connect IM platforms to this agent.",

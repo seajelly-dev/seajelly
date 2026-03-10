@@ -39,6 +39,13 @@ async function handleTelegram(action: string, agentId: string, body: Record<stri
   }
 
   if (action === "test-connection") {
+    const inlineToken = (body.inline_token as string)?.trim();
+    if (inlineToken) {
+      const { Bot } = await import("grammy");
+      const tmpBot = new Bot(inlineToken);
+      const me = await tmpBot.api.getMe();
+      return NextResponse.json({ success: true, message: `Bot @${me.username} is alive` });
+    }
     resetBotForAgent(agentId);
     const bot = await getBotForAgent(agentId);
     const me = await bot.api.getMe();
@@ -64,9 +71,33 @@ async function handleFeishu(action: string, agentId: string, body: Record<string
     });
   }
   if (action === "test-connection") {
-    const { FeishuAdapter } = await import("@/lib/platform/adapters/feishu");
-    const adapter = new FeishuAdapter(agentId);
-    await adapter.sendText("__test__", "").catch(() => {});
+    const inline = body.inline_credentials as Record<string, string> | undefined;
+    let appId: string;
+    let appSecret: string;
+    if (inline?.app_id?.trim() && inline?.app_secret?.trim()) {
+      appId = inline.app_id.trim();
+      appSecret = inline.app_secret.trim();
+    } else {
+      const db = await createAdminClient();
+      const { data: rows } = await db
+        .from("agent_credentials")
+        .select("credential_type, encrypted_value")
+        .eq("agent_id", agentId)
+        .eq("platform", "feishu");
+      const { decrypt } = await import("@/lib/crypto/encrypt");
+      const map: Record<string, string> = {};
+      for (const r of rows || []) map[r.credential_type] = decrypt(r.encrypted_value);
+      if (!map.app_id || !map.app_secret) throw new Error("Feishu credentials not configured");
+      appId = map.app_id;
+      appSecret = map.app_secret;
+    }
+    const res = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+    });
+    const data = await res.json();
+    if (data.code !== 0) throw new Error(data.msg || `Feishu auth failed (code ${data.code})`);
     return NextResponse.json({ success: true, message: "Feishu credentials valid (token obtained)" });
   }
   return NextResponse.json({ error: "Invalid action for feishu" }, { status: 400 });
@@ -88,9 +119,29 @@ async function handleWeCom(action: string, agentId: string, body: Record<string,
     });
   }
   if (action === "test-connection") {
-    const { WeComAdapter } = await import("@/lib/platform/adapters/wecom");
-    const adapter = new WeComAdapter(agentId);
-    await adapter.sendText("__test__", "").catch(() => {});
+    const inline = body.inline_credentials as Record<string, string> | undefined;
+    let corpId: string;
+    let corpSecret: string;
+    if (inline?.corp_id?.trim() && inline?.corp_secret?.trim()) {
+      corpId = inline.corp_id.trim();
+      corpSecret = inline.corp_secret.trim();
+    } else {
+      const db = await createAdminClient();
+      const { data: rows } = await db
+        .from("agent_credentials")
+        .select("credential_type, encrypted_value")
+        .eq("agent_id", agentId)
+        .eq("platform", "wecom");
+      const { decrypt } = await import("@/lib/crypto/encrypt");
+      const map: Record<string, string> = {};
+      for (const r of rows || []) map[r.credential_type] = decrypt(r.encrypted_value);
+      if (!map.corp_id || !map.corp_secret) throw new Error("WeCom credentials not configured");
+      corpId = map.corp_id;
+      corpSecret = map.corp_secret;
+    }
+    const res = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${encodeURIComponent(corpId)}&corpsecret=${encodeURIComponent(corpSecret)}`);
+    const data = await res.json();
+    if (data.errcode !== 0) throw new Error(data.errmsg || `WeCom auth failed (code ${data.errcode})`);
     return NextResponse.json({ success: true, message: "WeCom credentials valid (token obtained)" });
   }
   return NextResponse.json({ error: "Invalid action for wecom" }, { status: 400 });
@@ -112,10 +163,28 @@ async function handleSlack(action: string, agentId: string, body: Record<string,
     });
   }
   if (action === "test-connection") {
-    const { SlackAdapter } = await import("@/lib/platform/adapters/slack");
-    const adapter = new SlackAdapter(agentId);
-    await adapter.sendText("__test__", "").catch(() => {});
-    return NextResponse.json({ success: true, message: "Slack credentials valid (client created)" });
+    const inline = body.inline_credentials as Record<string, string> | undefined;
+    let botToken: string;
+    if (inline?.bot_token?.trim()) {
+      botToken = inline.bot_token.trim();
+    } else {
+      const db = await createAdminClient();
+      const { data: rows } = await db
+        .from("agent_credentials")
+        .select("credential_type, encrypted_value")
+        .eq("agent_id", agentId)
+        .eq("platform", "slack");
+      const { decrypt } = await import("@/lib/crypto/encrypt");
+      const map: Record<string, string> = {};
+      for (const r of rows || []) map[r.credential_type] = decrypt(r.encrypted_value);
+      if (!map.bot_token) throw new Error("Slack bot_token not configured");
+      botToken = map.bot_token;
+    }
+    const { WebClient } = await import("@slack/web-api");
+    const client = new WebClient(botToken);
+    const result = await client.auth.test();
+    if (!result.ok) throw new Error("Slack auth.test failed");
+    return NextResponse.json({ success: true, message: `Slack bot @${result.user} is alive` });
   }
   return NextResponse.json({ error: "Invalid action for slack" }, { status: 400 });
 }
@@ -136,16 +205,32 @@ async function handleQQBot(action: string, agentId: string, body: Record<string,
     });
   }
   if (action === "test-connection") {
-    const { resolveQQBotCredentials, invalidateQQBotCache } = await import("@/lib/platform/adapters/qqbot");
-    invalidateQQBotCache(agentId);
-    const creds = await resolveQQBotCredentials(agentId);
+    const inline = body.inline_credentials as Record<string, string> | undefined;
+    let appId: string;
+    let appSecret: string;
+    if (inline?.app_id?.trim() && inline?.app_secret?.trim()) {
+      appId = inline.app_id.trim();
+      appSecret = inline.app_secret.trim();
+    } else {
+      const { resolveQQBotCredentials, invalidateQQBotCache } = await import("@/lib/platform/adapters/qqbot");
+      invalidateQQBotCache(agentId);
+      const creds = await resolveQQBotCredentials(agentId);
+      appId = creds.appId;
+      appSecret = creds.appSecret;
+    }
     const res = await fetch("https://bots.qq.com/app/getAppAccessToken", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ appId: creds.appId, clientSecret: creds.appSecret }),
+      body: JSON.stringify({ appId, clientSecret: appSecret }),
     });
-    if (!res.ok) throw new Error(`QQBot token request failed: ${res.status}`);
-    return NextResponse.json({ success: true, message: "QQBot credentials valid (token obtained)" });
+    const data = await res.json();
+    if (!res.ok || data.code) {
+      throw new Error(data.message || `QQBot token request failed: ${res.status}`);
+    }
+    if (!data.access_token) {
+      throw new Error("QQBot returned no access_token");
+    }
+    return NextResponse.json({ success: true, message: `QQBot credentials valid (token expires in ${data.expires_in}s)` });
   }
   return NextResponse.json({ error: "Invalid action for qqbot" }, { status: 400 });
 }
