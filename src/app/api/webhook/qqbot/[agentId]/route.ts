@@ -20,21 +20,40 @@ export async function POST(
   try {
     const { agentId } = await params;
     const rawBody = await request.text();
-    const body = JSON.parse(rawBody);
 
-    const creds = await resolveQQBotCredentials(agentId);
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      console.error("QQBot webhook: invalid JSON body");
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    let creds: { appId: string; appSecret: string };
+    try {
+      creds = await resolveQQBotCredentials(agentId);
+    } catch (credErr) {
+      console.error("QQBot webhook: failed to resolve credentials:", credErr);
+      return NextResponse.json({ error: "Credential error" }, { status: 500 });
+    }
 
     // Op 13: webhook URL validation challenge
     if (body.op === 13) {
-      const d = body.d as { plain_token: string; event_ts: string };
-      const signature = signQQBotChallenge(creds.appSecret, d.event_ts, d.plain_token);
-      return NextResponse.json({
-        plain_token: d.plain_token,
-        signature,
-      });
+      try {
+        const d = body.d as { plain_token: string; event_ts: string };
+        const signature = signQQBotChallenge(creds.appSecret, d.event_ts, d.plain_token);
+        console.log("QQBot webhook: challenge response for agent", agentId, "plain_token:", d.plain_token);
+        return NextResponse.json({
+          plain_token: d.plain_token,
+          signature,
+        });
+      } catch (signErr) {
+        console.error("QQBot webhook: challenge signing failed:", signErr);
+        return NextResponse.json({ error: "Signing failed" }, { status: 500 });
+      }
     }
 
-    // Verify Ed25519 signature
+    // Verify Ed25519 signature for non-challenge requests
     const sigHex = request.headers.get("x-signature-ed25519") || "";
     const timestamp = request.headers.get("x-signature-timestamp") || "";
     if (sigHex && timestamp) {
@@ -44,8 +63,7 @@ export async function POST(
       }
     }
 
-    // Op 12: HTTP Callback ACK (required for webhook mode)
-    // Op 0: Dispatch — actual event
+    // Non-dispatch events: ACK
     if (body.op !== 0) {
       return NextResponse.json({ op: 12, d: null });
     }
