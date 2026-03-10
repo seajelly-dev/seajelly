@@ -236,6 +236,7 @@ const zh: TranslationKeys = {
     slackSigningSecret: "Slack Signing Secret",
     platformConnected: "已连接",
     platformNotConnected: "未连接",
+    platformClickToConfigure: "点击配置",
     credentialKeepHint: "留空则保持现有值",
     channelsTitle: "渠道管理",
     channelsDesc: "为此 Agent 接入 IM 平台。",

@@ -498,15 +498,20 @@ export default function AgentsPage() {
                   />
                 </div>
                 {editingAgent && (
-                  <div className="flex flex-col gap-2 rounded-md border p-3">
-                    <p className="text-xs font-medium text-muted-foreground">{t("agents.webhookUrlLabel")}</p>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded bg-muted px-2 py-1 text-xs block">
-                        {`${origin}/api/webhook/telegram/${editingAgent.id}`}
-                      </code>
-                      <Button variant="ghost" size="icon-sm" className="shrink-0" onClick={() => copyWebhookUrl("telegram", editingAgent.id)}>
-                        <Copy className="size-3.5" />
-                      </Button>
+                  <div className="flex flex-col gap-3 rounded-md border p-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label className="text-xs text-muted-foreground">{t("agents.webhookUrlLabel")}</Label>
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          readOnly
+                          value={`${origin}/api/webhook/telegram/${editingAgent.id}`}
+                          className="h-8 text-xs font-mono"
+                          onFocus={(e) => e.target.select()}
+                        />
+                        <Button variant="ghost" size="icon-sm" className="shrink-0" onClick={() => copyWebhookUrl("telegram", editingAgent.id)}>
+                          <Copy className="size-3.5" />
+                        </Button>
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -560,15 +565,20 @@ export default function AgentsPage() {
                   </div>
                 ))}
                 {editingAgent && (
-                  <div className="flex flex-col gap-2 rounded-md border p-3">
-                    <p className="text-xs font-medium text-muted-foreground">{t("agents.webhookUrlLabel")}</p>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded bg-muted px-2 py-1 text-xs block">
-                        {`${origin}/api/webhook/${channelExpanded}/${editingAgent.id}`}
-                      </code>
-                      <Button variant="ghost" size="icon-sm" className="shrink-0" onClick={() => copyWebhookUrl(channelExpanded, editingAgent.id)}>
-                        <Copy className="size-3.5" />
-                      </Button>
+                  <div className="flex flex-col gap-3 rounded-md border p-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label className="text-xs text-muted-foreground">{t("agents.webhookUrlLabel")}</Label>
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          readOnly
+                          value={`${origin}/api/webhook/${channelExpanded}/${editingAgent.id}`}
+                          className="h-8 text-xs font-mono"
+                          onFocus={(e) => e.target.select()}
+                        />
+                        <Button variant="ghost" size="icon-sm" className="shrink-0" onClick={() => copyWebhookUrl(channelExpanded, editingAgent.id)}>
+                          <Copy className="size-3.5" />
+                        </Button>
+                      </div>
                     </div>
                     {isConnected && (
                       <Button
@@ -620,17 +630,17 @@ export default function AgentsPage() {
               <button
                 key={plat.key}
                 onClick={() => setChannelExpanded(plat.key)}
-                className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/50 overflow-hidden"
+                className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/50"
               >
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
                   <plat.icon className="size-5" />
                 </div>
-                <div className="flex-1 min-w-0 overflow-hidden">
+                <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{plat.label}</p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {editingAgent
-                      ? `${origin}/api/webhook/${plat.key}/${editingAgent.id}`
-                      : `${origin}/api/webhook/${plat.key}/...`}
+                  <p className="text-xs text-muted-foreground">
+                    {isConnected || hasNewInput
+                      ? t("agents.platformConnected")
+                      : t("agents.platformClickToConfigure")}
                   </p>
                 </div>
                 <div className="shrink-0">

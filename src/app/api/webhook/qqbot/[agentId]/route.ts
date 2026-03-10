@@ -42,14 +42,25 @@ export async function POST(
       try {
         const d = body.d as { plain_token: string; event_ts: string };
         const signature = signQQBotChallenge(creds.appSecret, d.event_ts, d.plain_token);
-        console.log("QQBot webhook: challenge response for agent", agentId, "plain_token:", d.plain_token);
-        return NextResponse.json({
-          plain_token: d.plain_token,
-          signature,
+        const respBody = { plain_token: d.plain_token, signature };
+        console.log(
+          "QQBot webhook: challenge response for agent", agentId,
+          "plain_token:", d.plain_token,
+          "event_ts:", d.event_ts,
+          "sig_len:", signature.length,
+          "sig_prefix:", signature.slice(0, 16),
+          "resp:", JSON.stringify(respBody),
+        );
+        return new Response(JSON.stringify(respBody), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
         });
       } catch (signErr) {
         console.error("QQBot webhook: challenge signing failed:", signErr);
-        return NextResponse.json({ error: "Signing failed" }, { status: 500 });
+        return new Response(JSON.stringify({ error: "Signing failed" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
       }
     }
 

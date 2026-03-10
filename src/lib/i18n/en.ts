@@ -234,6 +234,7 @@ const en = {
     slackSigningSecret: "Slack Signing Secret",
     platformConnected: "Connected",
     platformNotConnected: "Not Connected",
+    platformClickToConfigure: "Click to configure",
     credentialKeepHint: "Leave empty to keep current",
     channelsTitle: "Channels",
     channelsDesc: "Connect IM platforms to this agent.",
