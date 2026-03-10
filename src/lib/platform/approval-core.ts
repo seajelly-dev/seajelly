@@ -18,6 +18,7 @@ interface ChannelApprovalResult {
   agentId: string;
   name: string;
   targetUid: string;
+  targetPlatform: string;
 }
 
 export async function processChannelApproval(
@@ -28,7 +29,7 @@ export async function processChannelApproval(
 
   const { data: ch } = await supabase
     .from("channels")
-    .select("id, agent_id, platform_uid, display_name")
+    .select("id, agent_id, platform, platform_uid, display_name")
     .eq("id", channelId)
     .single();
 
@@ -54,7 +55,7 @@ export async function processChannelApproval(
     await supabase.from("channels").delete().eq("id", channelId);
   }
 
-  return { agentId, name, targetUid: ch.platform_uid };
+  return { agentId, name, targetUid: ch.platform_uid, targetPlatform: ch.platform };
 }
 
 interface PushApprovalParams {

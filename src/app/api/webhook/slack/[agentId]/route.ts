@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { resolveSlackCredentials } from "@/lib/platform/adapters/slack";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
+import { processChannelApproval } from "@/lib/platform/approval-core";
+import { getSenderForAgent } from "@/lib/platform/sender";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -19,12 +21,72 @@ async function verifySlackRequest(
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
 }
 
+async function handleInteraction(
+  payload: Record<string, unknown>,
+  agentId: string,
+) {
+  const actions = payload.actions as Array<Record<string, string>> | undefined;
+  if (!actions?.length) return;
+
+  const action = actions[0];
+  const value = action.value || "";
+  const match = value.match(/^(approve|reject):(.+)$/);
+  if (!match) return;
+
+  const [, act, channelId] = match;
+  const user = payload.user as Record<string, string> | undefined;
+  const callerUid = user?.id || "";
+
+  const result = await processChannelApproval({
+    action: act as "approve" | "reject",
+    channelId,
+    callerUid,
+    fallbackAgentId: agentId,
+  });
+  if (!result) return;
+
+  if (result.targetUid) {
+    try {
+      const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
+      await targetSender.sendText(
+        result.targetUid,
+        act === "approve"
+          ? "✅ Your access has been approved! You can start chatting now."
+          : "❌ Your access request has been rejected.",
+      );
+    } catch { /* target user unreachable */ }
+  }
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ agentId: string }> },
 ) {
   try {
     const { agentId } = await params;
+    const contentType = request.headers.get("content-type") || "";
+
+    if (contentType.includes("application/x-www-form-urlencoded")) {
+      const formData = await request.formData();
+      const payloadStr = formData.get("payload") as string | null;
+      if (!payloadStr) return NextResponse.json({ ok: true });
+
+      const timestamp = request.headers.get("x-slack-request-timestamp") || "";
+      const signature = request.headers.get("x-slack-signature") || "";
+      const rawBody = `payload=${encodeURIComponent(payloadStr)}`;
+      const creds = await resolveSlackCredentials(agentId);
+      const valid = await verifySlackRequest(rawBody, timestamp, signature, creds.signingSecret);
+      if (!valid) {
+        return NextResponse.json({ error: "Invalid signature" }, { status: 403 });
+      }
+
+      const payload = JSON.parse(payloadStr);
+      if (payload.type === "block_actions") {
+        await handleInteraction(payload, agentId);
+      }
+      return NextResponse.json({ ok: true });
+    }
+
     const rawBody = await request.text();
     const body = JSON.parse(rawBody);
 

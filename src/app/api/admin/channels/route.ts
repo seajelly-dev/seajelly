@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
+import { getSenderForAgent } from "@/lib/platform/sender";
 
 export async function GET(request: NextRequest) {
   try {
@@ -70,6 +71,12 @@ export async function PUT(request: Request) {
     }
   }
 
+  const { data: before } = await db
+    .from("channels")
+    .select("is_allowed, platform, platform_uid, agent_id")
+    .eq("id", id)
+    .single();
+
   const { data, error } = await db
     .from("channels")
     .update(filtered)
@@ -81,7 +88,30 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  if (before && !before.is_allowed && filtered.is_allowed === true) {
+    notifyApprovalResult(before.agent_id, before.platform, before.platform_uid, true).catch(() => {});
+  } else if (before && before.is_allowed && filtered.is_allowed === false) {
+    notifyApprovalResult(before.agent_id, before.platform, before.platform_uid, false).catch(() => {});
+  }
+
   return NextResponse.json({ channel: data });
+}
+
+async function notifyApprovalResult(
+  agentId: string,
+  platform: string,
+  platformUid: string,
+  approved: boolean,
+) {
+  try {
+    const sender = await getSenderForAgent(agentId, platform);
+    await sender.sendText(
+      platformUid,
+      approved
+        ? "✅ Your access has been approved! You can start chatting now.\n\n✅ 您的访问请求已通过审核，现在可以开始对话了。"
+        : "❌ Your access has been revoked.\n\n❌ 您的访问权限已被撤销。",
+    );
+  } catch { /* user unreachable */ }
 }
 
 export async function DELETE(request: Request) {

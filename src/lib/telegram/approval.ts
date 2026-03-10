@@ -49,10 +49,10 @@ export async function handleApprovalCallback(
         });
       }
       if (result.targetUid) {
-        const sender = await getSenderForAgent(result.agentId, "telegram");
         try {
-          await sender.sendText(result.targetUid, "✅ Your access has been approved! You can start chatting now.");
-        } catch { /* user may have blocked bot */ }
+          const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
+          await targetSender.sendText(result.targetUid, "✅ Your access has been approved! You can start chatting now.");
+        } catch { /* user may have blocked bot or platform unavailable */ }
       }
     } else {
       await bot.api.answerCallbackQuery(callbackQuery.id, { text: `❌ ${result.name} rejected` });
@@ -63,10 +63,10 @@ export async function handleApprovalCallback(
         });
       }
       if (result.targetUid) {
-        const sender = await getSenderForAgent(result.agentId, "telegram");
         try {
-          await sender.sendText(result.targetUid, "❌ Your access request has been rejected.");
-        } catch { /* user may have blocked bot */ }
+          const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
+          await targetSender.sendText(result.targetUid, "❌ Your access request has been rejected.");
+        } catch { /* user may have blocked bot or platform unavailable */ }
       }
     }
     return;

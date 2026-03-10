@@ -148,7 +148,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       if (channel && !channel.is_allowed) {
         await sender.sendText(
           platformChatId,
-          "⏳ Your access request has been sent to the owner for approval. Please wait."
+          "⏳ This agent is in approval mode. Your access request has been sent to the owner. " +
+          "You will be notified once the owner approves or rejects your request. Please wait.\n\n" +
+          "⏳ 此 Agent 处于审核模式，您的访问请求已发送给管理员。审核结果将会通知您，请耐心等待。"
         );
         return { success: true, reply: "[pending_approval]", traceId };
       }
