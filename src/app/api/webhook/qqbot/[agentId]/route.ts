@@ -9,6 +9,10 @@ import { handleInboundMessage } from "@/lib/platform/webhook-handler";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+export async function GET() {
+  return NextResponse.json({ status: "QQBot webhook endpoint active", method: "Use POST" });
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ agentId: string }> },

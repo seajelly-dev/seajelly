@@ -101,6 +101,7 @@ export async function GET() {
       feishu: (agentCreds?.has("feishu:app_id") && agentCreds?.has("feishu:app_secret")) ?? false,
       wecom: (agentCreds?.has("wecom:corp_id") && agentCreds?.has("wecom:corp_secret")) ?? false,
       slack: (agentCreds?.has("slack:bot_token") && agentCreds?.has("slack:signing_secret")) ?? false,
+      qqbot: (agentCreds?.has("qqbot:app_id") && agentCreds?.has("qqbot:app_secret")) ?? false,
     };
     return {
       ...a,

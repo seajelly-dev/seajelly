@@ -136,7 +136,7 @@ const PLATFORMS: PlatformDef[] = [
 
 function useOrigin() {
   const [origin, setOrigin] = useState("");
-  useEffect(() => { setOrigin(origin); }, []);
+  useEffect(() => { setOrigin(window.location.origin); }, []);
   return origin;
 }
 
@@ -369,7 +369,8 @@ export default function AgentsPage() {
       if (!res.ok) throw new Error(data.error);
 
       const savedAgentId = editingAgent?.id || data.agent?.id;
-      if (savedAgentId && form.telegram_bot_token) {
+      const baseUrl = origin || window.location.origin;
+      if (savedAgentId && form.telegram_bot_token && baseUrl) {
         try {
           await fetch("/api/admin/platform", {
             method: "POST",
@@ -378,7 +379,7 @@ export default function AgentsPage() {
               platform: "telegram",
               action: "set-webhook",
               agent_id: savedAgentId,
-              webhook_url: `${origin}/api/webhook/telegram`,
+              webhook_url: `${baseUrl}/api/webhook/telegram`,
             }),
           });
         } catch {
@@ -432,6 +433,8 @@ export default function AgentsPage() {
   };
 
   const handleSetWebhook = async (agentId: string) => {
+    const baseUrl = origin || window.location.origin;
+    if (!baseUrl) { toast.error("Cannot determine app URL"); return; }
     try {
       const res = await fetch("/api/admin/platform", {
         method: "POST",
@@ -440,7 +443,7 @@ export default function AgentsPage() {
           platform: "telegram",
           action: "set-webhook",
           agent_id: agentId,
-          webhook_url: `${origin}/api/webhook/telegram`,
+          webhook_url: `${baseUrl}/api/webhook/telegram`,
         }),
       });
       const data = await res.json();

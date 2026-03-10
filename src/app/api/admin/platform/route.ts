@@ -38,6 +38,13 @@ async function handleTelegram(action: string, agentId: string, body: Record<stri
     return NextResponse.json({ webhook: info, bot: me });
   }
 
+  if (action === "test-connection") {
+    resetBotForAgent(agentId);
+    const bot = await getBotForAgent(agentId);
+    const me = await bot.api.getMe();
+    return NextResponse.json({ success: true, message: `Bot @${me.username} is alive` });
+  }
+
   return NextResponse.json({ error: "Invalid action for telegram" }, { status: 400 });
 }
 
