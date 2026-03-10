@@ -22,6 +22,7 @@ export async function POST(
   try {
     const { agentId } = await params;
     const rawBody = await request.text();
+    const incomingAppId = request.headers.get("x-bot-appid") || "";
 
     let body: Record<string, unknown>;
     try {
@@ -52,6 +53,9 @@ export async function POST(
           "pt:", d.plain_token,
           "ts:", d.event_ts,
           "sig:", signature.slice(0, 20) + "...",
+          "incoming_appid:", incomingAppId || "(none)",
+          "configured_appid:", creds.appId,
+          "appid_match:", !incomingAppId || incomingAppId === creds.appId,
           "elapsed_ms:", Date.now() - startedAt,
         );
         return new Response(JSON.stringify(respBody), {
@@ -62,6 +66,7 @@ export async function POST(
             Pragma: "no-cache",
             Expires: "0",
             "Content-Encoding": "identity",
+            "X-Bot-Appid": incomingAppId || creds.appId,
           },
         });
       } catch (signErr) {
