@@ -3,6 +3,8 @@ import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto/encrypt";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
+import { processChannelApproval } from "@/lib/platform/approval-core";
+import { getSenderForAgent } from "@/lib/platform/sender";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -54,6 +56,36 @@ export async function POST(
 
     if (body.challenge) {
       return NextResponse.json({ challenge: body.challenge });
+    }
+
+    // Card action callback (approval buttons)
+    if (body.type === "interactive" || body.header?.event_type === "card.action.trigger") {
+      const action = body.action || body.event?.action;
+      const value = action?.value as Record<string, string> | undefined;
+      const actionStr = value?.action || "";
+      const match = actionStr.match(/^(approve|reject):(.+)$/);
+      if (match) {
+        const [, act, channelId] = match;
+        const openId = body.open_id || body.event?.operator?.open_id || "";
+        const result = await processChannelApproval({
+          action: act as "approve" | "reject",
+          channelId,
+          callerUid: openId,
+          fallbackAgentId: agentId,
+        });
+        if (result?.targetUid) {
+          try {
+            const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
+            await targetSender.sendText(
+              result.targetUid,
+              act === "approve"
+                ? "✅ Your access has been approved! You can start chatting now."
+                : "❌ Your access request has been rejected.",
+            );
+          } catch { /* target unreachable */ }
+        }
+      }
+      return NextResponse.json({});
     }
 
     const header = body.header;

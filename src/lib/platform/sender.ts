@@ -3,6 +3,8 @@ import { NullFileDownloader } from "./types";
 import { TelegramAdapter } from "./adapters/telegram";
 import { TelegramFileDownloader } from "./adapters/telegram-file";
 import { SlackFileDownloader } from "./adapters/slack-file";
+import { FeishuFileDownloader } from "./adapters/feishu-file";
+import { WeComFileDownloader } from "./adapters/wecom-file";
 import { FeishuAdapter } from "./adapters/feishu";
 import { WeComAdapter } from "./adapters/wecom";
 import { SlackAdapter } from "./adapters/slack";
@@ -34,6 +36,10 @@ export function getFileDownloader(platform: string): PlatformFileDownloader {
       return new TelegramFileDownloader();
     case "slack":
       return new SlackFileDownloader();
+    case "feishu":
+      return new FeishuFileDownloader();
+    case "wecom":
+      return new WeComFileDownloader();
     default:
       return new NullFileDownloader();
   }

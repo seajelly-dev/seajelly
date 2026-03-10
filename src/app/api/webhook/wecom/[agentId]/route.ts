@@ -5,6 +5,8 @@ import {
   verifyWeComSignature,
 } from "@/lib/platform/adapters/wecom";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
+import { processChannelApproval } from "@/lib/platform/approval-core";
+import { getSenderForAgent } from "@/lib/platform/sender";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -79,6 +81,34 @@ export async function POST(
 
     const msgType = msg.MsgType;
     if (!msgType) return NextResponse.json({ ok: true });
+
+    // Template card button callback (approval)
+    if (msgType === "event" && msg.Event === "template_card_event") {
+      const eventKey = msg.EventKey || "";
+      const callerUid = msg.FromUserName || "";
+      const match = eventKey.match(/^(approve|reject):(.+)$/);
+      if (match) {
+        const [, act, channelId] = match;
+        const result = await processChannelApproval({
+          action: act as "approve" | "reject",
+          channelId,
+          callerUid,
+          fallbackAgentId: agentId,
+        });
+        if (result?.targetUid) {
+          try {
+            const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
+            await targetSender.sendText(
+              result.targetUid,
+              act === "approve"
+                ? "✅ Your access has been approved! You can start chatting now."
+                : "❌ Your access request has been rejected.",
+            );
+          } catch { /* target unreachable */ }
+        }
+      }
+      return NextResponse.json({ ok: true });
+    }
 
     const fromUser = msg.FromUserName || "";
     const msgId = msg.MsgId || `${Date.now()}`;

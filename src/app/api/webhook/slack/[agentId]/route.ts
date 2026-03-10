@@ -68,18 +68,19 @@ export async function POST(
     const contentType = request.headers.get("content-type") || "";
 
     if (contentType.includes("application/x-www-form-urlencoded")) {
-      const formData = await request.formData();
-      const payloadStr = formData.get("payload") as string | null;
-      if (!payloadStr) return NextResponse.json({ ok: true });
+      const rawBody = await request.text();
 
       const timestamp = request.headers.get("x-slack-request-timestamp") || "";
       const signature = request.headers.get("x-slack-signature") || "";
-      const rawBody = `payload=${encodeURIComponent(payloadStr)}`;
       const creds = await resolveSlackCredentials(agentId);
       const valid = await verifySlackRequest(rawBody, timestamp, signature, creds.signingSecret);
       if (!valid) {
         return NextResponse.json({ error: "Invalid signature" }, { status: 403 });
       }
+
+      const params = new URLSearchParams(rawBody);
+      const payloadStr = params.get("payload");
+      if (!payloadStr) return NextResponse.json({ ok: true });
 
       const payload = JSON.parse(payloadStr);
       if (payload.type === "block_actions") {
