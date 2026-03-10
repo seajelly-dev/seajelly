@@ -29,7 +29,7 @@ export async function processChannelApproval(
 
   const { data: ch } = await supabase
     .from("channels")
-    .select("id, agent_id, platform, platform_uid, display_name")
+    .select("id, agent_id, platform, platform_uid, display_name, is_allowed")
     .eq("id", channelId)
     .single();
 
@@ -50,6 +50,7 @@ export async function processChannelApproval(
   const name = ch.display_name || ch.platform_uid;
 
   if (action === "approve") {
+    if (ch.is_allowed) return null;
     await supabase.from("channels").update({ is_allowed: true }).eq("id", channelId);
   } else {
     await supabase.from("channels").delete().eq("id", channelId);

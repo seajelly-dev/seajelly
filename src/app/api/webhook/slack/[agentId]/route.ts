@@ -44,7 +44,41 @@ async function handleInteraction(
     callerUid,
     fallbackAgentId: agentId,
   });
-  if (!result) return;
+
+  const msg = payload.message as Record<string, unknown> | undefined;
+  const channel = payload.channel as Record<string, string> | undefined;
+  const channelIdSlack = channel?.id;
+  const ts = msg?.ts as string | undefined;
+
+  if (!result) {
+    if (channelIdSlack && ts) {
+      try {
+        const creds = await resolveSlackCredentials(agentId);
+        const client = new WebClient(creds.botToken);
+        await client.chat.update({
+          channel: channelIdSlack,
+          ts,
+          text: "⚠️ Already processed or invalid.",
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "⚠️ Already processed." } }],
+        });
+      } catch { /* best effort */ }
+    }
+    return;
+  }
+
+  if (channelIdSlack && ts) {
+    try {
+      const creds = await resolveSlackCredentials(agentId);
+      const client = new WebClient(creds.botToken);
+      const label = act === "approve" ? `✅ *Approved:* ${result.name}` : `❌ *Rejected:* ${result.name}`;
+      await client.chat.update({
+        channel: channelIdSlack,
+        ts,
+        text: label,
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: label } }],
+      });
+    } catch { /* best effort */ }
+  }
 
   if (result.targetUid) {
     try {
