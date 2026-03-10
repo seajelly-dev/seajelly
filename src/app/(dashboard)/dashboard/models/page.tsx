@@ -30,11 +30,11 @@ import {
   Key,
   Cpu,
   Layers,
-  Globe,
   ChevronRight,
   Snowflake,
   Info,
 } from "lucide-react";
+import { ProviderIcon } from "@/components/icons/provider-icons";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
 import type { Provider } from "@/types/database";
@@ -387,7 +387,7 @@ export default function ModelsPage() {
                 "flex size-9 shrink-0 items-center justify-center rounded-lg",
                 p.enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
               )}>
-                {p.is_builtin ? <Cpu className="size-4" /> : <Globe className="size-4" />}
+                <ProviderIcon name={p.name} className="size-5" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">

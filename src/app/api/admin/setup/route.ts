@@ -360,6 +360,7 @@ async function handleAgent(body: {
   system_prompt: string;
   model: string;
   telegram_bot_token?: string;
+  platform_credentials?: Record<string, Record<string, string>>;
   app_origin?: string;
   access_token: string;
   project_ref: string;
@@ -436,6 +437,27 @@ async function handleAgent(body: {
           );
         } catch (webhookErr) {
           console.warn("Auto-webhook setup failed (non-blocking):", webhookErr);
+        }
+      }
+    }
+
+    if (agentId && body.platform_credentials) {
+      const PLATFORM_CRED_KEYS: Record<string, string[]> = {
+        feishu: ["app_id", "app_secret", "encrypt_key"],
+        wecom: ["corp_id", "corp_secret", "agent_id", "token", "encoding_aes_key"],
+        slack: ["bot_token", "signing_secret"],
+      };
+      for (const [platform, fields] of Object.entries(body.platform_credentials)) {
+        const allowed = PLATFORM_CRED_KEYS[platform];
+        if (!allowed) continue;
+        for (const [key, value] of Object.entries(fields)) {
+          if (!allowed.includes(key) || !value?.trim()) continue;
+          const escapedVal = encrypt(value).replace(/'/g, "''");
+          await execSQL(`
+            INSERT INTO public.agent_credentials (agent_id, platform, credential_key, credential_value)
+            VALUES ('${agentId}', '${platform}', '${key}', '${escapedVal}')
+            ON CONFLICT (agent_id, platform, credential_key) DO UPDATE SET credential_value = EXCLUDED.credential_value, updated_at = now();
+          `);
         }
       }
     }

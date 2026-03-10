@@ -41,11 +41,16 @@ import {
   CheckCircle2,
   XCircle,
   Settings2,
-  Link2,
   Copy,
   Zap,
   ArrowLeft,
 } from "lucide-react";
+import {
+  TelegramIcon,
+  FeishuIcon,
+  WeComIcon,
+  SlackIcon,
+} from "@/components/icons/platform-icons";
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
@@ -75,6 +80,7 @@ type PlatformKey = "telegram" | "feishu" | "wecom" | "slack";
 interface PlatformDef {
   key: PlatformKey;
   label: string;
+  icon: React.FC<{ className?: string }>;
   fields: { name: string; label: string; secret: boolean }[];
 }
 
@@ -82,11 +88,13 @@ const PLATFORMS: PlatformDef[] = [
   {
     key: "telegram",
     label: "Telegram",
+    icon: TelegramIcon,
     fields: [{ name: "bot_token", label: "Bot Token", secret: true }],
   },
   {
     key: "feishu",
     label: "Feishu / 飞书",
+    icon: FeishuIcon,
     fields: [
       { name: "app_id", label: "App ID", secret: true },
       { name: "app_secret", label: "App Secret", secret: true },
@@ -96,6 +104,7 @@ const PLATFORMS: PlatformDef[] = [
   {
     key: "wecom",
     label: "WeCom / 企业微信",
+    icon: WeComIcon,
     fields: [
       { name: "corp_id", label: "Corp ID", secret: true },
       { name: "corp_secret", label: "Corp Secret", secret: true },
@@ -107,6 +116,7 @@ const PLATFORMS: PlatformDef[] = [
   {
     key: "slack",
     label: "Slack",
+    icon: SlackIcon,
     fields: [
       { name: "bot_token", label: "Bot Token", secret: true },
       { name: "signing_secret", label: "Signing Secret", secret: true },
@@ -119,6 +129,37 @@ function useOrigin() {
   useEffect(() => { setOrigin(origin); }, []);
   return origin;
 }
+
+const DEFAULT_SYSTEM_PROMPT = `You are a personal AI assistant running on the OpenCrab framework.
+
+## Core Behavior
+- Respond in the same language the user writes in. Default to Chinese if ambiguous.
+- Be concise and direct. Avoid filler phrases. Get to the point.
+- When unsure, ask a clarifying question rather than guessing.
+- Use markdown formatting for structured replies (lists, code blocks, etc.).
+
+## Memory & Identity
+You have persistent memory across conversations. Use it wisely:
+- Use \`memory_write\` to save important facts, user preferences, and decisions. Always write self-contained entries.
+- Use \`memory_search\` to recall past context before answering questions about previous conversations.
+- Use \`user_soul_update\` when the user tells you their name, preferences, or personal traits. This builds their profile.
+- Use \`ai_soul_update\` when the user gives you a name, persona, or character instructions. This defines who you are.
+- Do NOT save trivial or ephemeral information (e.g. "user said hi").
+
+## Scheduling
+- Use \`schedule_reminder\` when the user asks for timed reminders or recurring tasks. Convert natural language time to cron expressions (UTC timezone).
+- Use \`list_scheduled_jobs\` and \`cancel_scheduled_job\` to manage existing reminders.
+- Always confirm the scheduled time with the user after creating a reminder.
+
+## Tool Usage
+- Call \`get_current_time\` when you need to know the current date/time for scheduling or time-sensitive questions.
+- You may call multiple tools in sequence to fulfill complex requests.
+- If a tool call fails, explain the error to the user and suggest alternatives.
+
+## Personality
+- Warm but efficient. Think of yourself as a capable personal secretary.
+- Use humor sparingly and appropriately.
+- Proactively offer help when you notice patterns (e.g. "You seem to ask about X often — want me to set a reminder?").`;
 
 type AgentExt = Agent & {
   has_bot_token?: boolean;
@@ -254,7 +295,7 @@ export default function AgentsPage() {
       : allModels[0];
     return {
       name: "",
-      system_prompt: "",
+      system_prompt: DEFAULT_SYSTEM_PROMPT,
       provider_id: firstProvider?.id ?? "",
       model: firstModel?.model_id ?? "",
       access_mode: "open" as const,
@@ -415,7 +456,7 @@ export default function AgentsPage() {
         : !!(editingAgent as AgentExt)?.platforms?.[channelExpanded];
 
       return (
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Button variant="ghost" size="icon-sm" onClick={() => setChannelExpanded(null)}>
@@ -548,7 +589,7 @@ export default function AgentsPage() {
     }
 
     return (
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t("agents.channelsTitle")}</DialogTitle>
           <DialogDescription>{t("agents.channelsDesc")}</DialogDescription>
@@ -569,7 +610,7 @@ export default function AgentsPage() {
                 className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/50"
               >
                 <div className="flex size-8 items-center justify-center rounded-md bg-muted">
-                  <Link2 className="size-4 text-muted-foreground" />
+                  <plat.icon className="size-5" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{plat.label}</p>
@@ -606,7 +647,7 @@ export default function AgentsPage() {
   // ── Tools sub-dialog content ──
   function renderToolsDialog() {
     return (
-      <DialogContent className="sm:max-w-xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t("agents.toolsTitle")}</DialogTitle>
           <DialogDescription>{t("agents.toolsDesc")}</DialogDescription>
@@ -659,7 +700,7 @@ export default function AgentsPage() {
       <div className="flex flex-wrap gap-1.5">
         {connected.map((plat) => (
           <div key={plat.key} className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5">
-            <CheckCircle2 className="size-3 text-green-600 dark:text-green-400" />
+            <plat.icon className="size-3.5" />
             <span className="text-xs font-medium">{plat.label}</span>
           </div>
         ))}
@@ -679,7 +720,7 @@ export default function AgentsPage() {
             <Plus className="mr-1.5 size-4" />
             {t("agents.newAgent")}
           </DialogTrigger>
-          <DialogContent className="max-h-[85vh] sm:max-w-2xl overflow-y-auto">
+          <DialogContent className="max-h-[85vh] sm:max-w-3xl overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {editingAgent ? t("agents.editAgent") : t("agents.createAgent")}
@@ -821,7 +862,7 @@ export default function AgentsPage() {
                       />
                     }
                   >
-                    <Link2 className="size-4 text-muted-foreground" />
+                    <Settings2 className="size-4 text-muted-foreground" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium">{t("agents.configureChannels")}</p>
                       <p className="text-xs text-muted-foreground">

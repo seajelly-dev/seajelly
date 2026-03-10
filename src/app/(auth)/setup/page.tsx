@@ -25,6 +25,53 @@ import { CrabLogo } from "@/components/crab-logo";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useT } from "@/lib/i18n";
 import type { ModelDef } from "@/lib/models";
+import {
+  TelegramIcon,
+  FeishuIcon,
+  WeComIcon,
+  SlackIcon,
+} from "@/components/icons/platform-icons";
+
+type SetupPlatform = "telegram" | "feishu" | "wecom" | "slack" | "none";
+
+const SETUP_PLATFORMS = [
+  {
+    key: "telegram" as const,
+    label: "Telegram",
+    icon: TelegramIcon,
+    fields: [{ name: "bot_token", label: "Bot Token", secret: true }],
+  },
+  {
+    key: "feishu" as const,
+    label: "Feishu / 飞书",
+    icon: FeishuIcon,
+    fields: [
+      { name: "app_id", label: "App ID", secret: true },
+      { name: "app_secret", label: "App Secret", secret: true },
+    ],
+  },
+  {
+    key: "wecom" as const,
+    label: "WeCom / 企业微信",
+    icon: WeComIcon,
+    fields: [
+      { name: "corp_id", label: "Corp ID", secret: true },
+      { name: "corp_secret", label: "Corp Secret", secret: true },
+      { name: "agent_id", label: "Agent ID", secret: false },
+      { name: "token", label: "Token", secret: true },
+      { name: "encoding_aes_key", label: "EncodingAESKey", secret: true },
+    ],
+  },
+  {
+    key: "slack" as const,
+    label: "Slack",
+    icon: SlackIcon,
+    fields: [
+      { name: "bot_token", label: "Bot Token", secret: true },
+      { name: "signing_secret", label: "Signing Secret", secret: true },
+    ],
+  },
+];
 
 export default function SetupPage() {
   const router = useRouter();
@@ -54,6 +101,9 @@ export default function SetupPage() {
   const [providerKeys, setProviderKeys] = useState<Record<string, string>>(
     () => Object.fromEntries(PROVIDER_CHOICES.map((p) => [p.id, ""]))
   );
+
+  const [selectedPlatform, setSelectedPlatform] = useState<SetupPlatform>("telegram");
+  const [platformCreds, setPlatformCreds] = useState<Record<string, string>>({});
 
   const [agentName, setAgentName] = useState("Crab");
   const [systemPrompt, setSystemPrompt] = useState(
@@ -93,7 +143,6 @@ You have persistent memory across conversations. Use it wisely:
 - Proactively offer help when you notice patterns (e.g. "You seem to ask about X often -- want me to set a reminder?").`
   );
   const [model, setModel] = useState("");
-  const [botToken, setBotToken] = useState("");
   const [availableModels, setAvailableModels] = useState<ModelDef[]>([]);
 
   const STEPS_KEYS = ["connect", "register", "secrets", "agent"] as const;
@@ -251,6 +300,13 @@ You have persistent memory across conversations. Use it wisely:
     }
     setLoading(true);
     try {
+      const telegramToken = selectedPlatform === "telegram" ? (platformCreds.bot_token || "") : "";
+      const pc: Record<string, Record<string, string>> = {};
+      if (selectedPlatform !== "none" && selectedPlatform !== "telegram") {
+        const hasValues = Object.values(platformCreds).some((v) => v.trim());
+        if (hasValues) pc[selectedPlatform] = { ...platformCreds };
+      }
+
       const res = await fetch("/api/admin/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -259,7 +315,8 @@ You have persistent memory across conversations. Use it wisely:
           name: agentName,
           system_prompt: systemPrompt,
           model,
-          telegram_bot_token: botToken,
+          telegram_bot_token: telegramToken,
+          platform_credentials: Object.keys(pc).length > 0 ? pc : undefined,
           app_origin: window.location.origin,
           access_token: supabasePAT,
           project_ref: projectRef,
@@ -460,24 +517,65 @@ You have persistent memory across conversations. Use it wisely:
                   onChange={(e) => setAgentName(e.target.value)}
                 />
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="botToken">
-                  {t("setup.botToken")}{" "}
-                  <span className="text-xs text-muted-foreground">
-                    {t("setup.botTokenOptional")}
-                  </span>
+
+              {/* Platform selector */}
+              <div className="flex flex-col gap-2">
+                <Label>
+                  {t("setup.imPlatform")}{" "}
+                  <span className="text-xs text-muted-foreground">{t("setup.botTokenOptional")}</span>
                 </Label>
-                <Input
-                  id="botToken"
-                  type="password"
-                  placeholder={t("setup.botTokenPlaceholder")}
-                  value={botToken}
-                  onChange={(e) => setBotToken(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t("setup.botTokenHint")}
-                </p>
+                <p className="text-xs text-muted-foreground">{t("setup.imPlatformHint")}</p>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {SETUP_PLATFORMS.map((p) => (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => { setSelectedPlatform(p.key); setPlatformCreds({}); }}
+                      className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 transition-colors text-center ${
+                        selectedPlatform === p.key
+                          ? "border-primary bg-primary/5"
+                          : "hover:bg-muted/50"
+                      }`}
+                    >
+                      <p.icon className="size-5" />
+                      <span className="text-[10px] font-medium leading-tight">{p.label.split(" / ")[0]}</span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedPlatform("none"); setPlatformCreds({}); }}
+                    className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2.5 transition-colors ${
+                      selectedPlatform === "none"
+                        ? "border-primary bg-primary/5"
+                        : "hover:bg-muted/50"
+                    }`}
+                  >
+                    <span className="text-xs text-muted-foreground">{t("setup.skipPlatform")}</span>
+                  </button>
+                </div>
+                {selectedPlatform !== "none" && (() => {
+                  const plat = SETUP_PLATFORMS.find((p) => p.key === selectedPlatform);
+                  if (!plat) return null;
+                  return (
+                    <div className="flex flex-col gap-2 rounded-lg border p-3 mt-1">
+                      {plat.fields.map((f) => (
+                        <div key={f.name} className="flex flex-col gap-1">
+                          <Label className="text-xs">{f.label}</Label>
+                          <Input
+                            type={f.secret ? "password" : "text"}
+                            placeholder={f.label}
+                            value={platformCreds[f.name] || ""}
+                            onChange={(e) =>
+                              setPlatformCreds((prev) => ({ ...prev, [f.name]: e.target.value }))
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
+
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="model">{t("setup.model")}</Label>
                 {availableModels.length === 0 ? (
