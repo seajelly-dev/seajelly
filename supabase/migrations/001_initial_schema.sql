@@ -432,10 +432,12 @@ CREATE TABLE IF NOT EXISTS public.api_usage_logs (
   input_tokens    int NOT NULL DEFAULT 0,
   output_tokens   int NOT NULL DEFAULT 0,
   duration_ms     int,
+  key_id          uuid REFERENCES public.provider_api_keys(id) ON DELETE SET NULL,
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS api_usage_logs_created ON public.api_usage_logs(created_at);
 CREATE INDEX IF NOT EXISTS api_usage_logs_agent ON public.api_usage_logs(agent_id);
+CREATE INDEX IF NOT EXISTS api_usage_logs_key ON public.api_usage_logs(key_id);
 ALTER TABLE public.api_usage_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "api_usage_logs_admin_all" ON public.api_usage_logs;
 CREATE POLICY "api_usage_logs_admin_all" ON public.api_usage_logs FOR ALL USING (public.is_admin());
@@ -469,6 +471,28 @@ AS $fn$
   WHERE created_at >= now() - (hours_back || ' hours')::interval
   GROUP BY date_trunc('hour', created_at), model_id
   ORDER BY hour ASC, model_id ASC;
+$fn$;
+
+-- RPC: per-key usage stats (1h / 24h)
+CREATE OR REPLACE FUNCTION public.key_usage_stats(target_provider_id uuid)
+RETURNS TABLE (
+  key_id uuid,
+  calls_1h bigint,
+  calls_24h bigint
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+  SELECT
+    k.id AS key_id,
+    count(*) FILTER (WHERE l.created_at >= now() - interval '1 hour')::bigint AS calls_1h,
+    count(*) FILTER (WHERE l.created_at >= now() - interval '24 hours')::bigint AS calls_24h
+  FROM public.provider_api_keys k
+  LEFT JOIN public.api_usage_logs l ON l.key_id = k.id AND l.created_at >= now() - interval '24 hours'
+  WHERE k.provider_id = target_provider_id
+  GROUP BY k.id;
 $fn$;
 
 -- Seed built-in providers (fixed UUIDs for idempotency)

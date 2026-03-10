@@ -505,6 +505,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         agent_id: typedAgent.id,
         provider_id: resolvedProviderId,
         model_id: typedAgent.model,
+        key_id: pickedKeyId,
         input_tokens: result.usage?.inputTokens ?? 0,
         output_tokens: result.usage?.outputTokens ?? 0,
         duration_ms: usageDurationMs,

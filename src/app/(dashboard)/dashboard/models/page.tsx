@@ -33,6 +33,7 @@ import {
   Globe,
   ChevronRight,
   Snowflake,
+  Info,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
@@ -53,6 +54,8 @@ interface ApiKeyInfo {
   weight: number;
   cooldown_until: string | null;
   cooldown_reason: string | null;
+  calls_1h: number;
+  calls_24h: number;
   created_at: string;
 }
 
@@ -476,12 +479,20 @@ export default function ModelsPage() {
                 </div>
               </CardHeader>
               <CardContent>
+                <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 dark:border-blue-800 dark:bg-blue-950/30">
+                  <Info className="mt-0.5 size-4 shrink-0 text-blue-500" />
+                  <p className="text-xs leading-relaxed text-blue-700 dark:text-blue-300">
+                    {t("models.loadBalanceHint")}
+                  </p>
+                </div>
                 {keys.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">{t("models.noKeys")}</p>
                 ) : (
                   <div className="flex flex-col gap-2">
                     {keys.map((k) => {
                       const isCooling = !!k.cooldown_until && new Date(k.cooldown_until) > new Date();
+                      const totalWeight = keys.reduce((s, x) => s + (x.is_active ? x.weight : 0), 0);
+                      const pct = totalWeight > 0 && k.is_active ? Math.round((k.weight / totalWeight) * 100) : 0;
                       return (
                         <div key={k.id} className={cn(
                           "flex flex-col gap-2 rounded-lg border px-3 py-2.5",
@@ -499,10 +510,17 @@ export default function ModelsPage() {
                                       {t("models.cooling")}
                                     </Badge>
                                   )}
+                                  {k.is_active && totalWeight > 0 && (
+                                    <span className="text-[10px] text-muted-foreground">{pct}%</span>
+                                  )}
                                 </div>
-                                <p className="text-xs text-muted-foreground">
-                                  {k.call_count} {t("models.calls")} · {t("models.weight")}: {k.weight}
-                                </p>
+                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                  <span>{t("models.calls1h")}: {k.calls_1h}</span>
+                                  <span className="text-border">|</span>
+                                  <span>{t("models.calls24h")}: {k.calls_24h}</span>
+                                  <span className="text-border">|</span>
+                                  <span>{t("models.callsTotal")}: {k.call_count}</span>
+                                </div>
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5">

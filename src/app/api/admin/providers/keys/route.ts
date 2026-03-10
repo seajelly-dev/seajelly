@@ -15,14 +15,29 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "provider_id required" }, { status: 400 });
   }
 
-  const { data, error } = await db
-    .from("provider_api_keys")
-    .select(KEY_FIELDS)
-    .eq("provider_id", providerId)
-    .order("created_at", { ascending: true });
+  const [{ data, error }, { data: statsRows }] = await Promise.all([
+    db
+      .from("provider_api_keys")
+      .select(KEY_FIELDS)
+      .eq("provider_id", providerId)
+      .order("created_at", { ascending: true }),
+    db.rpc("key_usage_stats", { target_provider_id: providerId }),
+  ]);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ keys: data ?? [] });
+
+  const statsMap = new Map<string, { calls_1h: number; calls_24h: number }>();
+  for (const row of statsRows ?? []) {
+    statsMap.set(row.key_id, { calls_1h: Number(row.calls_1h), calls_24h: Number(row.calls_24h) });
+  }
+
+  const keys = (data ?? []).map((k) => ({
+    ...k,
+    calls_1h: statsMap.get(k.id)?.calls_1h ?? 0,
+    calls_24h: statsMap.get(k.id)?.calls_24h ?? 0,
+  }));
+
+  return NextResponse.json({ keys });
 }
 
 export async function POST(request: Request) {

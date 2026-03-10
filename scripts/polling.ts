@@ -355,7 +355,8 @@ async function startBotForAgent(agent: AgentRow) {
         messages.push({ role: "user" as const, content: text });
       }
 
-      const { model, pickedKeyId } = await getModel(agent.model, agent.provider_id);
+      const startTime = Date.now();
+      const { model, resolvedProviderId, pickedKeyId } = await getModel(agent.model, agent.provider_id);
 
       let canEditAiSoul = true;
       if (channel.is_owner) {
@@ -540,6 +541,19 @@ async function startBotForAgent(agent: AgentRow) {
           version: (session.version as number) + 1,
         })
         .eq("id", session.id);
+
+      supabase
+        .from("api_usage_logs")
+        .insert({
+          agent_id: agent.id,
+          provider_id: resolvedProviderId,
+          model_id: agent.model,
+          key_id: pickedKeyId,
+          input_tokens: result.usage?.inputTokens ?? 0,
+          output_tokens: result.usage?.outputTokens ?? 0,
+          duration_ms: Date.now() - startTime,
+        })
+        .then(() => {}, () => {});
     } catch (err) {
       console.error(`[${agent.name}] Error:`, err);
       const humanError = getHumanReadableError(err);
