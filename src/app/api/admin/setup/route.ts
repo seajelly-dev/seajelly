@@ -563,13 +563,46 @@ CREATE POLICY "sessions_service_select" ON public.sessions FOR SELECT
 DROP POLICY IF EXISTS "sessions_service_insert" ON public.sessions;
 CREATE POLICY "sessions_service_insert" ON public.sessions FOR INSERT
   WITH CHECK (current_setting('role') = 'service_role');
-DROP POLICY IF EXISTS "sessions_service_upd" ON public.sessions;
-CREATE POLICY "sessions_service_upd" ON public.sessions FOR UPDATE
-  USING (current_setting('role') = 'service_role');
+	DROP POLICY IF EXISTS "sessions_service_upd" ON public.sessions;
+	CREATE POLICY "sessions_service_upd" ON public.sessions FOR UPDATE
+	  USING (current_setting('role') = 'service_role');
 
-CREATE TABLE IF NOT EXISTS public.memories (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+	CREATE TABLE IF NOT EXISTS public.github_push_approvals (
+	  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	  agent_id             uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+	  request_channel_id   uuid REFERENCES public.channels(id) ON DELETE SET NULL,
+	  requested_by_uid     text,
+	  status               text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','used','expired')),
+	  payload_hash         text NOT NULL,
+	  branch               text NOT NULL DEFAULT 'main',
+	  commit_message       text NOT NULL,
+	  files                jsonb NOT NULL DEFAULT '[]',
+	  delete_files         jsonb NOT NULL DEFAULT '[]',
+	  created_at           timestamptz NOT NULL DEFAULT now(),
+	  expires_at           timestamptz NOT NULL,
+	  approved_by_uid      text,
+	  approved_at          timestamptz,
+	  rejected_at          timestamptz,
+	  used_at              timestamptz
+	);
+	CREATE INDEX IF NOT EXISTS github_push_approvals_agent_status ON public.github_push_approvals(agent_id, status);
+	CREATE INDEX IF NOT EXISTS github_push_approvals_expires ON public.github_push_approvals(expires_at);
+	ALTER TABLE public.github_push_approvals ENABLE ROW LEVEL SECURITY;
+	DROP POLICY IF EXISTS "github_push_approvals_admin_all" ON public.github_push_approvals;
+	CREATE POLICY "github_push_approvals_admin_all" ON public.github_push_approvals FOR ALL USING (public.is_admin());
+	DROP POLICY IF EXISTS "github_push_approvals_service_select" ON public.github_push_approvals;
+	CREATE POLICY "github_push_approvals_service_select" ON public.github_push_approvals FOR SELECT
+	  USING (public.is_admin() OR current_setting('role') = 'service_role');
+	DROP POLICY IF EXISTS "github_push_approvals_service_insert" ON public.github_push_approvals;
+	CREATE POLICY "github_push_approvals_service_insert" ON public.github_push_approvals FOR INSERT
+	  WITH CHECK (current_setting('role') = 'service_role');
+	DROP POLICY IF EXISTS "github_push_approvals_service_update" ON public.github_push_approvals;
+	CREATE POLICY "github_push_approvals_service_update" ON public.github_push_approvals FOR UPDATE
+	  USING (current_setting('role') = 'service_role');
+
+	CREATE TABLE IF NOT EXISTS public.memories (
+	  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	  agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
   channel_id  uuid REFERENCES public.channels(id) ON DELETE CASCADE,
   scope       text NOT NULL DEFAULT 'channel' CHECK (scope IN ('channel','global')),
   category    text NOT NULL CHECK (category IN ('fact','preference','decision','summary','other')),

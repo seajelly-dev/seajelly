@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
+import { requireAdmin, authErrorResponse } from "@/lib/supabase/server";
 import { getE2BApiKey, testConnection } from "@/lib/e2b/sandbox";
 
 export async function GET() {

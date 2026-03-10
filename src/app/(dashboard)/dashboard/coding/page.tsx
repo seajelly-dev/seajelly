@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import NextImage from "next/image";
 import { toast } from "sonner";
 import {
   Code2,
@@ -14,32 +15,17 @@ import {
   KeyRound,
   BookOpen,
   Lightbulb,
-  BarChart3,
   Terminal,
   Globe,
   Boxes,
   Image as ImageIcon,
   AlertTriangle,
   Copy,
-  TrendingUp,
-  PieChart,
-  Activity,
-  Palette,
-  Layout,
-  FileText,
-  Mail,
-  Cpu,
-  Dices,
-  Music,
-  Map,
-  Gauge,
-  Calculator,
-  FlaskConical,
-  GraduationCap,
-  Gamepad2,
-  type LucideIcon,
+  GitBranch,
+  Eye,
+  Rocket,
 } from "lucide-react";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
 import {
   Card,
   CardContent,
@@ -58,216 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-interface UseCase {
-  icon: LucideIcon;
-  iconColor: string;
-  title: string;
-  desc: string;
-  prompt: string;
-  tool: "python" | "js" | "html" | "multi";
-}
-
-interface UseCaseCategory {
-  titleKey: string;
-  cases: UseCase[];
-}
-
-const USE_CASE_CATEGORIES: UseCaseCategory[] = [
-  {
-    titleKey: "coding.useCategoryDataViz",
-    cases: [
-      {
-        icon: BarChart3,
-        iconColor: "text-purple-500",
-        title: "Stock Price Candlestick Chart",
-        desc: "Generate a realistic 30-day candlestick chart with volume bars using matplotlib and mplfinance.",
-        prompt: "Use Python to generate a 30-day simulated stock candlestick chart (OHLCV data) with volume bars at the bottom. Use mplfinance or matplotlib. Make it look professional with a dark background theme.",
-        tool: "python",
-      },
-      {
-        icon: PieChart,
-        iconColor: "text-blue-500",
-        title: "World GDP Pie Chart",
-        desc: "Visualize the top 10 countries by GDP with a donut-style pie chart and percentage labels.",
-        prompt: "Create a donut pie chart of the top 10 countries by GDP (use approximate 2024 data). Show percentage labels, use distinct colors for each country, and add a title. Use matplotlib.",
-        tool: "python",
-      },
-      {
-        icon: TrendingUp,
-        iconColor: "text-green-500",
-        title: "Multi-Line Trend Comparison",
-        desc: "Compare the growth trends of 5 tech companies over 12 months with an annotated line chart.",
-        prompt: "Plot a multi-line chart comparing the stock price trends of Apple, Google, Microsoft, Amazon, and Tesla over the past 12 months (use simulated realistic data). Add a legend, grid, and annotate the highest point for each company.",
-        tool: "python",
-      },
-      {
-        icon: Activity,
-        iconColor: "text-red-500",
-        title: "Real-Time Sensor Dashboard",
-        desc: "Generate a 4-panel dashboard showing temperature, humidity, pressure, and wind speed over 24 hours.",
-        prompt: "Use matplotlib to create a 2x2 subplot dashboard simulating 24 hours of IoT sensor data: temperature (°C), humidity (%), barometric pressure (hPa), and wind speed (km/h). Use different colors per panel, add grid lines, and make it look like a monitoring dashboard.",
-        tool: "python",
-      },
-      {
-        icon: Map,
-        iconColor: "text-teal-500",
-        title: "Heatmap Correlation Matrix",
-        desc: "Build a seaborn heatmap showing correlations between 8 financial indicators.",
-        prompt: "Generate a seaborn heatmap showing the correlation matrix of 8 financial indicators (GDP Growth, Inflation, Unemployment, Interest Rate, S&P 500, Gold Price, Oil Price, USD Index). Use simulated realistic correlation data. Annotate each cell with the correlation value.",
-        tool: "python",
-      },
-    ],
-  },
-  {
-    titleKey: "coding.useCategoryWebDev",
-    cases: [
-      {
-        icon: Layout,
-        iconColor: "text-indigo-500",
-        title: "Responsive Pricing Page",
-        desc: "A fully responsive SaaS pricing page with 3 tiers, feature comparison, and hover animations.",
-        prompt: "Create a responsive SaaS pricing page with 3 tiers (Free, Pro, Enterprise). Include feature comparison checkmarks, a highlighted 'Most Popular' badge on Pro, hover scale animations, gradient header, and a modern dark theme. All CSS inline, no external dependencies.",
-        tool: "html",
-      },
-      {
-        icon: Palette,
-        iconColor: "text-pink-500",
-        title: "Interactive Color Palette Generator",
-        desc: "A web app that generates harmonious color palettes with copy-to-clipboard hex codes.",
-        prompt: "Build an interactive color palette generator in a single HTML file. It should: generate 5 harmonious colors on button click, display each as a large swatch with hex code, allow clicking any swatch to copy the hex to clipboard, show a toast notification on copy, and include a 'Regenerate' button with a smooth transition animation.",
-        tool: "html",
-      },
-      {
-        icon: FileText,
-        iconColor: "text-orange-500",
-        title: "Markdown Live Editor",
-        desc: "A split-pane Markdown editor with real-time preview, syntax highlighting, and GitHub-flavored rendering.",
-        prompt: "Create a split-pane Markdown editor in a single HTML page. Left side: textarea for writing Markdown. Right side: live rendered preview. Include GitHub-flavored Markdown support (tables, code blocks, task lists). Use a CDN library like marked.js. Add a dark/light theme toggle button. Style it beautifully.",
-        tool: "html",
-      },
-      {
-        icon: Gauge,
-        iconColor: "text-cyan-500",
-        title: "Animated KPI Dashboard",
-        desc: "A dashboard with animated counters, progress rings, and sparkline mini-charts.",
-        prompt: "Build a KPI dashboard in a single HTML file with: 4 metric cards (Revenue $2.4M, Users 18.5K, Conversion 3.2%, Growth +24%), each with an animated counting number on load, a circular SVG progress ring, and a tiny inline sparkline chart below. Use CSS animations, no external libraries. Dark glassmorphism theme.",
-        tool: "html",
-      },
-    ],
-  },
-  {
-    titleKey: "coding.useCategoryAutomation",
-    cases: [
-      {
-        icon: Terminal,
-        iconColor: "text-green-500",
-        title: "JSON Data Transformer",
-        desc: "Parse, transform, and restructure complex nested JSON — a task that proves sandboxed code execution.",
-        prompt: "I have this nested JSON data representing an e-commerce order: {\"order\":{\"id\":\"ORD-2024-001\",\"items\":[{\"name\":\"Laptop\",\"price\":999,\"qty\":1},{\"name\":\"Mouse\",\"price\":29,\"qty\":2},{\"name\":\"Keyboard\",\"price\":79,\"qty\":1}],\"customer\":{\"name\":\"John Doe\",\"address\":{\"city\":\"San Francisco\",\"state\":\"CA\"}}}}. Write Python code to: 1) Calculate total order value, 2) Generate a formatted invoice text, 3) Convert to a flat CSV-friendly structure, 4) Print everything.",
-        tool: "python",
-      },
-      {
-        icon: Mail,
-        iconColor: "text-yellow-500",
-        title: "Email Template Generator",
-        desc: "Generate a responsive HTML email template with dynamic placeholders.",
-        prompt: "Generate a professional responsive HTML email template for a product launch announcement. Include: company logo placeholder, hero image area, product name 'SuperApp 2.0', 3 feature highlights with icons (use emoji), a prominent CTA button 'Get Started Free', footer with unsubscribe link. Must be email-client compatible (use tables for layout). Give me the preview link.",
-        tool: "html",
-      },
-      {
-        icon: Cpu,
-        iconColor: "text-slate-500",
-        title: "System Performance Report",
-        desc: "Simulate a system benchmark, generate stats, and output a formatted report.",
-        prompt: "Write Python code that simulates a system performance benchmark: 1) CPU test: time 1 million iterations of math operations, 2) Memory test: allocate and measure different sized arrays, 3) Sort benchmark: compare bubble sort vs Python's built-in sort on 10000 random numbers, 4) Print a beautifully formatted report with execution times, comparisons, and a verdict.",
-        tool: "python",
-      },
-      {
-        icon: FileText,
-        iconColor: "text-amber-500",
-        title: "CSV Report Generator",
-        desc: "Generate a sales report CSV from raw data with aggregations and summary statistics.",
-        prompt: "Write Python code that: 1) Creates a simulated sales dataset with 100 rows (Date, Product, Region, Quantity, UnitPrice, Total), 2) Uses pandas to calculate: total revenue by product, monthly trends, top region, best selling product, 3) Prints a well-formatted summary report with all insights. Make the output human-readable and insightful.",
-        tool: "python",
-      },
-    ],
-  },
-  {
-    titleKey: "coding.useCategoryMath",
-    cases: [
-      {
-        icon: Calculator,
-        iconColor: "text-violet-500",
-        title: "Fractal Art Generator",
-        desc: "Render a high-resolution Mandelbrot set fractal with custom color mapping.",
-        prompt: "Generate a Mandelbrot set fractal image using Python and matplotlib. Use a 1000x1000 resolution, 100 max iterations, custom colormap (hot or twilight_shifted), and zoom into an interesting region like the seahorse valley (center: -0.75+0.1j, range: 0.3). The output should be a visually stunning PNG image.",
-        tool: "python",
-      },
-      {
-        icon: FlaskConical,
-        iconColor: "text-emerald-500",
-        title: "Physics Simulation Visualization",
-        desc: "Simulate and plot projectile trajectories with different launch angles, including air resistance.",
-        prompt: "Write Python code to simulate projectile motion with air resistance. Plot the trajectories of 5 projectiles launched at angles 15°, 30°, 45°, 60°, 75° with the same initial velocity of 50 m/s. Show both the ideal (no air resistance) and realistic (with drag coefficient 0.47) trajectories. Label each arc with its angle and range. Use matplotlib with a clean, publication-quality style.",
-        tool: "python",
-      },
-      {
-        icon: GraduationCap,
-        iconColor: "text-sky-500",
-        title: "Interactive Math Quiz",
-        desc: "A web-based math quiz with timer, scoring, difficulty levels, and animated feedback.",
-        prompt: "Build an interactive math quiz game in a single HTML page. Features: 3 difficulty levels (Easy: +/-, Medium: ×/÷, Hard: mixed with larger numbers), a 30-second countdown timer per question, score tracking with streak bonus, animated correct/wrong feedback (green flash / red shake), final score summary with grade (A-F). Beautiful gradient UI, responsive design.",
-        tool: "html",
-      },
-      {
-        icon: TrendingUp,
-        iconColor: "text-rose-500",
-        title: "Statistical Distribution Explorer",
-        desc: "Visualize and compare Normal, Poisson, Binomial, and Exponential distributions side by side.",
-        prompt: "Create a 2x2 subplot figure in Python showing 4 statistical distributions: Normal (μ=0, σ=1), Poisson (λ=5), Binomial (n=20, p=0.5), and Exponential (λ=1). For each: plot the histogram of 10000 samples overlaid with the theoretical PDF/PMF curve. Show mean and std in each subplot title. Use scipy.stats and matplotlib. Professional styling.",
-        tool: "python",
-      },
-    ],
-  },
-  {
-    titleKey: "coding.useCategoryCreative",
-    cases: [
-      {
-        icon: Dices,
-        iconColor: "text-fuchsia-500",
-        title: "Conway's Game of Life",
-        desc: "An interactive HTML implementation of Conway's Game of Life with play/pause, speed control, and patterns.",
-        prompt: "Build Conway's Game of Life in a single HTML file. Features: a 40x40 grid rendered on canvas, click cells to toggle alive/dead, play/pause button, speed slider, step button, random fill button, clear button, generation counter, preset patterns (glider, blinker, pulsar) that can be placed by selecting from a dropdown. Minimal dark UI with neon green cells.",
-        tool: "html",
-      },
-      {
-        icon: Music,
-        iconColor: "text-amber-500",
-        title: "Audio Waveform Visualizer",
-        desc: "A visual representation of different audio waveforms (sine, square, sawtooth, triangle).",
-        prompt: "Create an HTML page that visualizes audio waveforms. Use Canvas to draw 4 different wave types side by side: Sine, Square, Sawtooth, and Triangle waves. Animate them scrolling horizontally. Let the user adjust frequency and amplitude with sliders. Use vibrant colors on a dark background. No Web Audio API needed — just mathematical visualization.",
-        tool: "html",
-      },
-      {
-        icon: Gamepad2,
-        iconColor: "text-lime-500",
-        title: "Snake Game",
-        desc: "A classic Snake game playable in the browser with score, speed progression, and game over screen.",
-        prompt: "Build a classic Snake game in a single HTML file. Use canvas for rendering. Features: arrow key controls, growing snake, random food spawning, score counter, speed increases every 5 points, game over screen with final score and restart button, subtle grid background, smooth movement animation. Retro pixel style with a modern twist.",
-        tool: "html",
-      },
-      {
-        icon: Palette,
-        iconColor: "text-rose-500",
-        title: "Generative Art: Spiral Galaxy",
-        desc: "Generate a beautiful spiral galaxy image with thousands of stars using mathematical curves.",
-        prompt: "Write Python code to generate a spiral galaxy image using matplotlib. Create 2 spiral arms with 5000 stars each using logarithmic spiral equations with random scatter. Add a bright central core (2D gaussian), background stars (random dots), and use a dark background with warm golden/blue star colors. Use scatter plot with varying sizes and alphas. Make it look like a real galaxy photograph. Output as a high-quality PNG.",
-        tool: "python",
-      },
-    ],
-  },
-];
+import { getUseCaseCategories } from "./use-cases";
 
 type Language = "python" | "javascript" | "html";
 
@@ -287,7 +64,9 @@ interface ExecutionOutput {
 }
 
 export default function CodingPage() {
+  const { locale } = useI18n();
   const t = useT();
+  const useCaseCategories = getUseCaseCategories(locale);
   const [activeTab, setActiveTab] = useState<"e2b" | "github">("e2b");
 
   const [configured, setConfigured] = useState<boolean | null>(null);
@@ -303,7 +82,12 @@ export default function CodingPage() {
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [useCasesOpen, setUseCasesOpen] = useState(false);
 
-  
+  const [ghTokenConfigured, setGhTokenConfigured] = useState<boolean | null>(null);
+  const [ghRepo, setGhRepo] = useState("");
+  const [ghTokenInput, setGhTokenInput] = useState("");
+  const [ghRepoInput, setGhRepoInput] = useState("");
+  const [ghSaving, setGhSaving] = useState(false);
+  const [ghTesting, setGhTesting] = useState(false);
 
   const checkConfig = useCallback(async () => {
     try {
@@ -315,9 +99,29 @@ export default function CodingPage() {
     }
   }, [t]);
 
+  const checkGitHubConfig = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/coding/github");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed");
+      }
+      const data = await res.json();
+      setGhTokenConfigured(data.tokenConfigured ?? false);
+      setGhRepo(data.repo || "");
+      setGhRepoInput(data.repo || "");
+    } catch (err) {
+      setGhTokenConfigured(false);
+      setGhRepo("");
+      setGhRepoInput("");
+      toast.error(err instanceof Error ? err.message : t("coding.githubLoadFailed"));
+    }
+  }, [t]);
+
   useEffect(() => {
     checkConfig();
-  }, [checkConfig]);
+    checkGitHubConfig();
+  }, [checkConfig, checkGitHubConfig]);
 
   const handleLanguageChange = (lang: Language) => {
     setLanguage(lang);
@@ -366,6 +170,52 @@ export default function CodingPage() {
       toast.error(err instanceof Error ? err.message : t("coding.e2bKeySaveFailed"));
     } finally {
       setSavingKey(false);
+    }
+  };
+
+  const handleSaveGitHub = async () => {
+    setGhSaving(true);
+    try {
+      const body: Record<string, string> = {
+        action: "save",
+        repo: ghRepoInput.trim(),
+      };
+      if (ghTokenInput.trim()) body.token = ghTokenInput.trim();
+      const res = await fetch("/api/admin/coding/github", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed");
+      await checkGitHubConfig();
+      toast.success(t("coding.githubConfigSaved"));
+      setGhTokenInput("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("coding.githubConfigSaveFailed"));
+    } finally {
+      setGhSaving(false);
+    }
+  };
+
+  const handleTestGitHub = async () => {
+    setGhTesting(true);
+    try {
+      const res = await fetch("/api/admin/coding/github", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "test" }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(t("coding.githubTestSuccess"));
+      } else {
+        toast.error(t("coding.githubTestFailed", { error: data.error || "Unknown" }));
+      }
+    } catch {
+      toast.error(t("coding.githubTestFailed", { error: "Network error" }));
+    } finally {
+      setGhTesting(false);
     }
   };
 
@@ -425,14 +275,166 @@ export default function CodingPage() {
       </div>
 
       {activeTab === "github" && (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-4 py-16">
-            <div className="flex size-12 items-center justify-center rounded-full bg-muted">
-              <Boxes className="size-6 text-muted-foreground" />
-            </div>
-            <p className="text-sm text-muted-foreground">{t("coding.tabs.github")}</p>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col gap-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <GitBranch className="size-5 text-muted-foreground" />
+                <CardTitle>{t("coding.githubConfigTitle")}</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {ghTokenConfigured === null ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  {t("common.loading")}
+                </div>
+              ) : ghTokenConfigured && ghRepo ? (
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Badge variant="secondary" className="gap-1 text-green-600 dark:text-green-400">
+                      <CheckCircle2 className="size-3.5" />
+                      {t("coding.githubConfigured")}
+                    </Badge>
+                    <code className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                      {ghRepo}
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleTestGitHub}
+                      disabled={ghTesting}
+                    >
+                      {ghTesting ? (
+                        <>
+                          <Loader2 className="mr-1 size-3.5 animate-spin" />
+                          {t("coding.githubTesting")}
+                        </>
+                      ) : (
+                        t("coding.githubTestConnection")
+                      )}
+                    </Button>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="flex flex-col gap-1.5">
+                      <Label className="text-xs text-muted-foreground">{t("coding.githubTokenLabel")}</Label>
+                      <Input
+                        type="password"
+                        placeholder={t("coding.githubTokenPlaceholder")}
+                        value={ghTokenInput}
+                        onChange={(e) => setGhTokenInput(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label className="text-xs text-muted-foreground">{t("coding.githubRepoLabel")}</Label>
+                      <Input
+                        placeholder={t("coding.githubRepoPlaceholder")}
+                        value={ghRepoInput}
+                        onChange={(e) => setGhRepoInput(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-fit"
+                    onClick={handleSaveGitHub}
+                    disabled={ghSaving || (!ghTokenInput.trim() && ghRepoInput === ghRepo)}
+                  >
+                    {ghSaving ? t("common.saving") : t("coding.githubUpdateConfig")}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="destructive" className="gap-1">
+                      <XCircle className="size-3.5" />
+                      {t("coding.githubNotConfigured")}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {t("coding.githubConfigGuide")}
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="flex flex-col gap-1.5">
+                      <Label>{t("coding.githubTokenLabel")}</Label>
+                      <Input
+                        type="password"
+                        placeholder={t("coding.githubTokenPlaceholder")}
+                        value={ghTokenInput}
+                        onChange={(e) => setGhTokenInput(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">{t("coding.githubTokenHint")}</p>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label>{t("coding.githubRepoLabel")}</Label>
+                      <Input
+                        placeholder={t("coding.githubRepoPlaceholder")}
+                        value={ghRepoInput}
+                        onChange={(e) => setGhRepoInput(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">{t("coding.githubRepoHint")}</p>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleSaveGitHub}
+                    disabled={ghSaving || !ghTokenInput.trim() || !ghRepoInput.trim()}
+                    className="w-fit"
+                  >
+                    {ghSaving ? (
+                      <>
+                        <Loader2 className="mr-1.5 size-4 animate-spin" />
+                        {t("common.saving")}
+                      </>
+                    ) : (
+                      t("coding.githubSaveConfig")
+                    )}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Rocket className="size-5 text-muted-foreground" />
+                <div>
+                  <CardTitle>{t("coding.githubCapabilitiesTitle")}</CardTitle>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-lg border p-4 space-y-2">
+                <h4 className="font-medium text-sm flex items-center gap-1.5">
+                  <Eye className="size-4 text-blue-500" />
+                  {t("coding.githubCapReadWrite")}
+                </h4>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {t("coding.githubCapReadWriteDesc")}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4 space-y-2">
+                <h4 className="font-medium text-sm flex items-center gap-1.5">
+                  <Boxes className="size-4 text-amber-500" />
+                  {t("coding.githubCapBuildVerify")}
+                </h4>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {t("coding.githubCapBuildVerifyDesc")}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4 space-y-2">
+                <h4 className="font-medium text-sm flex items-center gap-1.5">
+                  <Rocket className="size-4 text-green-500" />
+                  {t("coding.githubCapCommitPush")}
+                </h4>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {t("coding.githubCapCommitPushDesc")}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {activeTab === "e2b" && (
@@ -540,11 +542,13 @@ export default function CodingPage() {
 
           {/* Tutorial card (collapsible) */}
           <Card>
-            <CardHeader
-              className="cursor-pointer select-none"
-              onClick={() => setTutorialOpen(!tutorialOpen)}
-            >
-              <div className="flex items-center justify-between">
+            <CardHeader className="p-0">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between p-6 text-left"
+                aria-expanded={tutorialOpen}
+                onClick={() => setTutorialOpen(!tutorialOpen)}
+              >
                 <div className="flex items-center gap-2">
                   <BookOpen className="size-5 text-muted-foreground" />
                   <CardTitle>{t("coding.tutorialTitle")}</CardTitle>
@@ -554,7 +558,7 @@ export default function CodingPage() {
                 ) : (
                   <ChevronDown className="size-5 text-muted-foreground" />
                 )}
-              </div>
+              </button>
             </CardHeader>
             {tutorialOpen && (
               <CardContent className="grid gap-4 md:grid-cols-2">
@@ -703,10 +707,13 @@ export default function CodingPage() {
                           {output.results
                             .filter((r) => r.png)
                             .map((r, i) => (
-                              <img
+                              <NextImage
                                 key={i}
-                                src={`data:image/png;base64,${r.png}`}
+                                src={`data:image/png;base64,${r.png!}`}
                                 alt={`Chart ${i + 1}`}
+                                width={1200}
+                                height={800}
+                                unoptimized
                                 className="rounded-lg border max-w-full max-h-80 object-contain"
                               />
                             ))}
@@ -783,11 +790,13 @@ export default function CodingPage() {
 
           {/* Use Case Gallery (collapsible) */}
           <Card>
-            <CardHeader
-              className="cursor-pointer select-none"
-              onClick={() => setUseCasesOpen(!useCasesOpen)}
-            >
-              <div className="flex items-center justify-between">
+            <CardHeader className="p-0">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between p-6 text-left"
+                aria-expanded={useCasesOpen}
+                onClick={() => setUseCasesOpen(!useCasesOpen)}
+              >
                 <div className="flex items-center gap-2">
                   <Lightbulb className="size-5 text-muted-foreground" />
                   <div>
@@ -802,11 +811,11 @@ export default function CodingPage() {
                 ) : (
                   <ChevronDown className="size-5 text-muted-foreground" />
                 )}
-              </div>
+              </button>
             </CardHeader>
             {useCasesOpen && (
               <CardContent className="space-y-8">
-                {USE_CASE_CATEGORIES.map((cat) => (
+                {useCaseCategories.map((cat) => (
                   <div key={cat.titleKey}>
                     <h3 className="text-sm font-semibold mb-3 text-foreground/80">
                       {t(cat.titleKey as Parameters<typeof t>[0])}

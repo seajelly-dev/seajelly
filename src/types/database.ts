@@ -166,6 +166,7 @@ export const SECRET_KEYS = [
   "DEEPSEEK_API_KEY",
   "EMBEDDING_API_KEY",
   "E2B_API_KEY",
+  "GITHUB_TOKEN",
 ] as const;
 
 export type SecretKeyName = (typeof SECRET_KEYS)[number];

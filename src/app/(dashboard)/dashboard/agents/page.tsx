@@ -67,8 +67,13 @@ export default function AgentsPage() {
     { key: "run_python_code", label: "run_python_code", desc: "coding.toolRunPython", defaultOn: false },
     { key: "run_javascript_code", label: "run_javascript_code", desc: "coding.toolRunJS", defaultOn: false },
     { key: "run_html_preview", label: "run_html_preview", desc: "coding.toolRunHTML", defaultOn: false },
-    { key: "install_packages", label: "install_packages", desc: "coding.toolInstallPkg", defaultOn: false },
-    { key: "sandbox_file_ops", label: "sandbox_file_ops", desc: "coding.toolFileOps", defaultOn: false },
+    { key: "github_read_file", label: "github_read_file", desc: "coding.toolGitHubReadFile", defaultOn: false },
+    { key: "github_list_files", label: "github_list_files", desc: "coding.toolGitHubListFiles", defaultOn: false },
+    { key: "github_build_verify", label: "github_build_verify", desc: "coding.toolGitHubBuildVerify", defaultOn: false },
+    { key: "github_build_status", label: "github_build_status", desc: "coding.toolGitHubBuildStatus", defaultOn: false },
+    { key: "github_request_push_approval", label: "github_request_push_approval", desc: "coding.toolGitHubRequestPushApproval", defaultOn: false },
+    { key: "github_push_approval_status", label: "github_push_approval_status", desc: "coding.toolGitHubPushApprovalStatus", defaultOn: false },
+    { key: "github_commit_push", label: "github_commit_push", desc: "coding.toolGitHubCommitPush", defaultOn: false },
   ] as const;
 
   const [form, setForm] = useState({

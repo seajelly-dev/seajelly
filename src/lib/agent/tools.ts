@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod/v4";
 import { createClient } from "@supabase/supabase-js";
+import { createHash } from "crypto";
 import {
   scheduleCronJob,
   unscheduleCronJob,
@@ -12,9 +13,19 @@ import {
   runPythonCode,
   runJavaScriptCode,
   saveHTMLPreview,
-  installPackages as e2bInstallPackages,
-  sandboxFileOps as e2bFileOps,
+  startBuildVerify,
+  checkBuildStatus,
 } from "@/lib/e2b/sandbox";
+import {
+  getGitHubConfig,
+  parseRepo,
+} from "@/lib/github/config";
+import {
+  getFile as githubGetFile,
+  listTree as githubListTree,
+  createCommitAndPush,
+} from "@/lib/github/api";
+import { getBotForAgent } from "@/lib/telegram/bot";
 
 function bigrams(text: string): Set<string> {
   const clean = text.replace(/\s+/g, "");
@@ -48,6 +59,23 @@ interface ToolsOptions {
   agentId: string;
   channelId?: string;
   isOwner?: boolean;
+}
+
+function computePushPayloadHash(params: {
+  files: { path: string; content: string }[];
+  delete_files?: string[];
+  message: string;
+  branch?: string;
+}): string {
+  const files = [...params.files].sort((a, b) => a.path.localeCompare(b.path));
+  const deleteFiles = [...(params.delete_files ?? [])].sort();
+  const payload = {
+    branch: params.branch ?? "main",
+    message: params.message,
+    files,
+    delete_files: deleteFiles,
+  };
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
 export function createAgentTools({ agentId, channelId, isOwner }: ToolsOptions) {
@@ -609,10 +637,9 @@ export function createAgentTools({ agentId, channelId, isOwner }: ToolsOptions) 
     run_python_code: tool({
       description:
         "Execute Python code in a secure E2B cloud sandbox. Returns stdout, stderr, and any " +
-        "generated charts/images as base64 PNG. The sandbox has internet access and comes with " +
-        "Python standard library. Use install_packages first if you need external libraries " +
-        "like pandas, numpy, or matplotlib. Each execution creates a fresh sandbox (stateless). " +
-        "Sandbox max lifetime: 1 hour (Hobby plan).",
+        "generated charts/images as base64 PNG. The sandbox has internet access and common " +
+        "libraries pre-installed (numpy, pandas, matplotlib, etc). " +
+        "Each execution creates a fresh sandbox (stateless). Sandbox max lifetime: 1 hour (Hobby plan).",
       inputSchema: z.object({
         code: z.string().describe("Python code to execute"),
       }),
@@ -689,54 +716,393 @@ export function createAgentTools({ agentId, channelId, isOwner }: ToolsOptions) 
       },
     }),
 
-    install_packages: tool({
+    github_read_file: tool({
       description:
-        "Install Python (pip) or Node.js (npm) packages in an E2B sandbox. " +
-        "Note: packages are only available in that sandbox instance and won't persist. " +
-        "For frequently needed packages, consider using a custom E2B template.",
+        "Read a file from the project's GitHub repository. " +
+        "Returns the file content as a string. Use this to understand existing code before making changes. " +
+        "Requires GITHUB_TOKEN and GITHUB_REPO to be configured.",
       inputSchema: z.object({
-        packages: z.array(z.string()).describe("Package names to install, e.g. ['pandas', 'matplotlib']"),
-        manager: z.enum(["pip", "npm"]).optional().describe("Package manager: 'pip' (default) or 'npm'"),
+        path: z.string().describe("File path relative to repo root, e.g. 'src/app/page.tsx'"),
+        branch: z.string().optional().describe("Branch name, defaults to main"),
       }),
-      execute: async ({ packages, manager }: { packages: string[]; manager?: "pip" | "npm" }) => {
-        const apiKey = await getE2BApiKey();
-        if (!apiKey) {
-          return { success: false, error: "E2B_API_KEY not configured. Ask the admin to add it in Dashboard > Secrets." };
+      execute: async ({ path, branch }: { path: string; branch?: string }) => {
+        const { token, repo } = await getGitHubConfig();
+        if (!token || !repo) {
+          return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
         }
         try {
-          const result = await e2bInstallPackages(apiKey, packages, manager ?? "pip");
-          return {
-            success: !result.error,
-            stdout: result.stdout,
-            stderr: result.stderr,
-            error: result.error,
-          };
+          const { owner, name } = parseRepo(repo);
+          const result = await githubGetFile(token, `${owner}/${name}`, path, branch);
+          return { success: true, content: result.content, sha: result.sha };
         } catch (err) {
-          return { success: false, error: err instanceof Error ? err.message : "Install failed" };
+          return { success: false, error: err instanceof Error ? err.message : "Read failed" };
         }
       },
     }),
 
-    sandbox_file_ops: tool({
+    github_list_files: tool({
       description:
-        "Perform file operations (read, write, list) in an E2B sandbox. " +
-        "Use 'write' to create files, 'read' to get file contents, 'list' to list directory entries. " +
-        "Each call creates a fresh sandbox — files do not persist between calls.",
+        "List files in the project's GitHub repository. " +
+        "Returns a flat list of file paths (excludes node_modules, .git, dist, lock files). " +
+        "Use this to understand the project structure before reading specific files.",
       inputSchema: z.object({
-        operation: z.enum(["write", "read", "list"]).describe("File operation type"),
-        path: z.string().describe("File or directory path, e.g. '/home/user/script.py'"),
-        content: z.string().optional().describe("File content (required for 'write')"),
+        path: z.string().optional().describe("Directory path to filter by, e.g. 'src/components'. Empty = entire repo"),
+        branch: z.string().optional().describe("Branch name, defaults to main"),
       }),
-      execute: async ({ operation, path, content }: { operation: "write" | "read" | "list"; path: string; content?: string }) => {
-        const apiKey = await getE2BApiKey();
-        if (!apiKey) {
-          return { success: false, error: "E2B_API_KEY not configured. Ask the admin to add it in Dashboard > Secrets." };
+      execute: async ({ path, branch }: { path?: string; branch?: string }) => {
+        const { token, repo } = await getGitHubConfig();
+        if (!token || !repo) {
+          return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
         }
         try {
-          const result = await e2bFileOps(apiKey, operation, path, content);
-          return { success: !result.error, data: result.data, error: result.error };
+          const { owner, name } = parseRepo(repo);
+          const files = await githubListTree(token, `${owner}/${name}`, path, branch);
+          return { success: true, files, count: files.length };
         } catch (err) {
-          return { success: false, error: err instanceof Error ? err.message : "File operation failed" };
+          return { success: false, error: err instanceof Error ? err.message : "List failed" };
+        }
+      },
+    }),
+
+    github_build_verify: tool({
+      description:
+        "Clone the project repo into an E2B sandbox, apply code changes, and run a build to verify. " +
+        "This is an ASYNC operation — it immediately returns a sandbox_id. " +
+        "You MUST then call github_build_status to poll for the result. " +
+        "Use this to validate code changes before committing to the main branch. " +
+        "Requires E2B_API_KEY, GITHUB_TOKEN, and GITHUB_REPO to be configured.",
+      inputSchema: z.object({
+        files: z
+          .array(z.object({ path: z.string(), content: z.string() }))
+          .describe("Files to create or modify, with paths relative to repo root"),
+        delete_files: z
+          .array(z.string())
+          .optional()
+          .describe("Files to delete, paths relative to repo root"),
+        install_cmd: z.string().optional().describe("Custom install command, default: npm install"),
+        build_cmd: z.string().optional().describe("Custom build command, default: npm run build"),
+        serve_cmd: z.string().optional().describe("Custom serve command for previewing the build output"),
+        port: z.number().optional().describe("Port for the preview server, default: 3000"),
+      }),
+      execute: async (params: {
+        files: { path: string; content: string }[];
+        delete_files?: string[];
+        install_cmd?: string;
+        build_cmd?: string;
+        serve_cmd?: string;
+        port?: number;
+      }) => {
+        const apiKey = await getE2BApiKey();
+        if (!apiKey) {
+          return { success: false, error: "E2B_API_KEY not configured." };
+        }
+        const { token, repo } = await getGitHubConfig();
+        if (!token || !repo) {
+          return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
+        }
+        try {
+          const { owner, name } = parseRepo(repo);
+          const result = await startBuildVerify({
+            apiKey,
+            repoUrl: `https://github.com/${owner}/${name}.git`,
+            githubToken: token,
+            files: params.files,
+            deleteFiles: params.delete_files,
+            installCmd: params.install_cmd,
+            buildCmd: params.build_cmd,
+            serveCmd: params.serve_cmd,
+            port: params.port,
+          });
+          return {
+            success: true,
+            sandboxId: result.sandboxId,
+            message: "Build started. Use github_build_status to check progress.",
+          };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Build start failed" };
+        }
+      },
+    }),
+
+    github_build_status: tool({
+      description:
+        "Check the status of an async build verification started by github_build_verify. " +
+        "Returns 'building' if still in progress, 'success' with a preview URL, or 'failed' with error logs. " +
+        "Poll this every ~15 seconds after starting a build.",
+      inputSchema: z.object({
+        sandbox_id: z.string().describe("The sandbox ID returned by github_build_verify"),
+        port: z.number().optional().describe("Port the preview server uses, default: 3000"),
+      }),
+      execute: async ({ sandbox_id, port }: { sandbox_id: string; port?: number }) => {
+        const apiKey = await getE2BApiKey();
+        if (!apiKey) {
+          return { success: false, error: "E2B_API_KEY not configured." };
+        }
+        try {
+          const status = await checkBuildStatus(apiKey, sandbox_id, port);
+          return { success: true, ...status };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Status check failed" };
+        }
+      },
+    }),
+
+    github_request_push_approval: tool({
+      description:
+        "Request an explicit, one-time owner approval to commit and push code changes to GitHub. " +
+        "This sends an Approve/Reject button to the owner on Telegram and returns an approval_id. " +
+        "You MUST wait until the approval is granted before calling github_commit_push.",
+      inputSchema: z.object({
+        files: z
+          .array(z.object({ path: z.string(), content: z.string() }))
+          .describe("Files that would be committed, with paths relative to repo root"),
+        delete_files: z
+          .array(z.string())
+          .optional()
+          .describe("Files to delete in this commit"),
+        message: z.string().describe("Git commit message"),
+        branch: z.string().optional().describe("Target branch, default: main"),
+        expires_in_minutes: z
+          .number()
+          .optional()
+          .describe("Approval expiry window in minutes (default: 10, max: 60)"),
+      }),
+      execute: async (params: {
+        files: { path: string; content: string }[];
+        delete_files?: string[];
+        message: string;
+        branch?: string;
+        expires_in_minutes?: number;
+      }) => {
+        if (!channelId) {
+          return { success: false, error: "No channel context for push approval request." };
+        }
+
+        const [{ data: requestCh }, { data: ownerCh }] = await Promise.all([
+          supabase
+            .from("channels")
+            .select("id, platform_uid, display_name")
+            .eq("id", channelId)
+            .single(),
+          supabase
+            .from("channels")
+            .select("id, platform_uid")
+            .eq("agent_id", agentId)
+            .eq("is_owner", true)
+            .single(),
+        ]);
+
+        if (!requestCh) return { success: false, error: "Request channel not found." };
+        if (!ownerCh?.platform_uid) return { success: false, error: "Owner channel not found." };
+
+        const branch = params.branch ?? "main";
+        const expiresMinutes = Math.max(1, Math.min(60, Math.floor(params.expires_in_minutes ?? 10)));
+        const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000).toISOString();
+
+        const filePaths = params.files.map((f) => f.path).sort();
+        const deletePaths = [...(params.delete_files ?? [])].sort();
+        const payloadHash = computePushPayloadHash(params);
+
+        const { data: inserted, error: insertErr } = await supabase
+          .from("github_push_approvals")
+          .insert({
+            agent_id: agentId,
+            request_channel_id: requestCh.id,
+            requested_by_uid: requestCh.platform_uid,
+            status: "pending",
+            payload_hash: payloadHash,
+            branch,
+            commit_message: params.message,
+            files: filePaths,
+            delete_files: deletePaths,
+            expires_at: expiresAt,
+          })
+          .select("id")
+          .single();
+
+        if (insertErr || !inserted?.id) {
+          return { success: false, error: insertErr?.message || "Failed to create approval request." };
+        }
+
+        const requesterName = requestCh.display_name || requestCh.platform_uid;
+        const filesPreview = filePaths.slice(0, 15).map((p) => `- \`${p}\``).join("\n");
+        const deletesPreview = deletePaths.slice(0, 15).map((p) => `- \`${p}\``).join("\n");
+        const moreFiles = filePaths.length > 15 ? `\n… and ${filePaths.length - 15} more` : "";
+        const moreDeletes = deletePaths.length > 15 ? `\n… and ${deletePaths.length - 15} more` : "";
+
+        const text =
+          `🚀 *Push Approval Required*\n\n` +
+          `*Requested by:* ${requesterName}\n` +
+          `*Branch:* \`${branch}\`\n` +
+          `*Commit message:* ${params.message}\n\n` +
+          (filePaths.length ? `*Files:*\n${filesPreview}${moreFiles}\n\n` : "") +
+          (deletePaths.length ? `*Delete:*\n${deletesPreview}${moreDeletes}\n\n` : "") +
+          `*Approval ID:* \`${inserted.id}\`\n` +
+          `*Expires in:* ${expiresMinutes} min`;
+
+        try {
+          const bot = await getBotForAgent(agentId);
+          await bot.api.sendMessage(Number(ownerCh.platform_uid), text, {
+            parse_mode: "Markdown",
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: "✅ Approve Push", callback_data: `push_approve:${inserted.id}` },
+                  { text: "❌ Reject", callback_data: `push_reject:${inserted.id}` },
+                ],
+              ],
+            },
+          });
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Failed to send approval request." };
+        }
+
+        return {
+          success: true,
+          approvalId: inserted.id,
+          expiresAt,
+          message: "Approval requested from owner. Use github_push_approval_status to check status.",
+        };
+      },
+    }),
+
+    github_push_approval_status: tool({
+      description:
+        "Check the status of a push approval requested by github_request_push_approval. " +
+        "Returns pending/approved/rejected/expired/used.",
+      inputSchema: z.object({
+        approval_id: z.string().describe("Approval ID returned by github_request_push_approval"),
+      }),
+      execute: async ({ approval_id }: { approval_id: string }) => {
+        const { data: row, error } = await supabase
+          .from("github_push_approvals")
+          .select("id, status, expires_at, approved_at, rejected_at, used_at")
+          .eq("id", approval_id)
+          .single();
+
+        if (error || !row) {
+          return { success: false, error: error?.message || "Approval not found." };
+        }
+
+        const expiresAtMs = new Date(row.expires_at as string).getTime();
+        if (row.status === "pending" && Number.isFinite(expiresAtMs) && Date.now() > expiresAtMs) {
+          await supabase
+            .from("github_push_approvals")
+            .update({ status: "expired" })
+            .eq("id", approval_id);
+          return { success: true, status: "expired", expiresAt: row.expires_at };
+        }
+
+        return {
+          success: true,
+          status: row.status,
+          expiresAt: row.expires_at,
+          approvedAt: row.approved_at,
+          rejectedAt: row.rejected_at,
+          usedAt: row.used_at,
+        };
+      },
+    }),
+
+    github_commit_push: tool({
+      description:
+        "Commit and push code changes to the project's GitHub repository. " +
+        "CRITICAL: This requires an explicit one-time owner approval via github_request_push_approval. " +
+        "Never push without approval. This triggers Vercel auto-deployment. " +
+        "Use github_build_verify first to validate changes.",
+      inputSchema: z.object({
+        approval_id: z.string().describe("Approval ID from github_request_push_approval (must be approved)"),
+        files: z
+          .array(z.object({ path: z.string(), content: z.string() }))
+          .describe("Files to commit, with paths relative to repo root"),
+        delete_files: z
+          .array(z.string())
+          .optional()
+          .describe("Files to delete in this commit"),
+        message: z.string().describe("Git commit message"),
+        branch: z.string().optional().describe("Target branch, default: main"),
+      }),
+      execute: async (params: {
+        files: { path: string; content: string }[];
+        delete_files?: string[];
+        message: string;
+        branch?: string;
+        approval_id: string;
+      }) => {
+        if (!channelId) {
+          return { success: false, error: "No channel context for push." };
+        }
+
+        const { data: callerCh } = await supabase
+          .from("channels")
+          .select("id, is_owner")
+          .eq("id", channelId)
+          .single();
+        if (!callerCh?.is_owner) {
+          return { success: false, error: "Only the owner channel can push to GitHub." };
+        }
+
+        const { data: approval, error: approvalErr } = await supabase
+          .from("github_push_approvals")
+          .select("id, status, payload_hash, branch, commit_message, expires_at, used_at")
+          .eq("id", params.approval_id)
+          .single();
+        if (approvalErr || !approval) {
+          return { success: false, error: approvalErr?.message || "Approval not found." };
+        }
+
+        const expiresAtMs = new Date(approval.expires_at as string).getTime();
+        if (approval.status === "pending" && Number.isFinite(expiresAtMs) && Date.now() > expiresAtMs) {
+          await supabase
+            .from("github_push_approvals")
+            .update({ status: "expired" })
+            .eq("id", params.approval_id);
+          return { success: false, error: "Approval expired." };
+        }
+
+        if (approval.status !== "approved") {
+          return { success: false, error: `Approval not granted (status: ${approval.status}).` };
+        }
+        if (approval.used_at) {
+          return { success: false, error: "Approval already used." };
+        }
+
+        const branch = params.branch ?? "main";
+        if (approval.branch !== branch || approval.commit_message !== params.message) {
+          return { success: false, error: "Approval does not match branch or commit message." };
+        }
+
+        const payloadHash = computePushPayloadHash(params);
+        if (payloadHash !== approval.payload_hash) {
+          return { success: false, error: "Approval does not match the proposed file changes." };
+        }
+
+        const { token, repo } = await getGitHubConfig();
+        if (!token || !repo) {
+          return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
+        }
+        try {
+          const { owner, name } = parseRepo(repo);
+          const result = await createCommitAndPush(
+            token,
+            `${owner}/${name}`,
+            params.files,
+            params.delete_files ?? [],
+            params.message,
+            branch
+          );
+          await supabase
+            .from("github_push_approvals")
+            .update({ status: "used", used_at: new Date().toISOString() })
+            .eq("id", params.approval_id);
+          return {
+            success: true,
+            commitSha: result.commitSha,
+            commitUrl: result.commitUrl,
+            message: `Committed and pushed: ${result.commitUrl}`,
+          };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Push failed" };
         }
       },
     }),

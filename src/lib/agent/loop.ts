@@ -337,8 +337,13 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       run_python_code: false,
       run_javascript_code: false,
       run_html_preview: false,
-      install_packages: false,
-      sandbox_file_ops: false,
+      github_read_file: false,
+      github_list_files: false,
+      github_build_verify: false,
+      github_build_status: false,
+      github_request_push_approval: false,
+      github_push_approval_status: false,
+      github_commit_push: false,
     };
     const toolsConfig = (typedAgent.tools_config ?? {}) as Record<string, boolean>;
     const filteredBuiltin: typeof builtinTools = {} as typeof builtinTools;
