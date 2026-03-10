@@ -25,8 +25,7 @@ import {
   listTree as githubListTree,
   createCommitAndPush,
 } from "@/lib/github/api";
-import { getBotForAgent } from "@/lib/telegram/bot";
-import { InputFile } from "grammy";
+import type { PlatformSender } from "@/lib/platform/types";
 import { generateTTS, logTTSUsage, getVoiceSettings } from "@/lib/voice/tts-engine";
 import { isTextTooLong } from "@/lib/voice/tts-config-data";
 
@@ -62,6 +61,8 @@ interface ToolsOptions {
   agentId: string;
   channelId?: string;
   isOwner?: boolean;
+  sender: PlatformSender;
+  platformChatId: string;
 }
 
 function computePushPayloadHash(params: {
@@ -81,7 +82,7 @@ function computePushPayloadHash(params: {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-export function createAgentTools({ agentId, channelId, isOwner }: ToolsOptions) {
+export function createAgentTools({ agentId, channelId, isOwner, sender, platformChatId }: ToolsOptions) {
   const supabase = getSupabase();
 
   function getTaskJobName(taskConfig: unknown): string | null {
@@ -853,7 +854,7 @@ export function createAgentTools({ agentId, channelId, isOwner }: ToolsOptions) 
     github_request_push_approval: tool({
       description:
         "Request an explicit, one-time owner approval to commit and push code changes to GitHub. " +
-        "This sends an Approve/Reject button to the owner on Telegram and returns an approval_id. " +
+        "This sends an Approve/Reject button to the owner and returns an approval_id. " +
         "You MUST wait until the approval is granted before calling github_commit_push.",
       inputSchema: z.object({
         files: z
@@ -944,18 +945,15 @@ export function createAgentTools({ agentId, channelId, isOwner }: ToolsOptions) 
           `*Expires in:* ${expiresMinutes} min`;
 
         try {
-          const bot = await getBotForAgent(agentId);
-          await bot.api.sendMessage(Number(ownerCh.platform_uid), text, {
-            parse_mode: "Markdown",
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: "✅ Approve Push", callback_data: `push_approve:${inserted.id}` },
-                  { text: "❌ Reject", callback_data: `push_reject:${inserted.id}` },
-                ],
-              ],
-            },
-          });
+          await sender.sendInteractiveButtons(
+            ownerCh.platform_uid,
+            text,
+            [[
+              { label: "✅ Approve Push", callbackData: `push_approve:${inserted.id}` },
+              { label: "❌ Reject", callbackData: `push_reject:${inserted.id}` },
+            ]],
+            { parseMode: "Markdown" },
+          );
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : "Failed to send approval request." };
         }
@@ -1138,20 +1136,8 @@ export function createAgentTools({ agentId, channelId, isOwner }: ToolsOptions) 
           }
           const result = await generateTTS({ text, voice });
           const audioBuffer = Buffer.from(result.audioBase64, "base64");
-          const bot = await getBotForAgent(agentId);
-          const chatId = Number(
-            (await supabase
-              .from("sessions")
-              .select("platform_chat_id")
-              .eq("agent_id", agentId)
-              .eq("is_active", true)
-              .order("updated_at", { ascending: false })
-              .limit(1)
-              .single()
-            ).data?.platform_chat_id || "0"
-          );
-          if (chatId) {
-            await bot.api.sendVoice(chatId, new InputFile(audioBuffer, "voice.wav"));
+          if (platformChatId) {
+            await sender.sendVoice(platformChatId, audioBuffer, "voice.wav");
           }
           await logTTSUsage({
             agentId,

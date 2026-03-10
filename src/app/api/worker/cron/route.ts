@@ -1,6 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getBotForAgent } from "@/lib/telegram/bot";
+import { getSenderForAgent } from "@/lib/platform/sender";
 import { runAgentLoop } from "@/lib/agent/loop";
 import { unscheduleCronJob } from "@/lib/supabase/management";
 import type { AgentEvent } from "@/types/database";
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
     }
 
     const type = task_type || "reminder";
-    const tgChatId = Number(platformChatId);
+    const platform = (rest.platform as string) || "telegram";
 
     switch (type) {
       case "reminder": {
@@ -87,12 +87,8 @@ export async function POST(request: Request) {
             { status: 400 }
           );
         }
-        const bot = await getBotForAgent(agent_id);
-        await bot.api
-          .sendMessage(tgChatId, `🔔 ${message}`, { parse_mode: "Markdown" })
-          .catch(async () => {
-            await bot.api.sendMessage(tgChatId, `🔔 ${message}`);
-          });
+        const sender = await getSenderForAgent(agent_id, platform);
+        await sender.sendMarkdown(platformChatId, `🔔 ${message}`);
         break;
       }
 
@@ -111,6 +107,7 @@ export async function POST(request: Request) {
           platform_chat_id: platformChatId,
           dedup_key: null,
           payload: {
+            platform,
             message: { text: prompt },
             platform_uid: platformChatId,
           },

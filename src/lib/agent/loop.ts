@@ -3,9 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown, getHumanReadableError } from "./provider";
 import { createAgentTools } from "./tools";
 import { AGENT_LIMITS } from "./limits";
-import { getBotForAgent } from "@/lib/telegram/bot";
-import { downloadTelegramFile, isImageMime, isTextMime } from "@/lib/telegram/photo";
+import { getSenderForAgent, getFileDownloader } from "@/lib/platform/sender";
+import { isImageMime, isTextMime } from "@/lib/platform/file-utils";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
+import type { PlatformSender } from "@/lib/platform/types";
 import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
 
 interface LoopResult {
@@ -13,6 +14,15 @@ interface LoopResult {
   reply?: string;
   error?: string;
   traceId: string;
+}
+
+function resolvePlatform(event: AgentEvent): string {
+  const fromPayload = (event.payload as Record<string, unknown>).platform as string | undefined;
+  if (fromPayload) return fromPayload;
+  if (event.source === "cron" || event.source === "webhook" || event.source === "manual") {
+    return "telegram";
+  }
+  return event.source;
 }
 
 export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
@@ -27,10 +37,15 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
   const startTime = Date.now();
   let mcpResult: MCPResult | null = null;
 
+  const platform = resolvePlatform(event);
+  let sender: PlatformSender | null = null;
+
   try {
     if (!event.agent_id) {
       throw new Error("No agent_id on event");
     }
+
+    sender = await getSenderForAgent(event.agent_id, platform);
 
     const { data: agent, error: agentErr } = await supabase
       .from("agents")
@@ -45,7 +60,6 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const typedAgent = agent as Agent;
     const platformChatId = event.platform_chat_id;
     if (!platformChatId) throw new Error("No platform_chat_id on event");
-    const telegramChatId = Number(platformChatId);
 
     const msgPayload = (event.payload as Record<string, unknown>).message as
       | Record<string, unknown>
@@ -67,6 +81,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const platformUid =
       ((event.payload as Record<string, unknown>).platform_uid as string) ||
       null;
+    const displayName =
+      ((event.payload as Record<string, unknown>).display_name as string) || null;
 
     let channel: Channel | null = null;
     if (platformUid) {
@@ -74,7 +90,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         .from("channels")
         .select("*")
         .eq("agent_id", typedAgent.id)
-        .eq("platform", "telegram")
+        .eq("platform", platform)
         .eq("platform_uid", platformUid)
         .single();
 
@@ -83,12 +99,11 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       } else if (typedAgent.access_mode === "whitelist") {
         // whitelist: no channel, no entry
       } else {
-        const fromData = (
-          (event.payload as Record<string, unknown>).message as Record<
-            string,
-            unknown
-          >
-        ).from as Record<string, unknown> | undefined;
+        let resolvedDisplayName = displayName;
+        if (!resolvedDisplayName && msgPayload) {
+          const fromData = msgPayload.from as Record<string, unknown> | undefined;
+          resolvedDisplayName = (fromData?.first_name as string) || null;
+        }
 
         const { count: existingCount } = await supabase
           .from("channels")
@@ -101,9 +116,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           .from("channels")
           .insert({
             agent_id: typedAgent.id,
-            platform: "telegram",
+            platform,
             platform_uid: platformUid,
-            display_name: (fromData?.first_name as string) || null,
+            display_name: resolvedDisplayName || null,
             is_allowed: autoAllow,
             is_owner: isFirstChannel,
           })
@@ -122,9 +137,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
 
       if (channel && !channel.is_allowed) {
-        const bot = await getBotForAgent(typedAgent.id);
-        await bot.api.sendMessage(
-          Number(event.platform_chat_id),
+        await sender.sendText(
+          platformChatId,
           "⏳ Your access request has been sent to the owner for approval. Please wait."
         );
         return { success: true, reply: "[pending_approval]", traceId };
@@ -169,8 +183,6 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     // ── Handle bot commands (no AI needed) ──
     if (command) {
-      const bot = await getBotForAgent(typedAgent.id);
-
       if (command === "/new") {
         await supabase
           .from("sessions")
@@ -186,7 +198,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             version: 1,
             is_active: true,
           });
-        await bot.api.sendMessage(telegramChatId, "✨ New session started.");
+        await sender.sendText(platformChatId, "✨ New session started.");
         return { success: true, reply: "✨ New session started.", traceId };
       }
 
@@ -201,7 +213,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           "/asr — Get an ASR transcription link\n" +
           "/help — Show this message\n\n" +
           "Send any text to chat.";
-        await bot.api.sendMessage(telegramChatId, helpText, { parse_mode: "Markdown" });
+        await sender.sendMarkdown(platformChatId, helpText);
         return { success: true, reply: helpText, traceId };
       }
 
@@ -215,7 +227,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           `*Model:* \`${typedAgent.model}\`\n` +
           `*Access Mode:* ${typedAgent.access_mode}\n` +
           `*Session Messages:* ${msgCount}`;
-        await bot.api.sendMessage(telegramChatId, statusText, { parse_mode: "Markdown" });
+        await sender.sendMarkdown(platformChatId, statusText);
         return { success: true, reply: statusText, traceId };
       }
 
@@ -227,22 +239,21 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             `*Allowed:* ${channel.is_allowed ? "✅" : "⛔"}\n\n` +
             `*User Soul:*\n${channel.user_soul || "(empty)"}`
           : "No channel record found.";
-        await bot.api.sendMessage(telegramChatId, whoamiText, { parse_mode: "Markdown" });
+        await sender.sendMarkdown(platformChatId, whoamiText);
         return { success: true, reply: whoamiText, traceId };
       }
 
       if (command === "/start") {
-        await bot.api.sendMessage(
-          telegramChatId,
-          `👋 Hi! I'm *${typedAgent.name}*. Send me a message or type /help for commands.`,
-          { parse_mode: "Markdown" }
+        await sender.sendMarkdown(
+          platformChatId,
+          `👋 Hi! I'm *${typedAgent.name}*. Send me a message or type /help for commands.`
         );
         return { success: true, reply: "start", traceId };
       }
 
       if (command === "/tts") {
         if (!channel?.is_owner) {
-          await bot.api.sendMessage(telegramChatId, "⛔ Only the agent owner can toggle TTS.");
+          await sender.sendText(platformChatId, "⛔ Only the agent owner can toggle TTS.");
           return { success: true, reply: "tts_denied", traceId };
         }
         const currentConfig = (typedAgent.tools_config ?? {}) as Record<string, boolean>;
@@ -254,10 +265,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           .eq("id", typedAgent.id);
         const statusEmoji = !isEnabled ? "🔊" : "🔇";
         const statusText = !isEnabled ? "enabled" : "disabled";
-        await bot.api.sendMessage(
-          telegramChatId,
-          `${statusEmoji} TTS has been *${statusText}* for agent *${typedAgent.name}*.`,
-          { parse_mode: "Markdown" }
+        await sender.sendMarkdown(
+          platformChatId,
+          `${statusEmoji} TTS has been *${statusText}* for agent *${typedAgent.name}*.`
         );
         return { success: true, reply: `tts_${statusText}`, traceId };
       }
@@ -275,17 +285,16 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           .select("id, expires_at")
           .single();
         if (linkErr || !link) {
-          await bot.api.sendMessage(telegramChatId, "❌ Failed to create live voice link.");
+          await sender.sendText(platformChatId, "❌ Failed to create live voice link.");
           return { success: false, error: "Failed to create live link", traceId };
         }
         const liveUrl = `${appUrl}/voice/live/${link.id}`;
-        await bot.api.sendMessage(
-          telegramChatId,
+        await sender.sendMarkdown(
+          platformChatId,
           `🎙 *Live Voice Chat*\n\n` +
           `[Open Live Voice](${liveUrl})\n\n` +
           `⏰ Expires: ${new Date(link.expires_at).toLocaleString()}\n\n` +
-          `⚠️ *Security Warning:* This link contains your API key access. Do NOT share it with anyone.`,
-          { parse_mode: "Markdown" }
+          `⚠️ *Security Warning:* This link contains your API key access. Do NOT share it with anyone.`
         );
         return { success: true, reply: liveUrl, traceId };
       }
@@ -303,17 +312,16 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           .select("id, expires_at")
           .single();
         if (linkErr || !link) {
-          await bot.api.sendMessage(telegramChatId, "❌ Failed to create ASR link.");
+          await sender.sendText(platformChatId, "❌ Failed to create ASR link.");
           return { success: false, error: "Failed to create ASR link", traceId };
         }
         const asrUrl = `${appUrl}/voice/asr/${link.id}`;
-        await bot.api.sendMessage(
-          telegramChatId,
+        await sender.sendMarkdown(
+          platformChatId,
           `🎤 *ASR Transcription*\n\n` +
           `[Open ASR Recorder](${asrUrl})\n\n` +
           `⏰ Expires: ${new Date(link.expires_at).toLocaleString()}\n\n` +
-          `⚠️ *Security Warning:* This link contains your API key access. Do NOT share it with anyone.`,
-          { parse_mode: "Markdown" }
+          `⚠️ *Security Warning:* This link contains your API key access. Do NOT share it with anyone.`
         );
         return { success: true, reply: asrUrl, traceId };
       }
@@ -333,7 +341,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     // Build multimodal user message if file is present
     let fileHandled = false;
     if (fileId && event.agent_id) {
-      const file = await downloadTelegramFile(event.agent_id, fileId, fileMime, fileName);
+      const fileDownloader = getFileDownloader(platform);
+      const file = await fileDownloader.download(event.agent_id, fileId, fileMime, fileName);
       if (file) {
         const mime = file.mimeType;
         const textPrompt = messageText || "";
@@ -407,6 +416,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       agentId: typedAgent.id,
       channelId: channel?.id,
       isOwner: canEditAiSoul,
+      sender,
+      platformChatId,
     });
 
     // ── Filter tools by tools_config (least-privilege enforcement) ──
@@ -546,10 +557,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       deadline - Date.now()
     );
 
-    const bot = await getBotForAgent(typedAgent.id);
-    await bot.api.sendChatAction(telegramChatId, "typing").catch(() => {});
+    await sender.sendTyping(platformChatId);
     const typingInterval = setInterval(() => {
-      bot.api.sendChatAction(telegramChatId, "typing").catch(() => {});
+      sender!.sendTyping(platformChatId).catch(() => {});
     }, 4000);
 
     let result;
@@ -596,11 +606,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         () => {},
       );
 
-    await bot.api
-      .sendMessage(telegramChatId, reply, { parse_mode: "Markdown" })
-      .catch(async () => {
-        await bot.api.sendMessage(telegramChatId, reply);
-      });
+    await sender.sendMarkdown(platformChatId, reply);
 
     const userContent = fileHandled
       ? `[File${fileName ? `: ${fileName}` : ""}]${messageText ? ` ${messageText}` : ""}`
@@ -642,14 +648,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const errMsg = err instanceof Error ? err.message : "Unknown error";
     console.error(`Agent loop failed (trace: ${traceId}):`, errMsg);
 
-    if (event.platform_chat_id) {
+    if (event.platform_chat_id && sender) {
       try {
-        const bot = await getBotForAgent(event.agent_id!);
         const humanError = getHumanReadableError(err);
-        await bot.api.sendMessage(
-          Number(event.platform_chat_id),
-          `⚠️ Error: ${humanError}`
-        );
+        await sender.sendText(event.platform_chat_id, `⚠️ Error: ${humanError}`);
       } catch {
         // ignore send failure
       }
@@ -677,9 +679,15 @@ async function notifyOwnerOfNewChannel(
     .eq("is_owner", true)
     .single();
 
-  if (!ownerChannel || ownerChannel.platform !== "telegram") return;
+  if (!ownerChannel) return;
 
-  const bot = await getBotForAgent(agentId);
+  let ownerSender: PlatformSender;
+  try {
+    ownerSender = await getSenderForAgent(agentId, ownerChannel.platform);
+  } catch {
+    return;
+  }
+
   const name = newChannel.display_name || newChannel.platform_uid;
 
   const text = needsApproval
@@ -693,18 +701,17 @@ async function notifyOwnerOfNewChannel(
       `*Platform:* ${newChannel.platform}\n` +
       `*ID:* \`${newChannel.platform_uid}\``;
 
-  const options: Record<string, unknown> = { parse_mode: "Markdown" };
-
   if (needsApproval) {
-    options.reply_markup = {
-      inline_keyboard: [
-        [
-          { text: "✅ Approve", callback_data: `approve:${newChannel.id}` },
-          { text: "❌ Reject", callback_data: `reject:${newChannel.id}` },
-        ],
-      ],
-    };
+    await ownerSender.sendInteractiveButtons(
+      ownerChannel.platform_uid,
+      text,
+      [[
+        { label: "✅ Approve", callbackData: `approve:${newChannel.id}` },
+        { label: "❌ Reject", callbackData: `reject:${newChannel.id}` },
+      ]],
+      { parseMode: "Markdown" },
+    );
+  } else {
+    await ownerSender.sendMarkdown(ownerChannel.platform_uid, text);
   }
-
-  await bot.api.sendMessage(Number(ownerChannel.platform_uid), text, options);
 }

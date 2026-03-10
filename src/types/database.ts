@@ -31,6 +31,16 @@ export interface Agent {
   created_at: string;
 }
 
+export interface AgentCredential {
+  id: string;
+  agent_id: string;
+  platform: string;
+  credential_type: string;
+  encrypted_value: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
 export type ProviderType = "anthropic" | "openai" | "google" | "deepseek" | "openai_compatible";
 
 export interface Provider {
@@ -77,7 +87,7 @@ export interface ApiUsageLog {
   created_at: string;
 }
 
-export type Platform = "telegram" | "discord" | "slack" | "web";
+export type Platform = "telegram" | "wecom" | "feishu" | "slack" | "dingtalk" | "discord" | "web";
 
 export interface Channel {
   id: string;
@@ -156,7 +166,7 @@ export interface CronJob {
   created_at: string;
 }
 
-export type EventSource = "telegram" | "cron" | "webhook" | "manual";
+export type EventSource = "telegram" | "wecom" | "feishu" | "slack" | "dingtalk" | "discord" | "cron" | "webhook" | "manual";
 export type EventStatus =
   | "pending"
   | "processing"

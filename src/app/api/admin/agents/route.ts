@@ -32,6 +32,18 @@ async function autoSetWebhook(agentId: string) {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function upsertCredential(db: any, agentId: string, platform: string, credentialType: string, rawValue: string) {
+  const encrypted = encrypt(rawValue);
+  const { error } = await db
+    .from("agent_credentials")
+    .upsert(
+      { agent_id: agentId, platform, credential_type: credentialType, encrypted_value: encrypted },
+      { onConflict: "agent_id,platform,credential_type" },
+    );
+  if (error) console.warn("upsertCredential error:", error.message);
+}
+
 export async function GET() {
   try { await requireAdmin(); } catch (e) {
     return authErrorResponse(e);
@@ -47,11 +59,30 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const agents = (data ?? []).map((a) => ({
-    ...a,
-    telegram_bot_token: a.telegram_bot_token ? "••••••" : null,
-    has_bot_token: !!a.telegram_bot_token,
-  }));
+  const agentIds = (data ?? []).map((a) => a.id);
+  const { data: creds } = agentIds.length > 0
+    ? await db
+        .from("agent_credentials")
+        .select("agent_id, platform, credential_type")
+        .in("agent_id", agentIds)
+    : { data: [] };
+
+  const credMap = new Map<string, Set<string>>();
+  for (const c of creds ?? []) {
+    const key = c.agent_id;
+    if (!credMap.has(key)) credMap.set(key, new Set());
+    credMap.get(key)!.add(`${c.platform}:${c.credential_type}`);
+  }
+
+  const agents = (data ?? []).map((a) => {
+    const agentCreds = credMap.get(a.id);
+    const hasTelegramCred = agentCreds?.has("telegram:bot_token") ?? false;
+    return {
+      ...a,
+      telegram_bot_token: a.telegram_bot_token ? "••••••" : null,
+      has_bot_token: !!a.telegram_bot_token || hasTelegramCred,
+    };
+  });
 
   return NextResponse.json({ agents });
 }
@@ -94,6 +125,7 @@ export async function POST(request: Request) {
   }
 
   if (data?.id && telegram_bot_token) {
+    await upsertCredential(db, data.id, "telegram", "bot_token", telegram_bot_token);
     autoSetWebhook(data.id);
   }
 
@@ -134,6 +166,7 @@ export async function PUT(request: Request) {
   }
 
   if (newToken && data?.id) {
+    await upsertCredential(db, data.id, "telegram", "bot_token", telegram_bot_token);
     autoSetWebhook(data.id);
   } else if (data?.id && data?.telegram_bot_token) {
     syncBotCommands(data.id);
@@ -177,15 +210,15 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  const { data, error } = await db
-    .from("agents")
-    .select("telegram_bot_token")
-    .eq("id", id)
-    .single();
+  const [{ data: agentData }, { data: credData }] = await Promise.all([
+    db.from("agents").select("telegram_bot_token").eq("id", id).single(),
+    db.from("agent_credentials")
+      .select("id")
+      .eq("agent_id", id)
+      .eq("platform", "telegram")
+      .eq("credential_type", "bot_token")
+      .maybeSingle(),
+  ]);
 
-  if (error) {
-    return NextResponse.json({ error: "Agent not found" }, { status: 404 });
-  }
-
-  return NextResponse.json({ has_token: !!data?.telegram_bot_token });
+  return NextResponse.json({ has_token: !!agentData?.telegram_bot_token || !!credData });
 }

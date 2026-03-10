@@ -116,12 +116,33 @@ CREATE POLICY "agents_service_select" ON public.agents FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
 -- ============================================================
+-- 5b. agent_credentials (platform credentials per agent)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.agent_credentials (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id        uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  platform        text NOT NULL,
+  credential_type text NOT NULL,
+  encrypted_value text NOT NULL,
+  metadata        jsonb NOT NULL DEFAULT '{}',
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_credentials_agent_platform
+  ON public.agent_credentials(agent_id, platform, credential_type);
+ALTER TABLE public.agent_credentials ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "agent_credentials_admin_all" ON public.agent_credentials;
+CREATE POLICY "agent_credentials_admin_all" ON public.agent_credentials FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "agent_credentials_service_select" ON public.agent_credentials;
+CREATE POLICY "agent_credentials_service_select" ON public.agent_credentials FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+-- ============================================================
 -- 4. channels
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.channels (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id      uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
-  platform      text NOT NULL CHECK (platform IN ('telegram','discord','slack','web')),
+  platform      text NOT NULL CHECK (platform IN ('telegram','wecom','feishu','slack','dingtalk','discord','web')),
   platform_uid  text NOT NULL,
   display_name  text,
   user_soul     text NOT NULL DEFAULT '',
@@ -251,7 +272,7 @@ CREATE POLICY "cron_jobs_admin_all" ON public.cron_jobs FOR ALL USING (public.is
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.events (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source            text NOT NULL CHECK (source IN ('telegram','cron','webhook','manual')),
+  source            text NOT NULL CHECK (source IN ('telegram','wecom','feishu','slack','dingtalk','discord','cron','webhook','manual')),
   agent_id          uuid REFERENCES public.agents(id) ON DELETE SET NULL,
   platform_chat_id  text,
   dedup_key         text UNIQUE,
@@ -603,6 +624,7 @@ GRANT ALL ON public.providers TO service_role, authenticated;
 GRANT ALL ON public.provider_api_keys TO service_role, authenticated;
 GRANT ALL ON public.models TO service_role, authenticated;
 GRANT ALL ON public.api_usage_logs TO service_role, authenticated;
+GRANT ALL ON public.agent_credentials TO service_role, authenticated;
 GRANT ALL ON public.voice_api_keys TO service_role, authenticated;
 GRANT ALL ON public.voice_settings TO service_role, authenticated;
 GRANT ALL ON public.tts_usage_logs TO service_role, authenticated;

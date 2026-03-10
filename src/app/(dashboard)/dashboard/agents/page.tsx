@@ -157,10 +157,10 @@ export default function AgentsPage() {
 
   const fetchWebhookInfo = useCallback(async (agentId: string) => {
     try {
-      const res = await fetch("/api/admin/telegram", {
+      const res = await fetch("/api/admin/platform", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "get-info", agent_id: agentId }),
+        body: JSON.stringify({ platform: "telegram", action: "get-info", agent_id: agentId }),
       });
       const data = await res.json();
       if (res.ok && data.webhook) {
@@ -182,10 +182,11 @@ export default function AgentsPage() {
   const handleSetWebhook = async (agentId: string) => {
     setSettingWebhook(agentId);
     try {
-      const res = await fetch("/api/admin/telegram", {
+      const res = await fetch("/api/admin/platform", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          platform: "telegram",
           action: "set-webhook",
           agent_id: agentId,
           webhook_url: `${window.location.origin}/api/webhook/telegram`,
@@ -291,10 +292,11 @@ export default function AgentsPage() {
       const savedAgentId = editingAgent?.id || data.agent?.id;
       if (savedAgentId && form.telegram_bot_token) {
         try {
-          await fetch("/api/admin/telegram", {
+          await fetch("/api/admin/platform", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              platform: "telegram",
               action: "set-webhook",
               agent_id: savedAgentId,
               webhook_url: `${window.location.origin}/api/webhook/telegram`,

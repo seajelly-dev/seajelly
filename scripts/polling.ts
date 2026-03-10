@@ -15,6 +15,7 @@ import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown, getHu
 import { createAgentTools } from "@/lib/agent/tools";
 import { AGENT_LIMITS } from "@/lib/agent/limits";
 import { BOT_COMMANDS } from "@/lib/telegram/commands";
+import { TelegramAdapter } from "@/lib/platform/adapters/telegram";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import type { ChatMessage, Channel } from "@/types/database";
 
@@ -370,10 +371,14 @@ async function startBotForAgent(agent: AgentRow) {
         canEditAiSoul = (count ?? 0) === 0;
       }
 
+      const pollingPlatformChatId = String(chatId);
+      const pollingSender = new TelegramAdapter(agent.id);
       const builtinTools = createAgentTools({
         agentId: agent.id,
         channelId: channel.id,
         isOwner: canEditAiSoul,
+        sender: pollingSender,
+        platformChatId: pollingPlatformChatId,
       });
 
       const TOOL_DEFAULTS: Record<string, boolean> = {
