@@ -30,9 +30,10 @@ import {
   FeishuIcon,
   WeComIcon,
   SlackIcon,
+  QQBotIcon,
 } from "@/components/icons/platform-icons";
 
-type SetupPlatform = "telegram" | "feishu" | "wecom" | "slack" | "none";
+type SetupPlatform = "telegram" | "feishu" | "wecom" | "slack" | "qqbot" | "none";
 
 const SETUP_PLATFORMS = [
   {
@@ -69,6 +70,15 @@ const SETUP_PLATFORMS = [
     fields: [
       { name: "bot_token", label: "Bot Token", secret: true },
       { name: "signing_secret", label: "Signing Secret", secret: true },
+    ],
+  },
+  {
+    key: "qqbot" as const,
+    label: "QQ Bot",
+    icon: QQBotIcon,
+    fields: [
+      { name: "app_id", label: "AppID", secret: false },
+      { name: "app_secret", label: "AppSecret", secret: true },
     ],
   },
 ];
@@ -525,7 +535,7 @@ You have persistent memory across conversations. Use it wisely:
                   <span className="text-xs text-muted-foreground">{t("setup.botTokenOptional")}</span>
                 </Label>
                 <p className="text-xs text-muted-foreground">{t("setup.imPlatformHint")}</p>
-                <div className="grid grid-cols-5 gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
                   {SETUP_PLATFORMS.map((p) => (
                     <button
                       key={p.key}

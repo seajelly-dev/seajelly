@@ -5,6 +5,7 @@ import { TelegramFileDownloader } from "./adapters/telegram-file";
 import { FeishuAdapter } from "./adapters/feishu";
 import { WeComAdapter } from "./adapters/wecom";
 import { SlackAdapter } from "./adapters/slack";
+import { QQBotAdapter } from "./adapters/qqbot";
 
 export async function getSenderForAgent(
   agentId: string,
@@ -19,6 +20,8 @@ export async function getSenderForAgent(
       return new WeComAdapter(agentId);
     case "slack":
       return new SlackAdapter(agentId);
+    case "qqbot":
+      return new QQBotAdapter(agentId);
     default:
       throw new Error(`Unsupported platform: ${platform}`);
   }

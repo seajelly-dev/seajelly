@@ -48,6 +48,7 @@ const PLATFORM_CRED_KEYS: Record<string, string[]> = {
   feishu: ["app_id", "app_secret", "encrypt_key"],
   wecom: ["corp_id", "corp_secret", "agent_id", "token", "encoding_aes_key"],
   slack: ["bot_token", "signing_secret"],
+  qqbot: ["app_id", "app_secret"],
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

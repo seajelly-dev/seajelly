@@ -50,6 +50,7 @@ import {
   FeishuIcon,
   WeComIcon,
   SlackIcon,
+  QQBotIcon,
 } from "@/components/icons/platform-icons";
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -75,7 +76,7 @@ const PRIVILEGED_TOOLS = [
   { key: "tts_speak", label: "tts_speak", desc: "coding.toolTtsSpeak", defaultOn: false },
 ] as const;
 
-type PlatformKey = "telegram" | "feishu" | "wecom" | "slack";
+type PlatformKey = "telegram" | "feishu" | "wecom" | "slack" | "qqbot";
 
 interface PlatformDef {
   key: PlatformKey;
@@ -120,6 +121,15 @@ const PLATFORMS: PlatformDef[] = [
     fields: [
       { name: "bot_token", label: "Bot Token", secret: true },
       { name: "signing_secret", label: "Signing Secret", secret: true },
+    ],
+  },
+  {
+    key: "qqbot",
+    label: "QQ Bot",
+    icon: QQBotIcon,
+    fields: [
+      { name: "app_id", label: "AppID", secret: false },
+      { name: "app_secret", label: "AppSecret", secret: true },
     ],
   },
 ];

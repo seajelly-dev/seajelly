@@ -113,6 +113,35 @@ async function handleSlack(action: string, agentId: string, body: Record<string,
   return NextResponse.json({ error: "Invalid action for slack" }, { status: 400 });
 }
 
+async function handleQQBot(action: string, agentId: string, body: Record<string, unknown>) {
+  if (action === "get-info") {
+    const db = await createAdminClient();
+    const { data: creds } = await db
+      .from("agent_credentials")
+      .select("credential_type")
+      .eq("agent_id", agentId)
+      .eq("platform", "qqbot");
+    const types = (creds || []).map((c: { credential_type: string }) => c.credential_type);
+    return NextResponse.json({
+      configured: types.includes("app_id") && types.includes("app_secret"),
+      credentials: types,
+      webhook_url: `${body.base_url || ""}/api/webhook/qqbot/${agentId}`,
+    });
+  }
+  if (action === "test-connection") {
+    const { resolveQQBotCredentials } = await import("@/lib/platform/adapters/qqbot");
+    const creds = await resolveQQBotCredentials(agentId);
+    const res = await fetch("https://bots.qq.com/app/getAppAccessToken", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appId: creds.appId, clientSecret: creds.appSecret }),
+    });
+    if (!res.ok) throw new Error(`QQBot token request failed: ${res.status}`);
+    return NextResponse.json({ success: true, message: "QQBot credentials valid (token obtained)" });
+  }
+  return NextResponse.json({ error: "Invalid action for qqbot" }, { status: 400 });
+}
+
 export async function POST(request: Request) {
   try {
     await requireAdmin();
@@ -139,6 +168,8 @@ export async function POST(request: Request) {
         return await handleWeCom(action, agent_id, body);
       case "slack":
         return await handleSlack(action, agent_id, body);
+      case "qqbot":
+        return await handleQQBot(action, agent_id, body);
       default:
         return NextResponse.json(
           { error: `Platform "${resolvedPlatform}" admin actions not yet supported` },

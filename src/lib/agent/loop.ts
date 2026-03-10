@@ -47,6 +47,15 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     sender = await getSenderForAgent(event.agent_id, platform);
 
+    // QQ Bot requires msg_id/event_id for passive replies
+    if (platform === "qqbot" && "setReplyContext" in sender) {
+      const ep = (event.payload as Record<string, unknown>).message as Record<string, unknown> | undefined;
+      (sender as import("@/lib/platform/adapters/qqbot").QQBotAdapter).setReplyContext(
+        ep?.msg_id as string | undefined,
+        ep?.event_id as string | undefined,
+      );
+    }
+
     const { data: agent, error: agentErr } = await supabase
       .from("agents")
       .select("*")

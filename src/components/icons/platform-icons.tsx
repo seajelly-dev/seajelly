@@ -55,6 +55,27 @@ export function WeComIcon(props: IconProps) {
   );
 }
 
+export function QQBotIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" {...props}>
+      <path
+        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Z"
+        fill="#00BFFF"
+      />
+      <ellipse cx="12" cy="11.5" rx="5.5" ry="5" fill="white" />
+      <ellipse cx="10" cy="10.5" rx="1.2" ry="1.5" fill="#333" />
+      <ellipse cx="14" cy="10.5" rx="1.2" ry="1.5" fill="#333" />
+      <path
+        d="M9.5 14c0 0 1.2 1.5 2.5 1.5s2.5-1.5 2.5-1.5"
+        stroke="#333"
+        strokeWidth="0.8"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
 export function SlackIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" {...props}>
