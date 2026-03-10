@@ -1123,10 +1123,16 @@ export function createAgentTools({ agentId, channelId, isOwner }: ToolsOptions) 
       }),
       execute: async ({ text, voice }: { text: string; voice?: string }) => {
         try {
-          const settings = await getVoiceSettings();
-          if (settings.tts_enabled !== "true") {
-            return { success: false, error: "TTS is currently disabled. The agent owner can enable it with /tts command." };
+          const { data: agentRow } = await supabase
+            .from("agents")
+            .select("tools_config")
+            .eq("id", agentId)
+            .single();
+          const tc = (agentRow?.tools_config ?? {}) as Record<string, boolean>;
+          if (!tc.tts_speak) {
+            return { success: false, error: "TTS is disabled for this agent. The owner can enable it with /tts command." };
           }
+          const settings = await getVoiceSettings();
           if (isTextTooLong(text)) {
             return { success: false, error: "Text too long. Max 250 CJK characters or 500 Latin characters." };
           }

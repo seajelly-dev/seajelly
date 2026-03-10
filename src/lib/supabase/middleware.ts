@@ -146,10 +146,15 @@ export async function updateSession(request: NextRequest) {
     "/setup",
     "/login",
     "/preview",
+    "/voice/live",
+    "/voice/asr",
     "/api/auth/login",
     "/api/webhook",
     "/api/worker",
     "/api/admin/setup",
+    "/api/voice/live-config",
+    "/api/voice/asr-config",
+    "/api/voice/temp-link",
   ];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 

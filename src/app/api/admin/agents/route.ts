@@ -5,6 +5,15 @@ import { encrypt } from "@/lib/crypto/encrypt";
 import { getBotForAgent, resetBotForAgent } from "@/lib/telegram/bot";
 import { BOT_COMMANDS } from "@/lib/telegram/commands";
 
+async function syncBotCommands(agentId: string) {
+  try {
+    const bot = await getBotForAgent(agentId);
+    await bot.api.setMyCommands(BOT_COMMANDS);
+  } catch (err) {
+    console.warn("Sync bot commands failed (non-blocking):", err);
+  }
+}
+
 async function autoSetWebhook(agentId: string) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   if (!appUrl) return;
@@ -126,6 +135,8 @@ export async function PUT(request: Request) {
 
   if (newToken && data?.id) {
     autoSetWebhook(data.id);
+  } else if (data?.id && data?.telegram_bot_token) {
+    syncBotCommands(data.id);
   }
 
   return NextResponse.json({

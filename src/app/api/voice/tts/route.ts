@@ -22,9 +22,6 @@ export async function POST(req: NextRequest) {
     }
 
     const settings = await getVoiceSettings();
-    if (settings.tts_enabled !== "true") {
-      return NextResponse.json({ error: "TTS is disabled" }, { status: 403 });
-    }
 
     const result = await generateTTS({
       text,
@@ -33,15 +30,17 @@ export async function POST(req: NextRequest) {
       voice,
     });
 
-    await logTTSUsage({
-      agentId,
-      channelId,
-      engine: engine || settings.tts_engine || "aistudio",
-      model: model || settings.tts_model,
-      voice: voice || settings.tts_voice,
-      inputText: text,
-      durationMs: result.durationMs,
-    });
+    if (agentId) {
+      await logTTSUsage({
+        agentId,
+        channelId,
+        engine: engine || settings.tts_engine || "aistudio",
+        model: model || settings.tts_model,
+        voice: voice || settings.tts_voice,
+        inputText: text,
+        durationMs: result.durationMs,
+      });
+    }
 
     return NextResponse.json({
       audioBase64: result.audioBase64,

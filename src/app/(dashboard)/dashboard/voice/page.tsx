@@ -13,6 +13,7 @@ import {
   Play,
   Square,
   AlertTriangle,
+  Info,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import {
@@ -25,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -38,6 +40,7 @@ import {
   CLOUD_GEMINI_MODELS,
   type TTSEngine,
 } from "@/lib/voice/tts-config-data";
+import { cn } from "@/lib/utils";
 
 interface VoiceKeyInfo {
   id: string;
@@ -62,6 +65,8 @@ export default function VoicePage() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewText, setPreviewText] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const loadConfig = useCallback(async () => {
@@ -119,13 +124,15 @@ export default function VoicePage() {
   };
 
   const handlePreview = async () => {
-    setPreviewPlaying(true);
+    if (previewPlaying || previewLoading) return;
+    const text = previewText.trim() || t("voice.previewText");
+    setPreviewLoading(true);
     try {
       const res = await fetch("/api/voice/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: t("voice.previewText"),
+          text,
           engine: settings.tts_engine,
           model: settings.tts_model,
           voice: settings.tts_voice,
@@ -135,17 +142,18 @@ export default function VoicePage() {
       if (!res.ok) throw new Error(data.error || "TTS failed");
 
       const audioSrc = `data:${data.mimeType};base64,${data.audioBase64}`;
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
+      if (audioRef.current) audioRef.current.pause();
       const audio = new Audio(audioSrc);
       audioRef.current = audio;
-      audio.onended = () => setPreviewPlaying(false);
-      audio.onerror = () => setPreviewPlaying(false);
+      audio.onended = () => { setPreviewPlaying(false); setPreviewLoading(false); };
+      audio.onerror = () => { setPreviewPlaying(false); setPreviewLoading(false); };
+      setPreviewPlaying(true);
+      setPreviewLoading(false);
       await audio.play();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Preview failed");
       setPreviewPlaying(false);
+      setPreviewLoading(false);
     }
   };
 
@@ -155,6 +163,7 @@ export default function VoicePage() {
       audioRef.current = null;
     }
     setPreviewPlaying(false);
+    setPreviewLoading(false);
   };
 
   const currentEngine = (settings.tts_engine || "aistudio") as TTSEngine;
@@ -200,25 +209,18 @@ export default function VoicePage() {
       {/* TTS Tab */}
       {activeTab === "tts" && (
         <div className="flex flex-col gap-6">
-          {/* Status */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Volume2 className="size-5 text-muted-foreground" />
-                  <CardTitle>TTS</CardTitle>
-                </div>
-                <Badge variant={settings.tts_enabled === "true" ? "secondary" : "destructive"} className="gap-1">
-                  {settings.tts_enabled === "true" ? (
-                    <><CheckCircle2 className="size-3.5" /> {t("voice.ttsEnabled")}</>
-                  ) : (
-                    <><XCircle className="size-3.5" /> {t("voice.ttsDisabled")}</>
-                  )}
-                </Badge>
+              <div className="flex items-center gap-2">
+                <Volume2 className="size-5 text-muted-foreground" />
+                <CardTitle>TTS</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-5">
-              <p className="text-xs text-muted-foreground">{t("voice.ttsToggleHint")}</p>
+              <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3">
+                <Info className="size-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                <p className="text-xs text-blue-800 dark:text-blue-300">{t("voice.ttsToggleHint")}</p>
+              </div>
 
               {/* Engine select */}
               <div className="grid gap-4 sm:grid-cols-2">
@@ -245,14 +247,19 @@ export default function VoicePage() {
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {models.map(m => (
-                        <SelectItem key={m.id} value={m.id}>{m.name} — {m.description}</SelectItem>
+                        <SelectItem key={m.id} value={m.id}>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{m.name}</span>
+                            <span className="text-xs text-muted-foreground">{m.description}</span>
+                          </div>
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
-              {/* Voice select */}
+              {/* Voice select grid */}
               <div className="flex flex-col gap-1.5">
                 <Label>{t("voice.voiceSelect")}</Label>
                 <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-2">
@@ -260,14 +267,22 @@ export default function VoicePage() {
                     <button
                       key={v.id}
                       onClick={() => updateSettings({ tts_voice: v.id })}
-                      className={`px-3 py-2 rounded-lg border text-sm transition-all ${
+                      className={cn(
+                        "px-3 py-2 rounded-lg border text-sm transition-all",
                         (settings.tts_voice || "Aoede") === v.id
                           ? "border-primary bg-primary/10 text-primary font-medium"
                           : "border-border hover:border-primary/40 text-muted-foreground hover:text-foreground"
-                      }`}
+                      )}
                     >
                       <div>{v.name}</div>
-                      <div className="text-[10px] opacity-60">
+                      <div className={cn(
+                        "text-[10px]",
+                        v.gender === "male"
+                          ? "text-blue-500"
+                          : v.gender === "female"
+                            ? "text-pink-500"
+                            : "text-gray-500"
+                      )}>
                         {v.gender === "male" ? t("voice.male") : v.gender === "female" ? t("voice.female") : t("voice.neutral")}
                       </div>
                     </button>
@@ -309,23 +324,36 @@ export default function VoicePage() {
                 </div>
               </div>
 
-              {/* Preview */}
-              {hasKey(ttsKeyEngine) && settings.tts_enabled === "true" && (
-                <div className="flex items-center gap-3 pt-2">
-                  <Button
-                    variant="outline"
-                    onClick={previewPlaying ? stopPreview : handlePreview}
-                    disabled={previewPlaying && !audioRef.current}
-                  >
-                    {previewPlaying ? (
-                      <><Square className="mr-1.5 size-4" /> {t("voice.previewPlaying")}</>
-                    ) : (
-                      <><Play className="mr-1.5 size-4" /> {t("voice.previewGenerate")}</>
-                    )}
-                  </Button>
-                  <span className="text-xs text-muted-foreground">
-                    {t("voice.voiceSelect")}: {settings.tts_voice || "Aoede"}
-                  </span>
+              {/* Preview section */}
+              {hasKey(ttsKeyEngine) && (
+                <div className="flex flex-col gap-3 pt-2 border-t">
+                  <Label>{t("voice.previewTitle")}</Label>
+                  <Textarea
+                    placeholder={t("voice.previewPlaceholder")}
+                    value={previewText}
+                    onChange={(e) => setPreviewText(e.target.value)}
+                    rows={2}
+                    className="resize-none"
+                  />
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={previewPlaying ? stopPreview : handlePreview}
+                      disabled={previewLoading}
+                      className="gap-1.5"
+                    >
+                      {previewLoading ? (
+                        <><Loader2 className="size-4 animate-spin" /> {t("voice.previewLoading")}</>
+                      ) : previewPlaying ? (
+                        <><Square className="size-4" /> {t("voice.previewPlaying")}</>
+                      ) : (
+                        <><Play className="size-4" /> {t("voice.previewGenerate")}</>
+                      )}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {settings.tts_voice || "Aoede"} · {models.find(m => m.id === (settings.tts_model || models[0]?.id))?.name || ""}
+                    </span>
+                  </div>
                 </div>
               )}
             </CardContent>

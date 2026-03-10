@@ -70,6 +70,7 @@ export default function AgentsPage() {
     { key: "github_request_push_approval", label: "github_request_push_approval", desc: "coding.toolGitHubRequestPushApproval", defaultOn: false },
     { key: "github_push_approval_status", label: "github_push_approval_status", desc: "coding.toolGitHubPushApprovalStatus", defaultOn: false },
     { key: "github_commit_push", label: "github_commit_push", desc: "coding.toolGitHubCommitPush", defaultOn: false },
+    { key: "tts_speak", label: "tts_speak", desc: "coding.toolTtsSpeak", defaultOn: false },
   ] as const;
 
   const [form, setForm] = useState({

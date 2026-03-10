@@ -245,21 +245,18 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           await bot.api.sendMessage(telegramChatId, "⛔ Only the agent owner can toggle TTS.");
           return { success: true, reply: "tts_denied", traceId };
         }
-        const { data: currentSetting } = await supabase
-          .from("voice_settings")
-          .select("value")
-          .eq("key", "tts_enabled")
-          .single();
-        const isEnabled = currentSetting?.value === "true";
-        const newValue = isEnabled ? "false" : "true";
+        const currentConfig = (typedAgent.tools_config ?? {}) as Record<string, boolean>;
+        const isEnabled = !!currentConfig.tts_speak;
+        const newConfig = { ...currentConfig, tts_speak: !isEnabled };
         await supabase
-          .from("voice_settings")
-          .upsert({ key: "tts_enabled", value: newValue }, { onConflict: "key" });
-        const statusEmoji = newValue === "true" ? "🔊" : "🔇";
-        const statusText = newValue === "true" ? "enabled" : "disabled";
+          .from("agents")
+          .update({ tools_config: newConfig })
+          .eq("id", typedAgent.id);
+        const statusEmoji = !isEnabled ? "🔊" : "🔇";
+        const statusText = !isEnabled ? "enabled" : "disabled";
         await bot.api.sendMessage(
           telegramChatId,
-          `${statusEmoji} TTS has been *${statusText}* for all channels of this agent.`,
+          `${statusEmoji} TTS has been *${statusText}* for agent *${typedAgent.name}*.`,
           { parse_mode: "Markdown" }
         );
         return { success: true, reply: `tts_${statusText}`, traceId };
