@@ -58,45 +58,23 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       const supabase = createClient();
-      const [agents, sessions, events, recent] = await Promise.all([
-        supabase.from("agents").select("*", { count: "exact", head: true }),
-        supabase.from("sessions").select("*", { count: "exact", head: true }),
-        supabase.from("events").select("*", { count: "exact", head: true }),
-        supabase
-          .from("events")
-          .select("id, source, status, trace_id, created_at")
-          .order("created_at", { ascending: false })
-          .limit(10),
-      ]);
+      const { data, error } = await supabase.rpc("dashboard_stats");
+      if (error) { console.error("dashboard_stats error:", error.message); setLoading(false); return; }
+      const d = data as Record<string, unknown>;
       setStats({
-        agents: agents.count ?? 0,
-        sessions: sessions.count ?? 0,
-        events: events.count ?? 0,
+        agents: Number(d.agents) || 0,
+        sessions: Number(d.sessions) || 0,
+        events: Number(d.events) || 0,
       });
-      setRecentEvents((recent.data as RecentEvent[]) ?? []);
-
-      try {
-        const [usageRes, hourlyRes] = await Promise.all([
-          fetch("/api/admin/usage?range=today"),
-          fetch("/api/admin/usage/hourly?hours=24"),
-        ]);
-        if (usageRes.ok) {
-          const usageData = await usageRes.json();
-          setUsage({
-            total_calls: usageData.total_calls ?? 0,
-            total_input_tokens: usageData.total_input_tokens ?? 0,
-            total_output_tokens: usageData.total_output_tokens ?? 0,
-          });
-        }
-        if (hourlyRes.ok) {
-          const hd = await hourlyRes.json();
-          setHourlyData(hd.rows ?? []);
-        }
-      } catch {}
-
+      setUsage({
+        total_calls: Number(d.today_calls) || 0,
+        total_input_tokens: Number(d.today_input_tokens) || 0,
+        total_output_tokens: Number(d.today_output_tokens) || 0,
+      });
+      setRecentEvents((d.recent_events as RecentEvent[]) ?? []);
+      setHourlyData((d.hourly as HourlyRow[]) ?? []);
       setLoading(false);
     };
-
     fetchData().catch(console.error);
   }, []);
 

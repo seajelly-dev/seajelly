@@ -930,6 +930,74 @@ AS $fn$
   GROUP BY k.id;
 $fn$;
 
+CREATE OR REPLACE FUNCTION public.dashboard_stats()
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_agents   bigint;
+  v_sessions bigint;
+  v_events   bigint;
+  v_today_start timestamptz := date_trunc('day', now());
+  v_today_calls bigint;
+  v_today_input bigint;
+  v_today_output bigint;
+  v_recent  jsonb;
+  v_hourly  jsonb;
+BEGIN
+  SELECT count(*) INTO v_agents   FROM public.agents;
+  SELECT count(*) INTO v_sessions FROM public.sessions;
+  SELECT count(*) INTO v_events   FROM public.events;
+
+  SELECT
+    coalesce(count(*), 0),
+    coalesce(sum(input_tokens), 0),
+    coalesce(sum(output_tokens), 0)
+  INTO v_today_calls, v_today_input, v_today_output
+  FROM public.api_usage_logs
+  WHERE created_at >= v_today_start;
+
+  SELECT coalesce(jsonb_agg(row_to_json(r)), '[]'::jsonb)
+  INTO v_recent
+  FROM (
+    SELECT id, source, status, trace_id, created_at
+    FROM public.events
+    ORDER BY created_at DESC
+    LIMIT 10
+  ) r;
+
+  SELECT coalesce(jsonb_agg(row_to_json(r)), '[]'::jsonb)
+  INTO v_hourly
+  FROM (
+    SELECT
+      date_trunc('hour', created_at) AS hour,
+      model_id,
+      count(*)::bigint AS call_count,
+      round(avg(duration_ms)::numeric, 0) AS avg_duration_ms,
+      sum(input_tokens)::bigint AS total_input_tokens,
+      sum(output_tokens)::bigint AS total_output_tokens
+    FROM public.api_usage_logs
+    WHERE created_at >= now() - interval '24 hours'
+    GROUP BY date_trunc('hour', created_at), model_id
+    ORDER BY hour ASC, model_id ASC
+  ) r;
+
+  RETURN jsonb_build_object(
+    'agents', v_agents,
+    'sessions', v_sessions,
+    'events', v_events,
+    'today_calls', v_today_calls,
+    'today_input_tokens', v_today_input,
+    'today_output_tokens', v_today_output,
+    'recent_events', v_recent,
+    'hourly', v_hourly
+  );
+END;
+$fn$;
+
 INSERT INTO public.providers (id, name, type, base_url, is_builtin, enabled) VALUES
   ('00000000-0000-0000-0000-000000000001', 'Anthropic', 'anthropic', NULL, true, true),
   ('00000000-0000-0000-0000-000000000002', 'OpenAI', 'openai', NULL, true, true),
