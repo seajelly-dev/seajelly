@@ -44,6 +44,24 @@ async function upsertCredential(db: any, agentId: string, platform: string, cred
   if (error) console.warn("upsertCredential error:", error.message);
 }
 
+const PLATFORM_CRED_KEYS: Record<string, string[]> = {
+  feishu: ["app_id", "app_secret", "encrypt_key"],
+  wecom: ["corp_id", "corp_secret", "agent_id", "token", "encoding_aes_key"],
+  slack: ["bot_token", "signing_secret"],
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function savePlatformCredentials(db: any, agentId: string, creds: Record<string, Record<string, string>>) {
+  for (const [platform, fields] of Object.entries(creds)) {
+    const allowed = PLATFORM_CRED_KEYS[platform];
+    if (!allowed) continue;
+    for (const [key, value] of Object.entries(fields)) {
+      if (!allowed.includes(key) || !value) continue;
+      await upsertCredential(db, agentId, platform, key, value);
+    }
+  }
+}
+
 export async function GET() {
   try { await requireAdmin(); } catch (e) {
     return authErrorResponse(e);
@@ -77,10 +95,17 @@ export async function GET() {
   const agents = (data ?? []).map((a) => {
     const agentCreds = credMap.get(a.id);
     const hasTelegramCred = agentCreds?.has("telegram:bot_token") ?? false;
+    const platforms: Record<string, boolean> = {
+      telegram: !!a.telegram_bot_token || hasTelegramCred,
+      feishu: (agentCreds?.has("feishu:app_id") && agentCreds?.has("feishu:app_secret")) ?? false,
+      wecom: (agentCreds?.has("wecom:corp_id") && agentCreds?.has("wecom:corp_secret")) ?? false,
+      slack: (agentCreds?.has("slack:bot_token") && agentCreds?.has("slack:signing_secret")) ?? false,
+    };
     return {
       ...a,
       telegram_bot_token: a.telegram_bot_token ? "••••••" : null,
-      has_bot_token: !!a.telegram_bot_token || hasTelegramCred,
+      has_bot_token: platforms.telegram,
+      platforms,
     };
   });
 
@@ -94,7 +119,7 @@ export async function POST(request: Request) {
 
   const db = await createAdminClient();
   const body = await request.json();
-  const { name, system_prompt, model, provider_id, tools_config, access_mode, ai_soul, telegram_bot_token } = body;
+  const { name, system_prompt, model, provider_id, tools_config, access_mode, ai_soul, telegram_bot_token, platform_credentials } = body;
 
   if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -129,6 +154,10 @@ export async function POST(request: Request) {
     autoSetWebhook(data.id);
   }
 
+  if (data?.id && platform_credentials) {
+    await savePlatformCredentials(db, data.id, platform_credentials);
+  }
+
   return NextResponse.json({
     agent: { ...data, telegram_bot_token: data.telegram_bot_token ? "••••••" : null },
   });
@@ -141,7 +170,7 @@ export async function PUT(request: Request) {
 
   const db = await createAdminClient();
   const body = await request.json();
-  const { id, telegram_bot_token, ...rest } = body;
+  const { id, telegram_bot_token, platform_credentials, ...rest } = body;
 
   if (!id) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -170,6 +199,10 @@ export async function PUT(request: Request) {
     autoSetWebhook(data.id);
   } else if (data?.id && data?.telegram_bot_token) {
     syncBotCommands(data.id);
+  }
+
+  if (data?.id && platform_credentials) {
+    await savePlatformCredentials(db, data.id, platform_credentials);
   }
 
   return NextResponse.json({

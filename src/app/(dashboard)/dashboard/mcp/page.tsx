@@ -34,7 +34,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { toast } from "sonner";
@@ -326,7 +325,7 @@ export default function McpPage() {
                     }
                   >
                     <SelectTrigger id="mcp-transport-select-trigger">
-                      <SelectValue />
+                      {form.transport === "sse" ? "SSE" : t("mcp.streamableHttp")}
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="http">

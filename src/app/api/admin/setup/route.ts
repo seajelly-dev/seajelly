@@ -1020,7 +1020,15 @@ INSERT INTO public.providers (id, name, type, base_url, is_builtin, enabled) VAL
   ('00000000-0000-0000-0000-000000000001', 'Anthropic', 'anthropic', NULL, true, true),
   ('00000000-0000-0000-0000-000000000002', 'OpenAI', 'openai', NULL, true, true),
   ('00000000-0000-0000-0000-000000000003', 'Google', 'google', NULL, true, true),
-  ('00000000-0000-0000-0000-000000000004', 'DeepSeek', 'deepseek', 'https://api.deepseek.com', true, true)
+  ('00000000-0000-0000-0000-000000000004', 'DeepSeek', 'deepseek', 'https://api.deepseek.com', true, true),
+  ('00000000-0000-0000-0000-000000000005', 'Groq', 'openai_compatible', 'https://api.groq.com/openai/v1', true, true),
+  ('00000000-0000-0000-0000-000000000006', 'OpenRouter', 'openai_compatible', 'https://openrouter.ai/api/v1', true, true),
+  ('00000000-0000-0000-0000-00000000000a', 'Zhipu AI', 'openai_compatible', 'https://open.bigmodel.cn/api/paas/v4', true, true),
+  ('00000000-0000-0000-0000-00000000000b', 'Moonshot', 'openai_compatible', 'https://api.moonshot.cn/v1', true, true),
+  ('00000000-0000-0000-0000-00000000000c', 'MiniMax', 'openai_compatible', 'https://api.minimax.chat/v1', true, true),
+  ('00000000-0000-0000-0000-00000000000d', 'DashScope', 'openai_compatible', 'https://dashscope.aliyuncs.com/compatible-mode/v1', true, true),
+  ('00000000-0000-0000-0000-00000000000e', 'SiliconFlow', 'openai_compatible', 'https://api.siliconflow.cn/v1', true, true),
+  ('00000000-0000-0000-0000-00000000000f', 'VolcEngine', 'openai_compatible', 'https://ark.cn-beijing.volces.com/api/v3', true, true)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.models (model_id, label, provider_id, is_builtin) VALUES
@@ -1040,7 +1048,39 @@ INSERT INTO public.models (model_id, label, provider_id, is_builtin) VALUES
   ('gemini-2.5-flash', 'Gemini 2.5 Flash', '00000000-0000-0000-0000-000000000003', true),
   ('gemini-2.5-flash-lite', 'Gemini 2.5 Flash Lite', '00000000-0000-0000-0000-000000000003', true),
   ('deepseek-chat', 'DeepSeek Chat', '00000000-0000-0000-0000-000000000004', true),
-  ('deepseek-reasoner', 'DeepSeek Reasoner', '00000000-0000-0000-0000-000000000004', true)
+  ('deepseek-reasoner', 'DeepSeek Reasoner', '00000000-0000-0000-0000-000000000004', true),
+  -- Groq
+  ('llama-3.3-70b-versatile', 'Llama 3.3 70B', '00000000-0000-0000-0000-000000000005', true),
+  ('llama-3.1-8b-instant', 'Llama 3.1 8B Instant', '00000000-0000-0000-0000-000000000005', true),
+  ('gemma2-9b-it', 'Gemma 2 9B', '00000000-0000-0000-0000-000000000005', true),
+  ('mixtral-8x7b-32768', 'Mixtral 8x7B', '00000000-0000-0000-0000-000000000005', true),
+  -- OpenRouter
+  ('anthropic/claude-sonnet-4-6', 'Claude Sonnet 4.6 (via OR)', '00000000-0000-0000-0000-000000000006', true),
+  ('google/gemini-2.5-flash', 'Gemini 2.5 Flash (via OR)', '00000000-0000-0000-0000-000000000006', true),
+  ('meta-llama/llama-3.3-70b-instruct', 'Llama 3.3 70B (via OR)', '00000000-0000-0000-0000-000000000006', true),
+  -- Zhipu AI
+  ('glm-4-plus', 'GLM-4 Plus', '00000000-0000-0000-0000-00000000000a', true),
+  ('glm-4-flash', 'GLM-4 Flash', '00000000-0000-0000-0000-00000000000a', true),
+  ('glm-4-long', 'GLM-4 Long', '00000000-0000-0000-0000-00000000000a', true),
+  -- Moonshot
+  ('moonshot-v1-auto', 'Moonshot v1 Auto', '00000000-0000-0000-0000-00000000000b', true),
+  ('moonshot-v1-8k', 'Moonshot v1 8K', '00000000-0000-0000-0000-00000000000b', true),
+  ('moonshot-v1-128k', 'Moonshot v1 128K', '00000000-0000-0000-0000-00000000000b', true),
+  -- MiniMax
+  ('MiniMax-Text-01', 'MiniMax Text 01', '00000000-0000-0000-0000-00000000000c', true),
+  ('abab6.5s-chat', 'ABAB 6.5s Chat', '00000000-0000-0000-0000-00000000000c', true),
+  -- DashScope (Qwen)
+  ('qwen-max', 'Qwen Max', '00000000-0000-0000-0000-00000000000d', true),
+  ('qwen-plus', 'Qwen Plus', '00000000-0000-0000-0000-00000000000d', true),
+  ('qwen-turbo', 'Qwen Turbo', '00000000-0000-0000-0000-00000000000d', true),
+  -- SiliconFlow
+  ('deepseek-ai/DeepSeek-V3', 'DeepSeek V3 (SF)', '00000000-0000-0000-0000-00000000000e', true),
+  ('Qwen/Qwen2.5-72B-Instruct', 'Qwen 2.5 72B (SF)', '00000000-0000-0000-0000-00000000000e', true),
+  ('Pro/deepseek-ai/DeepSeek-R1', 'DeepSeek R1 (SF)', '00000000-0000-0000-0000-00000000000e', true),
+  -- VolcEngine (Doubao)
+  ('doubao-1.5-pro-32k', 'Doubao 1.5 Pro 32K', '00000000-0000-0000-0000-00000000000f', true),
+  ('doubao-1.5-lite-32k', 'Doubao 1.5 Lite 32K', '00000000-0000-0000-0000-00000000000f', true),
+  ('doubao-1.5-vision-pro-32k', 'Doubao 1.5 Vision Pro', '00000000-0000-0000-0000-00000000000f', true)
 ON CONFLICT (model_id, provider_id) DO NOTHING;
 
 -- Ensure Supabase API roles can reach schema objects (RLS still applies row-level checks)

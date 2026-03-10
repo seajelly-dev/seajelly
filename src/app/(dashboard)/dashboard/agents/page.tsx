@@ -17,7 +17,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   Dialog,
@@ -38,10 +37,14 @@ import {
   Lock,
   Globe,
   Bot,
-  Webhook,
   Loader2,
   CheckCircle2,
   XCircle,
+  Settings2,
+  Link2,
+  Copy,
+  Zap,
+  ArrowLeft,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -49,29 +52,86 @@ import { useT } from "@/lib/i18n";
 import type { Agent, McpServer, Skill, Provider } from "@/types/database";
 import type { ModelDef } from "@/lib/models";
 
+const PRIVILEGED_TOOLS = [
+  { key: "run_sql", label: "run_sql", desc: "agents.toolRunSql", defaultOn: false },
+  { key: "schedule_task", label: "schedule_task", desc: "agents.toolScheduleTask", defaultOn: true },
+  { key: "cancel_scheduled_job", label: "cancel_scheduled_job", desc: "agents.toolCancelJob", defaultOn: true },
+  { key: "list_scheduled_jobs", label: "list_scheduled_jobs", desc: "agents.toolListJobs", defaultOn: true },
+  { key: "run_python_code", label: "run_python_code", desc: "coding.toolRunPython", defaultOn: false },
+  { key: "run_javascript_code", label: "run_javascript_code", desc: "coding.toolRunJS", defaultOn: false },
+  { key: "run_html_preview", label: "run_html_preview", desc: "coding.toolRunHTML", defaultOn: false },
+  { key: "github_read_file", label: "github_read_file", desc: "coding.toolGitHubReadFile", defaultOn: false },
+  { key: "github_list_files", label: "github_list_files", desc: "coding.toolGitHubListFiles", defaultOn: false },
+  { key: "github_build_verify", label: "github_build_verify", desc: "coding.toolGitHubBuildVerify", defaultOn: false },
+  { key: "github_build_status", label: "github_build_status", desc: "coding.toolGitHubBuildStatus", defaultOn: false },
+  { key: "github_request_push_approval", label: "github_request_push_approval", desc: "coding.toolGitHubRequestPushApproval", defaultOn: false },
+  { key: "github_push_approval_status", label: "github_push_approval_status", desc: "coding.toolGitHubPushApprovalStatus", defaultOn: false },
+  { key: "github_commit_push", label: "github_commit_push", desc: "coding.toolGitHubCommitPush", defaultOn: false },
+  { key: "tts_speak", label: "tts_speak", desc: "coding.toolTtsSpeak", defaultOn: false },
+] as const;
+
+type PlatformKey = "telegram" | "feishu" | "wecom" | "slack";
+
+interface PlatformDef {
+  key: PlatformKey;
+  label: string;
+  fields: { name: string; label: string; secret: boolean }[];
+}
+
+const PLATFORMS: PlatformDef[] = [
+  {
+    key: "telegram",
+    label: "Telegram",
+    fields: [{ name: "bot_token", label: "Bot Token", secret: true }],
+  },
+  {
+    key: "feishu",
+    label: "Feishu / 飞书",
+    fields: [
+      { name: "app_id", label: "App ID", secret: true },
+      { name: "app_secret", label: "App Secret", secret: true },
+      { name: "encrypt_key", label: "Encrypt Key (optional)", secret: true },
+    ],
+  },
+  {
+    key: "wecom",
+    label: "WeCom / 企业微信",
+    fields: [
+      { name: "corp_id", label: "Corp ID", secret: true },
+      { name: "corp_secret", label: "Corp Secret", secret: true },
+      { name: "agent_id", label: "Agent ID", secret: false },
+      { name: "token", label: "Token", secret: true },
+      { name: "encoding_aes_key", label: "EncodingAESKey", secret: true },
+    ],
+  },
+  {
+    key: "slack",
+    label: "Slack",
+    fields: [
+      { name: "bot_token", label: "Bot Token", secret: true },
+      { name: "signing_secret", label: "Signing Secret", secret: true },
+    ],
+  },
+];
+
+function useOrigin() {
+  const [origin, setOrigin] = useState("");
+  useEffect(() => { setOrigin(origin); }, []);
+  return origin;
+}
+
+type AgentExt = Agent & {
+  has_bot_token?: boolean;
+  platforms?: Record<string, boolean>;
+};
+
 export default function AgentsPage() {
   const t = useT();
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const origin = useOrigin();
+  const [agents, setAgents] = useState<AgentExt[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
-  const PRIVILEGED_TOOLS = [
-    { key: "run_sql", label: "run_sql", desc: "agents.toolRunSql", defaultOn: false },
-    { key: "schedule_task", label: "schedule_task", desc: "agents.toolScheduleTask", defaultOn: true },
-    { key: "cancel_scheduled_job", label: "cancel_scheduled_job", desc: "agents.toolCancelJob", defaultOn: true },
-    { key: "list_scheduled_jobs", label: "list_scheduled_jobs", desc: "agents.toolListJobs", defaultOn: true },
-    { key: "run_python_code", label: "run_python_code", desc: "coding.toolRunPython", defaultOn: false },
-    { key: "run_javascript_code", label: "run_javascript_code", desc: "coding.toolRunJS", defaultOn: false },
-    { key: "run_html_preview", label: "run_html_preview", desc: "coding.toolRunHTML", defaultOn: false },
-    { key: "github_read_file", label: "github_read_file", desc: "coding.toolGitHubReadFile", defaultOn: false },
-    { key: "github_list_files", label: "github_list_files", desc: "coding.toolGitHubListFiles", defaultOn: false },
-    { key: "github_build_verify", label: "github_build_verify", desc: "coding.toolGitHubBuildVerify", defaultOn: false },
-    { key: "github_build_status", label: "github_build_status", desc: "coding.toolGitHubBuildStatus", defaultOn: false },
-    { key: "github_request_push_approval", label: "github_request_push_approval", desc: "coding.toolGitHubRequestPushApproval", defaultOn: false },
-    { key: "github_push_approval_status", label: "github_push_approval_status", desc: "coding.toolGitHubPushApprovalStatus", defaultOn: false },
-    { key: "github_commit_push", label: "github_commit_push", desc: "coding.toolGitHubCommitPush", defaultOn: false },
-    { key: "tts_speak", label: "tts_speak", desc: "coding.toolTtsSpeak", defaultOn: false },
-  ] as const;
 
   const [form, setForm] = useState({
     name: "",
@@ -82,6 +142,7 @@ export default function AgentsPage() {
     ai_soul: "",
     telegram_bot_token: "",
     tools_config: {} as Record<string, boolean>,
+    platform_credentials: {} as Record<string, Record<string, string>>,
   });
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
@@ -91,23 +152,20 @@ export default function AgentsPage() {
   const [boundMcpNames, setBoundMcpNames] = useState<string[]>([]);
   const [boundSkillNames, setBoundSkillNames] = useState<string[]>([]);
 
-  const [webhookStatus, setWebhookStatus] = useState<
-    Record<string, { url: string; pending: number } | null>
-  >({});
-  const [settingWebhook, setSettingWebhook] = useState<string | null>(null);
+  // Sub-dialogs
+  const [channelsOpen, setChannelsOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [channelExpanded, setChannelExpanded] = useState<PlatformKey | null>(null);
+  const [testingPlatform, setTestingPlatform] = useState<string | null>(null);
 
   const fetchAgents = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/agents");
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to load agents");
-      }
+      if (!res.ok) throw new Error(data.error || "Failed to load agents");
       setAgents(data.agents ?? []);
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to load agents"
-      );
+      toast.error(err instanceof Error ? err.message : "Failed to load agents");
     } finally {
       setLoading(false);
     }
@@ -138,84 +196,24 @@ export default function AgentsPage() {
   const fetchBoundResources = useCallback(async (agentId: string) => {
     setBoundMcpNames([]);
     setBoundSkillNames([]);
-
     const [mcpRes, skillRes, mcpListRes, skillListRes] = await Promise.all([
       fetch(`/api/admin/agents/mcps?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
       fetch(`/api/admin/agents/skills?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/mcp").then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/skills").then((r) => r.json()).catch(() => ({})),
     ]);
-
     const mcpIds = new Set<string>(mcpRes.mcp_server_ids ?? []);
     const skillIds = new Set<string>(skillRes.skill_ids ?? []);
     const allMcps: McpServer[] = mcpListRes.servers ?? [];
     const allSkills: Skill[] = skillListRes.skills ?? [];
-
     setBoundMcpNames(allMcps.filter((m) => mcpIds.has(m.id)).map((m) => m.name));
     setBoundSkillNames(allSkills.filter((s) => skillIds.has(s.id)).map((s) => s.name));
   }, []);
-
-  const fetchWebhookInfo = useCallback(async (agentId: string) => {
-    try {
-      const res = await fetch("/api/admin/platform", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "telegram", action: "get-info", agent_id: agentId }),
-      });
-      const data = await res.json();
-      if (res.ok && data.webhook) {
-        setWebhookStatus((prev) => ({
-          ...prev,
-          [agentId]: {
-            url: data.webhook.url || "",
-            pending: data.webhook.pending_update_count ?? 0,
-          },
-        }));
-      } else {
-        setWebhookStatus((prev) => ({ ...prev, [agentId]: null }));
-      }
-    } catch {
-      setWebhookStatus((prev) => ({ ...prev, [agentId]: null }));
-    }
-  }, []);
-
-  const handleSetWebhook = async (agentId: string) => {
-    setSettingWebhook(agentId);
-    try {
-      const res = await fetch("/api/admin/platform", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform: "telegram",
-          action: "set-webhook",
-          agent_id: agentId,
-          webhook_url: `${window.location.origin}/api/webhook/telegram`,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      toast.success(t("agents.webhookSet"));
-      fetchWebhookInfo(agentId);
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t("agents.webhookSetFailed")
-      );
-    } finally {
-      setSettingWebhook(null);
-    }
-  };
 
   useEffect(() => {
     fetchAgents();
     fetchModels();
   }, [fetchAgents, fetchModels]);
-
-  useEffect(() => {
-    const agentsWithBot = agents.filter(
-      (a) => (a as Agent & { has_bot_token?: boolean }).has_bot_token
-    );
-    agentsWithBot.forEach((a) => fetchWebhookInfo(a.id));
-  }, [agents, fetchWebhookInfo]);
 
   const filteredModels = form.provider_id
     ? allModels.filter((m) => m.provider_id === form.provider_id)
@@ -228,26 +226,48 @@ export default function AgentsPage() {
     ?? allModels.find((m) => m.model_id === form.model)?.label
     ?? form.model;
 
-  const openCreate = () => {
-    setEditingAgent(null);
+  const enabledToolCount = Object.values(form.tools_config).filter(Boolean).length;
+  const configuredPlatformCount = (() => {
+    let count = 0;
+    if (form.telegram_bot_token || (editingAgent as AgentExt)?.has_bot_token) count++;
+    const pc = form.platform_credentials;
+    if (pc.feishu?.app_id && pc.feishu?.app_secret) count++;
+    if (pc.wecom?.corp_id && pc.wecom?.corp_secret) count++;
+    if (pc.slack?.bot_token && pc.slack?.signing_secret) count++;
+    if (editingAgent) {
+      const p = (editingAgent as AgentExt).platforms || {};
+      if (p.feishu && !pc.feishu?.app_id) count++;
+      if (p.wecom && !pc.wecom?.corp_id) count++;
+      if (p.slack && !pc.slack?.bot_token) count++;
+    }
+    return count;
+  })();
+
+  function initEmptyForm() {
     const defaultToolsConfig: Record<string, boolean> = {};
-    for (const t of PRIVILEGED_TOOLS) {
-      defaultToolsConfig[t.key] = t.defaultOn;
+    for (const tool of PRIVILEGED_TOOLS) {
+      defaultToolsConfig[tool.key] = tool.defaultOn;
     }
     const firstProvider = allProviders[0];
     const firstModel = firstProvider
       ? allModels.find((m) => m.provider_id === firstProvider.id)
       : allModels[0];
-    setForm({
+    return {
       name: "",
       system_prompt: "",
       provider_id: firstProvider?.id ?? "",
       model: firstModel?.model_id ?? "",
-      access_mode: "open",
+      access_mode: "open" as const,
       ai_soul: "",
       telegram_bot_token: "",
       tools_config: defaultToolsConfig,
-    });
+      platform_credentials: {},
+    };
+  }
+
+  const openCreate = () => {
+    setEditingAgent(null);
+    setForm(initEmptyForm());
     setBoundMcpNames([]);
     setBoundSkillNames([]);
     setDialogOpen(true);
@@ -265,6 +285,7 @@ export default function AgentsPage() {
       ai_soul: agent.ai_soul || "",
       telegram_bot_token: "",
       tools_config: tc,
+      platform_credentials: {},
     });
     fetchBoundResources(agent.id);
     setDialogOpen(true);
@@ -278,8 +299,15 @@ export default function AgentsPage() {
     setSaving(true);
     try {
       const method = editingAgent ? "PUT" : "POST";
-      const { provider_id, ...restForm } = form;
-      const formData = { ...restForm, provider_id: provider_id || null };
+      const { provider_id, platform_credentials, ...restForm } = form;
+      const hasCreds = Object.values(platform_credentials).some(
+        (fields) => Object.values(fields).some((v) => v.trim()),
+      );
+      const formData = {
+        ...restForm,
+        provider_id: provider_id || null,
+        ...(hasCreds ? { platform_credentials } : {}),
+      };
       const payload = editingAgent ? { id: editingAgent.id, ...formData } : formData;
       const res = await fetch("/api/admin/agents", {
         method,
@@ -299,7 +327,7 @@ export default function AgentsPage() {
               platform: "telegram",
               action: "set-webhook",
               agent_id: savedAgentId,
-              webhook_url: `${window.location.origin}/api/webhook/telegram`,
+              webhook_url: `${origin}/api/webhook/telegram`,
             }),
           });
         } catch {
@@ -307,9 +335,7 @@ export default function AgentsPage() {
         }
       }
 
-      toast.success(
-        editingAgent ? t("agents.agentUpdated") : t("agents.agentCreated")
-      );
+      toast.success(editingAgent ? t("agents.agentUpdated") : t("agents.agentCreated"));
       setDialogOpen(false);
       fetchAgents();
     } catch (err) {
@@ -322,9 +348,7 @@ export default function AgentsPage() {
   const confirmDeleteAgent = async () => {
     if (!deleteTarget) return;
     try {
-      const res = await fetch(`/api/admin/agents?id=${deleteTarget.id}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(`/api/admin/agents?id=${deleteTarget.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
       toast.success(t("agents.agentDeleted"));
       setDeleteTarget(null);
@@ -334,70 +358,349 @@ export default function AgentsPage() {
     }
   };
 
+  const handleTestConnection = async (platform: PlatformKey) => {
+    if (!editingAgent) return;
+    setTestingPlatform(platform);
+    try {
+      const res = await fetch("/api/admin/platform", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform, action: "test-connection", agent_id: editingAgent.id }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(t("agents.testSuccess"));
+      } else {
+        toast.error(data.error || t("agents.testFailed"));
+      }
+    } catch {
+      toast.error(t("agents.testFailed"));
+    } finally {
+      setTestingPlatform(null);
+    }
+  };
+
+  const handleSetWebhook = async (agentId: string) => {
+    try {
+      const res = await fetch("/api/admin/platform", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "telegram",
+          action: "set-webhook",
+          agent_id: agentId,
+          webhook_url: `${origin}/api/webhook/telegram`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success(t("agents.webhookSet"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("agents.webhookSetFailed"));
+    }
+  };
+
+  const copyWebhookUrl = (platform: PlatformKey, agentId: string) => {
+    const url = `${origin}/api/webhook/${platform}/${agentId}`;
+    navigator.clipboard.writeText(url);
+    toast.success(t("agents.copyWebhookUrl"));
+  };
+
+  // ── Channels sub-dialog content ──
+  function renderChannelsDialog() {
+    if (channelExpanded) {
+      const plat = PLATFORMS.find((p) => p.key === channelExpanded)!;
+      const isConnected = channelExpanded === "telegram"
+        ? !!form.telegram_bot_token || !!(editingAgent as AgentExt)?.has_bot_token
+        : !!(editingAgent as AgentExt)?.platforms?.[channelExpanded];
+
+      return (
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Button variant="ghost" size="icon-sm" onClick={() => setChannelExpanded(null)}>
+                <ArrowLeft className="size-4" />
+              </Button>
+              {plat.label}
+            </DialogTitle>
+            <DialogDescription>
+              {t("agents.channelsDesc")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-2">
+            {channelExpanded === "telegram" ? (
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label>Bot Token</Label>
+                  <Input
+                    type="password"
+                    value={form.telegram_bot_token}
+                    onChange={(e) => setForm((f) => ({ ...f, telegram_bot_token: e.target.value }))}
+                    placeholder={
+                      (editingAgent as AgentExt)?.has_bot_token
+                        ? t("agents.credentialKeepHint")
+                        : "Paste token from @BotFather"
+                    }
+                  />
+                </div>
+                {editingAgent && (
+                  <div className="flex flex-col gap-2 rounded-md border p-3">
+                    <p className="text-xs font-medium text-muted-foreground">{t("agents.webhookUrlLabel")}</p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs">
+                        {`${origin}/api/webhook/telegram/${editingAgent.id}`}
+                      </code>
+                      <Button variant="ghost" size="icon-sm" onClick={() => copyWebhookUrl("telegram", editingAgent.id)}>
+                        <Copy className="size-3.5" />
+                      </Button>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleSetWebhook(editingAgent.id)}
+                        disabled={!isConnected}
+                      >
+                        <Zap className="mr-1.5 size-3.5" />
+                        {t("agents.setWebhook")}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleTestConnection("telegram")}
+                        disabled={testingPlatform === "telegram" || !isConnected}
+                      >
+                        {testingPlatform === "telegram"
+                          ? <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                          : <CheckCircle2 className="mr-1.5 size-3.5" />}
+                        {testingPlatform === "telegram" ? t("agents.testing") : t("agents.testConnection")}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {plat.fields.map((field) => (
+                  <div key={field.name} className="flex flex-col gap-1.5">
+                    <Label>{field.label}</Label>
+                    <Input
+                      type={field.secret ? "password" : "text"}
+                      value={form.platform_credentials[channelExpanded]?.[field.name] || ""}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          platform_credentials: {
+                            ...f.platform_credentials,
+                            [channelExpanded]: {
+                              ...f.platform_credentials[channelExpanded],
+                              [field.name]: e.target.value,
+                            },
+                          },
+                        }))
+                      }
+                      placeholder={
+                        isConnected ? t("agents.credentialKeepHint") : field.label
+                      }
+                    />
+                  </div>
+                ))}
+                {editingAgent && (
+                  <div className="flex flex-col gap-2 rounded-md border p-3">
+                    <p className="text-xs font-medium text-muted-foreground">{t("agents.webhookUrlLabel")}</p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs">
+                        {`${origin}/api/webhook/${channelExpanded}/${editingAgent.id}`}
+                      </code>
+                      <Button variant="ghost" size="icon-sm" onClick={() => copyWebhookUrl(channelExpanded, editingAgent.id)}>
+                        <Copy className="size-3.5" />
+                      </Button>
+                    </div>
+                    {isConnected && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-fit"
+                        onClick={() => handleTestConnection(channelExpanded)}
+                        disabled={testingPlatform === channelExpanded}
+                      >
+                        {testingPlatform === channelExpanded
+                          ? <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                          : <CheckCircle2 className="mr-1.5 size-3.5" />}
+                        {testingPlatform === channelExpanded ? t("agents.testing") : t("agents.testConnection")}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setChannelExpanded(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={() => setChannelExpanded(null)}>
+              OK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      );
+    }
+
+    return (
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{t("agents.channelsTitle")}</DialogTitle>
+          <DialogDescription>{t("agents.channelsDesc")}</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2 py-2">
+          {PLATFORMS.map((plat) => {
+            const isConnected = plat.key === "telegram"
+              ? !!form.telegram_bot_token || !!(editingAgent as AgentExt)?.has_bot_token
+              : !!(editingAgent as AgentExt)?.platforms?.[plat.key];
+            const hasNewInput = plat.key === "telegram"
+              ? !!form.telegram_bot_token
+              : Object.values(form.platform_credentials[plat.key] || {}).some((v) => v.trim());
+
+            return (
+              <button
+                key={plat.key}
+                onClick={() => setChannelExpanded(plat.key)}
+                className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/50"
+              >
+                <div className="flex size-8 items-center justify-center rounded-md bg-muted">
+                  <Link2 className="size-4 text-muted-foreground" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{plat.label}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {editingAgent
+                      ? `${origin}/api/webhook/${plat.key}/${editingAgent.id}`
+                      : `${origin}/api/webhook/${plat.key}/...`}
+                  </p>
+                </div>
+                <div className="shrink-0">
+                  {isConnected || hasNewInput ? (
+                    <Badge variant="secondary" className="gap-1 text-xs">
+                      <CheckCircle2 className="size-3 text-green-600 dark:text-green-400" />
+                      {hasNewInput ? "New" : t("agents.platformConnected")}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="gap-1 text-xs">
+                      <XCircle className="size-3" />
+                      {t("agents.platformNotConnected")}
+                    </Badge>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <DialogFooter>
+          <Button onClick={() => setChannelsOpen(false)}>OK</Button>
+        </DialogFooter>
+      </DialogContent>
+    );
+  }
+
+  // ── Tools sub-dialog content ──
+  function renderToolsDialog() {
+    return (
+      <DialogContent className="sm:max-w-xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{t("agents.toolsTitle")}</DialogTitle>
+          <DialogDescription>{t("agents.toolsDesc")}</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2 py-2">
+          {PRIVILEGED_TOOLS.map(({ key, label, desc }) => (
+            <label
+              key={key}
+              className="flex items-start gap-3 rounded-md border px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
+            >
+              <Switch
+                className="mt-0.5 shrink-0"
+                checked={!!form.tools_config[key]}
+                onCheckedChange={(checked) =>
+                  setForm((f) => ({
+                    ...f,
+                    tools_config: { ...f.tools_config, [key]: checked },
+                  }))
+                }
+              />
+              <div className="min-w-0">
+                <code className="text-xs font-medium">{label}</code>
+                <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+                  {t(desc)}
+                </p>
+              </div>
+            </label>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button onClick={() => setToolsOpen(false)}>OK</Button>
+        </DialogFooter>
+      </DialogContent>
+    );
+  }
+
+  // ── Agent card: platform status row ──
+  function renderPlatformStatus(agent: AgentExt) {
+    const platforms = agent.platforms || {};
+    const connected = PLATFORMS.filter((p) => platforms[p.key]);
+    if (connected.length === 0) {
+      return (
+        <div className="flex items-center gap-2 rounded-md border border-dashed p-2">
+          <XCircle className="size-3.5 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">{t("agents.noPlatformsConnected")}</span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {connected.map((plat) => (
+          <div key={plat.key} className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5">
+            <CheckCircle2 className="size-3 text-green-600 dark:text-green-400" />
+            <span className="text-xs font-medium">{plat.label}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {t("agents.title")}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("agents.subtitle")}
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("agents.title")}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t("agents.subtitle")}</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger
-            id="agents-create-dialog-trigger"
-            render={<Button onClick={openCreate} />}
-          >
+          <DialogTrigger id="agents-create-dialog-trigger" render={<Button onClick={openCreate} />}>
             <Plus className="mr-1.5 size-4" />
             {t("agents.newAgent")}
           </DialogTrigger>
-          <DialogContent className="max-h-[85vh] sm:max-w-4xl overflow-y-auto">
+          <DialogContent className="max-h-[85vh] sm:max-w-2xl overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                {editingAgent
-                  ? t("agents.editAgent")
-                  : t("agents.createAgent")}
+                {editingAgent ? t("agents.editAgent") : t("agents.createAgent")}
               </DialogTitle>
               <DialogDescription>
                 {editingAgent ? t("agents.editDesc") : t("agents.createDesc")}
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-8 md:grid-cols-[1fr_auto_1fr]">
-              {/* ── Left column: Basic settings ── */}
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label>{t("agents.name")}</Label>
-                  <Input
-                    value={form.name}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, name: e.target.value }))
-                    }
-                    placeholder={t("agents.namePlaceholder")}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label>{t("agents.botToken")}</Label>
-                  <Input
-                    type="password"
-                    value={form.telegram_bot_token}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        telegram_bot_token: e.target.value,
-                      }))
-                    }
-                    placeholder={
-                      editingAgent?.telegram_bot_token
-                        ? t("agents.botTokenKeep")
-                        : t("agents.botTokenNew")
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("agents.botTokenHint")}
-                  </p>
-                </div>
+            <div className="flex flex-col gap-4">
+              {/* Name */}
+              <div className="flex flex-col gap-1.5">
+                <Label>{t("agents.name")}</Label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder={t("agents.namePlaceholder")}
+                />
+              </div>
+
+              {/* Provider & Model */}
+              <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
                   <Label>{t("agents.provider")}</Label>
                   <Select
@@ -405,11 +708,7 @@ export default function AgentsPage() {
                     onValueChange={(v) => {
                       const pid = v ?? "";
                       const provModels = allModels.filter((m) => m.provider_id === pid);
-                      setForm((f) => ({
-                        ...f,
-                        provider_id: pid,
-                        model: provModels[0]?.model_id ?? "",
-                      }));
+                      setForm((f) => ({ ...f, provider_id: pid, model: provModels[0]?.model_id ?? "" }));
                     }}
                   >
                     <SelectTrigger>
@@ -430,12 +729,10 @@ export default function AgentsPage() {
                   <Label>{t("agents.model")}</Label>
                   <Select
                     value={form.model}
-                    onValueChange={(v) =>
-                      setForm((f) => ({ ...f, model: v ?? f.model }))
-                    }
+                    onValueChange={(v) => setForm((f) => ({ ...f, model: v ?? f.model }))}
                     disabled={!form.provider_id}
                   >
-                    <SelectTrigger id="agents-model-select-trigger">
+                    <SelectTrigger>
                       {form.model ? (
                         <span>{selectedModelLabel}</span>
                       ) : (
@@ -446,178 +743,156 @@ export default function AgentsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       {filteredModels.map((m) => (
-                        <SelectItem key={m.model_id} value={m.model_id}>
-                          {m.label}
-                        </SelectItem>
+                        <SelectItem key={m.model_id} value={m.model_id}>{m.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label>{t("agents.accessMode")}</Label>
-                  <Select
-                    value={form.access_mode}
-                    onValueChange={(v) =>
-                      setForm((f) => ({
-                        ...f,
-                        access_mode: (v ?? f.access_mode) as
-                          | "open"
-                          | "approval"
-                          | "whitelist",
-                      }))
+              </div>
+
+              {/* Access mode */}
+              <div className="flex flex-col gap-1.5">
+                <Label>{t("agents.accessMode")}</Label>
+                <Select
+                  value={form.access_mode}
+                  onValueChange={(v) =>
+                    setForm((f) => ({ ...f, access_mode: (v ?? f.access_mode) as "open" | "approval" | "whitelist" }))
+                  }
+                >
+                  <SelectTrigger>
+                    {form.access_mode === "whitelist" ? t("agents.whitelist") : form.access_mode === "approval" ? t("agents.approval") : t("agents.open")}
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">
+                      <div>
+                        <div>{t("agents.open")}</div>
+                        <div className="text-xs text-muted-foreground">{t("agents.accessModeOpenDesc")}</div>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="approval">
+                      <div>
+                        <div>{t("agents.approval")}</div>
+                        <div className="text-xs text-muted-foreground">{t("agents.accessModeApprovalDesc")}</div>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="whitelist">
+                      <div>
+                        <div>{t("agents.whitelist")}</div>
+                        <div className="text-xs text-muted-foreground">{t("agents.accessModeWhitelistDesc")}</div>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* System prompt */}
+              <div className="flex flex-col gap-1.5">
+                <Label>{t("agents.systemPrompt")}</Label>
+                <Textarea
+                  rows={4}
+                  className="max-h-32 resize-y"
+                  value={form.system_prompt}
+                  onChange={(e) => setForm((f) => ({ ...f, system_prompt: e.target.value }))}
+                  placeholder={t("agents.systemPromptPlaceholder")}
+                />
+              </div>
+
+              {/* AI Soul */}
+              <div className="flex flex-col gap-1.5">
+                <Label>{t("agents.aiSoul")}</Label>
+                <Textarea
+                  rows={2}
+                  className="max-h-20 resize-y"
+                  value={form.ai_soul}
+                  onChange={(e) => setForm((f) => ({ ...f, ai_soul: e.target.value }))}
+                  placeholder={t("agents.aiSoulPlaceholder")}
+                />
+                <p className="text-xs text-muted-foreground">{t("agents.aiSoulHint")}</p>
+              </div>
+
+              {/* ── Channels & Tools: entry buttons ── */}
+              <div className="grid grid-cols-2 gap-3">
+                <Dialog open={channelsOpen} onOpenChange={(open) => { setChannelsOpen(open); if (!open) setChannelExpanded(null); }}>
+                  <DialogTrigger
+                    render={
+                      <button
+                        onClick={() => setChannelsOpen(true)}
+                        className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/50"
+                      />
                     }
                   >
-                    <SelectTrigger id="agents-access-mode-select-trigger">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="open">
-                        <div>
-                          <div>{t("agents.open")}</div>
-                          <div className="text-xs text-muted-foreground">{t("agents.accessModeOpenDesc")}</div>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="approval">
-                        <div>
-                          <div>{t("agents.approval")}</div>
-                          <div className="text-xs text-muted-foreground">{t("agents.accessModeApprovalDesc")}</div>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="whitelist">
-                        <div>
-                          <div>{t("agents.whitelist")}</div>
-                          <div className="text-xs text-muted-foreground">{t("agents.accessModeWhitelistDesc")}</div>
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label>{t("agents.systemPrompt")}</Label>
-                  <Textarea
-                    rows={5}
-                    className="max-h-40 resize-y"
-                    value={form.system_prompt}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        system_prompt: e.target.value,
-                      }))
-                    }
-                    placeholder={t("agents.systemPromptPlaceholder")}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label>{t("agents.aiSoul")}</Label>
-                  <Textarea
-                    rows={3}
-                    className="max-h-28 resize-y"
-                    value={form.ai_soul}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, ai_soul: e.target.value }))
-                    }
-                    placeholder={t("agents.aiSoulPlaceholder")}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("agents.aiSoulHint")}
-                  </p>
-                </div>
-              </div>
-
-              {/* ── Divider ── */}
-              <div className="hidden md:block w-px bg-border" />
-
-              {/* ── Right column: Tools & Bindings ── */}
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label>{t("agents.privilegedTools")}</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t("agents.privilegedToolsHint")}
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    {PRIVILEGED_TOOLS.map(({ key, label, desc }) => (
-                      <label
-                        key={key}
-                        className="flex items-start gap-3 rounded-md border px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
-                      >
-                        <Switch
-                          className="mt-0.5 shrink-0"
-                          checked={!!form.tools_config[key]}
-                          onCheckedChange={(checked) =>
-                            setForm((f) => ({
-                              ...f,
-                              tools_config: { ...f.tools_config, [key]: checked },
-                            }))
-                          }
-                        />
-                        <div className="min-w-0">
-                          <code className="text-xs font-medium">{label}</code>
-                          <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-                            {t(desc)}
-                          </p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {editingAgent && (
-                  <>
-                    <div className="flex flex-col gap-1.5">
-                      <Label>{t("agents.mcpServers")}</Label>
-                      {boundMcpNames.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {boundMcpNames.map((name) => (
-                            <Badge key={name} variant="secondary">
-                              {name}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          {t("agents.noBindings")}
-                        </p>
-                      )}
+                    <Link2 className="size-4 text-muted-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">{t("agents.configureChannels")}</p>
                       <p className="text-xs text-muted-foreground">
-                        {t("agents.bindFromResourcePage")}
+                        {configuredPlatformCount > 0
+                          ? `${configuredPlatformCount} ${t("agents.platformConnected").toLowerCase()}`
+                          : t("agents.noPlatformsConnected")}
                       </p>
                     </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label>{t("agents.skills")}</Label>
-                      {boundSkillNames.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {boundSkillNames.map((name) => (
-                            <Badge key={name} variant="secondary">
-                              {name}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          {t("agents.noBindings")}
-                        </p>
-                      )}
+                    <Badge variant={configuredPlatformCount > 0 ? "secondary" : "outline"} className="text-xs">
+                      {configuredPlatformCount}
+                    </Badge>
+                  </DialogTrigger>
+                  {renderChannelsDialog()}
+                </Dialog>
+
+                <Dialog open={toolsOpen} onOpenChange={setToolsOpen}>
+                  <DialogTrigger
+                    render={
+                      <button
+                        onClick={() => setToolsOpen(true)}
+                        className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/50"
+                      />
+                    }
+                  >
+                    <Settings2 className="size-4 text-muted-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">{t("agents.configureTools")}</p>
                       <p className="text-xs text-muted-foreground">
-                        {t("agents.bindFromResourcePage")}
+                        {enabledToolCount}/{PRIVILEGED_TOOLS.length}
                       </p>
                     </div>
-                  </>
-                )}
+                    <Badge variant={enabledToolCount > 0 ? "secondary" : "outline"} className="text-xs">
+                      {enabledToolCount}
+                    </Badge>
+                  </DialogTrigger>
+                  {renderToolsDialog()}
+                </Dialog>
               </div>
+
+              {/* Bindings (edit only) */}
+              {editingAgent && (boundMcpNames.length > 0 || boundSkillNames.length > 0) && (
+                <div className="flex flex-col gap-2 rounded-md border p-3">
+                  {boundMcpNames.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">{t("agents.mcpServers")}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {boundMcpNames.map((name) => (
+                          <Badge key={name} variant="secondary">{name}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {boundSkillNames.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">{t("agents.skills")}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {boundSkillNames.map((name) => (
+                          <Badge key={name} variant="secondary">{name}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">{t("agents.bindFromResourcePage")}</p>
+                </div>
+              )}
             </div>
             <DialogFooter>
-              <Button
-                variant="ghost"
-                onClick={() => setDialogOpen(false)}
-                className="w-full sm:w-auto"
-              >
+              <Button variant="ghost" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">
                 {t("common.cancel")}
               </Button>
-              <Button
-                onClick={handleSave}
-                disabled={saving}
-                className="w-full sm:w-auto"
-              >
+              <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
                 {saving ? t("common.saving") : t("common.save")}
               </Button>
             </DialogFooter>
@@ -625,6 +900,7 @@ export default function AgentsPage() {
         </Dialog>
       </div>
 
+      {/* ── Agents list ── */}
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -647,9 +923,7 @@ export default function AgentsPage() {
             </div>
             <div className="text-center">
               <p className="font-medium">{t("agents.noAgents")}</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("agents.noAgentsHint")}
-              </p>
+              <p className="mt-1 text-sm text-muted-foreground">{t("agents.noAgentsHint")}</p>
             </div>
             <Button onClick={openCreate}>
               <Plus className="mr-1.5 size-4" />
@@ -660,75 +934,37 @@ export default function AgentsPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {agents.map((agent) => (
-            <Card
-              key={agent.id}
-              className="transition-shadow hover:shadow-md"
-            >
+            <Card key={agent.id} className="transition-shadow hover:shadow-md">
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <div className="min-w-0 flex-1">
                     <CardTitle className="flex items-center gap-2">
                       {agent.name}
                       {agent.is_default && (
-                        <Badge variant="secondary" className="text-xs">
-                          {t("agents.default")}
-                        </Badge>
+                        <Badge variant="secondary" className="text-xs">{t("agents.default")}</Badge>
                       )}
                     </CardTitle>
                     <CardDescription className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <span className="font-mono text-xs">
-                        {agent.model}
-                      </span>
+                      <span className="font-mono text-xs">{agent.model}</span>
                       <Badge
                         variant={
-                          agent.access_mode === "whitelist"
-                            ? "destructive"
-                            : agent.access_mode === "approval"
-                              ? "secondary"
+                          agent.access_mode === "whitelist" ? "destructive"
+                            : agent.access_mode === "approval" ? "secondary"
                               : "outline"
                         }
                         className="gap-1 text-xs"
                       >
-                        {agent.access_mode === "whitelist" ? (
-                          <Lock className="size-3" />
-                        ) : (
-                          <Globe className="size-3" />
-                        )}
+                        {agent.access_mode === "whitelist" ? <Lock className="size-3" /> : <Globe className="size-3" />}
                         {agent.access_mode === "whitelist"
                           ? t("agents.whitelist")
                           : agent.access_mode === "approval"
                             ? t("agents.approval")
                             : t("agents.open")}
                       </Badge>
-                      <Badge
-                        variant={
-                          (
-                            agent as Agent & {
-                              has_bot_token?: boolean;
-                            }
-                          ).has_bot_token
-                            ? "secondary"
-                            : "outline"
-                        }
-                        className="gap-1 text-xs"
-                      >
-                        <Bot className="size-3" />
-                        {(
-                          agent as Agent & {
-                            has_bot_token?: boolean;
-                          }
-                        ).has_bot_token
-                          ? t("agents.botActive")
-                          : t("agents.noBot")}
-                      </Badge>
                     </CardDescription>
                   </div>
                   <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => openEdit(agent)}
-                    >
+                    <Button variant="ghost" size="icon-sm" onClick={() => openEdit(agent)}>
                       <Pencil className="size-3.5" />
                     </Button>
                     <Button
@@ -743,87 +979,10 @@ export default function AgentsPage() {
                 </div>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
-                <p className="line-clamp-3 text-sm text-muted-foreground">
+                <p className="line-clamp-2 text-sm text-muted-foreground">
                   {agent.system_prompt || t("agents.noSystemPrompt")}
                 </p>
-                {(agent as Agent & { has_bot_token?: boolean })
-                  .has_bot_token && (
-                    <div className="flex items-center gap-2 rounded-md border p-2 overflow-hidden">
-                      <Webhook className="size-4 shrink-0 text-muted-foreground" />
-                      {(() => {
-                        const info = webhookStatus[agent.id];
-                        const isLoading = !(agent.id in webhookStatus);
-                        const isSet = info && info.url;
-                        const isSetting = settingWebhook === agent.id;
-
-                        if (isLoading) {
-                          return (
-                            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                              <Loader2 className="size-3 animate-spin" />
-                              {t("common.loading")}
-                            </span>
-                          );
-                        }
-
-                        if (isSet) {
-                          return (
-                            <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                              <div className="min-w-0 flex-1">
-                                <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
-                                  <CheckCircle2 className="size-3" />
-                                  {t("agents.webhookActive")}
-                                </span>
-                                <p
-                                  className="truncate text-[10px] text-muted-foreground"
-                                  title={info.url}
-                                >
-                                  {info.url}
-                                </p>
-                              </div>
-                              <Button
-                                variant="outline"
-                                size="xs"
-                                className="shrink-0"
-                                onClick={() => handleSetWebhook(agent.id)}
-                                disabled={isSetting}
-                              >
-                                {isSetting ? (
-                                  <Loader2 className="size-3 animate-spin" />
-                                ) : (
-                                  t("agents.setWebhook")
-                                )}
-                              </Button>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                            <span className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400">
-                              <XCircle className="size-3" />
-                              {t("agents.webhookNotSet")}
-                            </span>
-                            <Button
-                              variant="default"
-                              size="xs"
-                              className="shrink-0"
-                              onClick={() => handleSetWebhook(agent.id)}
-                              disabled={isSetting}
-                            >
-                              {isSetting ? (
-                                <>
-                                  <Loader2 className="mr-1 size-3 animate-spin" />
-                                  {t("agents.settingWebhook")}
-                                </>
-                              ) : (
-                                t("agents.setWebhook")
-                              )}
-                            </Button>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  )}
+                {renderPlatformStatus(agent)}
               </CardContent>
             </Card>
           ))}
@@ -834,9 +993,7 @@ export default function AgentsPage() {
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         title={t("agents.deleteAgent")}
-        description={t("agents.deleteAgentConfirm", {
-          name: deleteTarget?.name || "",
-        })}
+        description={t("agents.deleteAgentConfirm", { name: deleteTarget?.name || "" })}
         confirmText={t("common.delete")}
         onConfirm={confirmDeleteAgent}
       />

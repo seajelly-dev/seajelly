@@ -42,7 +42,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { getUseCaseCategories } from "./use-cases";
 
@@ -634,7 +633,7 @@ export default function CodingPage() {
                       onValueChange={(v) => handleLanguageChange(v as Language)}
                     >
                       <SelectTrigger id="coding-language-trigger" className="w-40">
-                        <SelectValue />
+                        {language === "python" ? t("coding.python") : language === "javascript" ? t("coding.javascript") : t("coding.html")}
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="python">{t("coding.python")}</SelectItem>

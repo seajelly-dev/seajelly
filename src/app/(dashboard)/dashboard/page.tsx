@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -18,6 +18,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer,
 } from "recharts";
+import type { Payload } from "recharts/types/component/DefaultLegendContent";
 
 interface RecentEvent {
   id: string;
@@ -36,15 +37,38 @@ interface HourlyRow {
   total_output_tokens: number;
 }
 
+// 高区分度颜色调色板，色相均匀分散
 const MODEL_COLORS = [
-  "var(--chart-1, #2563eb)",
-  "var(--chart-2, #16a34a)",
-  "var(--chart-3, #ea580c)",
-  "var(--chart-4, #9333ea)",
-  "var(--chart-5, #dc2626)",
-  "#0891b2",
-  "#ca8a04",
-  "#be185d",
+  "#2563eb", // 蓝
+  "#16a34a", // 绿
+  "#ea580c", // 橙
+  "#9333ea", // 紫
+  "#dc2626", // 红
+  "#0891b2", // 青
+  "#ca8a04", // 黄
+  "#be185d", // 粉
+];
+
+// Token 用量图表的 input/output 对比色
+const TOKEN_INPUT_COLORS = [
+  "#2563eb", // 蓝 - 深
+  "#16a34a", // 绿 - 深
+  "#ea580c", // 橙 - 深
+  "#9333ea", // 紫 - 深
+  "#dc2626", // 红 - 深
+  "#0891b2", // 青 - 深
+  "#ca8a04", // 黄 - 深
+  "#be185d", // 粉 - 深
+];
+const TOKEN_OUTPUT_COLORS = [
+  "#93c5fd", // 蓝 - 浅
+  "#86efac", // 绿 - 浅
+  "#fdba74", // 橙 - 浅
+  "#c4b5fd", // 紫 - 浅
+  "#fca5a5", // 红 - 浅
+  "#67e8f9", // 青 - 浅
+  "#fde047", // 黄 - 浅
+  "#f9a8d4", // 粉 - 浅
 ];
 
 export default function DashboardPage() {
@@ -54,6 +78,9 @@ export default function DashboardPage() {
   const [usage, setUsage] = useState({ total_calls: 0, total_input_tokens: 0, total_output_tokens: 0 });
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
   const [hourlyData, setHourlyData] = useState<HourlyRow[]>([]);
+  // 追踪被隐藏的模型（用于图例点击交互）
+  const [hiddenDurationModels, setHiddenDurationModels] = useState<Set<string>>(new Set());
+  const [hiddenTokenModels, setHiddenTokenModels] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const fetchData = async () => {
@@ -111,6 +138,29 @@ export default function DashboardPage() {
     const d = new Date(ts);
     return `${String(d.getHours()).padStart(2, "0")}:00`;
   };
+
+  // 图例点击切换模型显示/隐藏
+  const handleDurationLegendClick = useCallback((data: Payload) => {
+    const modelId = data.value as string;
+    setHiddenDurationModels((prev) => {
+      const next = new Set(prev);
+      if (next.has(modelId)) next.delete(modelId);
+      else next.add(modelId);
+      return next;
+    });
+  }, []);
+
+  const handleTokenLegendClick = useCallback((data: Payload) => {
+    // 图例 value 格式为 "model_in" 或 "model_out"，提取模型名
+    const raw = data.value as string;
+    const modelId = raw.replace(/_in$|_out$/, "");
+    setHiddenTokenModels((prev) => {
+      const next = new Set(prev);
+      if (next.has(modelId)) next.delete(modelId);
+      else next.add(modelId);
+      return next;
+    });
+  }, []);
 
   if (loading) {
     return (
@@ -206,7 +256,15 @@ export default function DashboardPage() {
                       formatter={(v: number) => [`${v.toLocaleString()} ms`]}
                       contentStyle={{ borderRadius: 8, fontSize: 12, border: "1px solid var(--border)" }}
                     />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Legend
+                      wrapperStyle={{ fontSize: 11, cursor: "pointer" }}
+                      onClick={handleDurationLegendClick}
+                      formatter={(value: string) => (
+                        <span style={{ color: hiddenDurationModels.has(value) ? "#ccc" : undefined, textDecoration: hiddenDurationModels.has(value) ? "line-through" : undefined }}>
+                          {value}
+                        </span>
+                      )}
+                    />
                     {modelNames.map((name, i) => (
                       <Line
                         key={name}
@@ -217,6 +275,7 @@ export default function DashboardPage() {
                         strokeWidth={2}
                         dot={false}
                         connectNulls
+                        hide={hiddenDurationModels.has(name)}
                       />
                     ))}
                   </LineChart>
@@ -248,33 +307,35 @@ export default function DashboardPage() {
                       contentStyle={{ borderRadius: 8, fontSize: 12, border: "1px solid var(--border)" }}
                     />
                     <Legend
-                      wrapperStyle={{ fontSize: 11 }}
+                      wrapperStyle={{ fontSize: 11, cursor: "pointer" }}
+                      onClick={handleTokenLegendClick}
                       formatter={(value: string) => {
                         const isInput = value.endsWith("_in");
                         const modelName = value.replace(/_in$|_out$/, "");
-                        return `${modelName} ${isInput ? "In" : "Out"}`;
+                        const isHidden = hiddenTokenModels.has(modelName);
+                        return (
+                          <span style={{ color: isHidden ? "#ccc" : undefined, textDecoration: isHidden ? "line-through" : undefined }}>
+                            {modelName} {isInput ? "Input" : "Output"}
+                          </span>
+                        );
                       }}
                     />
-                    {modelNames.map((name, i) => (
+                    {modelNames.flatMap((name, i) => [
                       <Bar
                         key={`${name}_in`}
                         dataKey={`${name}_in`}
                         name={`${name}_in`}
-                        stackId={name}
-                        fill={MODEL_COLORS[i % MODEL_COLORS.length]}
-                        opacity={0.8}
-                      />
-                    ))}
-                    {modelNames.map((name, i) => (
+                        fill={TOKEN_INPUT_COLORS[i % TOKEN_INPUT_COLORS.length]}
+                        hide={hiddenTokenModels.has(name)}
+                      />,
                       <Bar
                         key={`${name}_out`}
                         dataKey={`${name}_out`}
                         name={`${name}_out`}
-                        stackId={name}
-                        fill={MODEL_COLORS[i % MODEL_COLORS.length]}
-                        opacity={0.45}
-                      />
-                    ))}
+                        fill={TOKEN_OUTPUT_COLORS[i % TOKEN_OUTPUT_COLORS.length]}
+                        hide={hiddenTokenModels.has(name)}
+                      />,
+                    ])}
                   </BarChart>
                 </ResponsiveContainer>
               </div>

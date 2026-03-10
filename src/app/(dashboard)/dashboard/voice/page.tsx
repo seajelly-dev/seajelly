@@ -32,7 +32,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   GEMINI_VOICES,
@@ -228,7 +227,9 @@ export default function VoicePage() {
                     value={settings.tts_engine || "aistudio"}
                     onValueChange={(v) => { if (v) updateSettings({ tts_engine: v }); }}
                   >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      {settings.tts_engine === "cloud-gemini" ? "Cloud Gemini" : "AI Studio"}
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="aistudio">AI Studio</SelectItem>
                       <SelectItem value="cloud-gemini">Cloud Gemini</SelectItem>
@@ -242,7 +243,11 @@ export default function VoicePage() {
                     value={settings.tts_model || models[0]?.id}
                     onValueChange={(v) => { if (v) updateSettings({ tts_model: v }); }}
                   >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <span className="truncate">
+                        {models.find(m => m.id === (settings.tts_model || models[0]?.id))?.name || "Select"}
+                      </span>
+                    </SelectTrigger>
                     <SelectContent>
                       {models.map(m => (
                         <SelectItem key={m.id} value={m.id}>
@@ -385,7 +390,9 @@ export default function VoicePage() {
                   value={settings.live_voice || "Aoede"}
                   onValueChange={(v) => { if (v) updateSettings({ live_voice: v }); }}
                 >
-                  <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="max-w-xs">
+                    {GEMINI_VOICES.find(v => v.id === (settings.live_voice || "Aoede"))?.name || "Aoede"}
+                  </SelectTrigger>
                   <SelectContent>
                     {GEMINI_VOICES.slice(0, 10).map(v => (
                       <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
@@ -457,7 +464,9 @@ export default function VoicePage() {
                   value={settings.asr_engine || "gemini-asr"}
                   onValueChange={(v) => { if (v) updateSettings({ asr_engine: v }); }}
                 >
-                  <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="max-w-xs">
+                    {settings.asr_engine === "doubao-asr" ? t("voice.doubaoAsr") : t("voice.geminiAsr")}
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="gemini-asr">{t("voice.geminiAsr")}</SelectItem>
                     <SelectItem value="doubao-asr">{t("voice.doubaoAsr")}</SelectItem>
