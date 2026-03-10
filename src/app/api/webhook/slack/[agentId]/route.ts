@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
+import { WebClient } from "@slack/web-api";
 import { resolveSlackCredentials } from "@/lib/platform/adapters/slack";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
 import { processChannelApproval } from "@/lib/platform/approval-core";
@@ -122,6 +123,21 @@ export async function POST(
     const user = event.user || null;
     const ts = event.ts || `${Date.now()}`;
 
+    let displayName: string | null = null;
+    if (user) {
+      try {
+        const client = new WebClient(creds.botToken);
+        const info = await client.users.info({ user });
+        const profile = info.user?.profile;
+        displayName =
+          profile?.display_name ||
+          profile?.real_name ||
+          info.user?.real_name ||
+          info.user?.name ||
+          null;
+      } catch { /* non-critical */ }
+    }
+
     let fileRef: string | null = null;
     let fileMime: string | null = null;
     let fileName: string | null = null;
@@ -137,7 +153,7 @@ export async function POST(
       agentId,
       platformChatId: channel,
       platformUid: user,
-      displayName: null,
+      displayName,
       text,
       fileRef,
       fileMime,
