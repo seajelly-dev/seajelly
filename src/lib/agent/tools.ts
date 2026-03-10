@@ -26,6 +26,9 @@ import {
   createCommitAndPush,
 } from "@/lib/github/api";
 import { getBotForAgent } from "@/lib/telegram/bot";
+import { InputFile } from "grammy";
+import { generateTTS, logTTSUsage, getVoiceSettings } from "@/lib/voice/tts-engine";
+import { isTextTooLong } from "@/lib/voice/tts-config-data";
 
 function bigrams(text: string): Set<string> {
   const clean = text.replace(/\s+/g, "");
@@ -1108,10 +1111,63 @@ export function createAgentTools({ agentId, channelId, isOwner }: ToolsOptions) 
     }),
   };
 
+  const ttsTools = {
+    tts_speak: tool({
+      description:
+        "Convert text to speech audio and send it as a voice message in the current chat. " +
+        "Use this when the user asks you to read something aloud or send a voice message. " +
+        "Text must be under 250 CJK characters or 500 Latin characters.",
+      inputSchema: z.object({
+        text: z.string().describe("The text to convert to speech"),
+        voice: z.string().optional().describe("Voice name (e.g. Aoede, Puck, Kore). Optional."),
+      }),
+      execute: async ({ text, voice }: { text: string; voice?: string }) => {
+        try {
+          const settings = await getVoiceSettings();
+          if (settings.tts_enabled !== "true") {
+            return { success: false, error: "TTS is currently disabled. The agent owner can enable it with /tts command." };
+          }
+          if (isTextTooLong(text)) {
+            return { success: false, error: "Text too long. Max 250 CJK characters or 500 Latin characters." };
+          }
+          const result = await generateTTS({ text, voice });
+          const audioBuffer = Buffer.from(result.audioBase64, "base64");
+          const bot = await getBotForAgent(agentId);
+          const chatId = Number(
+            (await supabase
+              .from("sessions")
+              .select("platform_chat_id")
+              .eq("agent_id", agentId)
+              .eq("is_active", true)
+              .order("updated_at", { ascending: false })
+              .limit(1)
+              .single()
+            ).data?.platform_chat_id || "0"
+          );
+          if (chatId) {
+            await bot.api.sendVoice(chatId, new InputFile(audioBuffer, "voice.wav"));
+          }
+          await logTTSUsage({
+            agentId,
+            channelId,
+            engine: settings.tts_engine || "aistudio",
+            model: settings.tts_model,
+            voice: voice || settings.tts_voice,
+            inputText: text,
+            durationMs: result.durationMs,
+          });
+          return { success: true, message: "Voice message sent" };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "TTS failed" };
+        }
+      },
+    }),
+  };
+
   if (channelId) {
-    return { ...baseTools, ...buildSoulTools(channelId, !!isOwner) };
+    return { ...baseTools, ...ttsTools, ...buildSoulTools(channelId, !!isOwner) };
   }
-  return baseTools;
+  return { ...baseTools, ...ttsTools };
 }
 
 function getUtcOffset(date: Date, timezone: string): string {

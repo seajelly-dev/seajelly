@@ -1042,6 +1042,91 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
 
+CREATE TABLE IF NOT EXISTS public.voice_api_keys (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  engine          text NOT NULL CHECK (engine IN ('aistudio','cloud-gemini','gemini-live','gemini-asr','doubao-asr')),
+  encrypted_value text NOT NULL,
+  label           text NOT NULL DEFAULT '',
+  extra_config    jsonb NOT NULL DEFAULT '{}',
+  is_active       boolean NOT NULL DEFAULT true,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.voice_api_keys ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "voice_api_keys_admin_all" ON public.voice_api_keys;
+CREATE POLICY "voice_api_keys_admin_all" ON public.voice_api_keys FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "voice_api_keys_service_select" ON public.voice_api_keys;
+CREATE POLICY "voice_api_keys_service_select" ON public.voice_api_keys FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+CREATE TABLE IF NOT EXISTS public.voice_settings (
+  key         text PRIMARY KEY,
+  value       text NOT NULL,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.voice_settings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "voice_settings_admin_all" ON public.voice_settings;
+CREATE POLICY "voice_settings_admin_all" ON public.voice_settings FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "voice_settings_service_read" ON public.voice_settings;
+CREATE POLICY "voice_settings_service_read" ON public.voice_settings FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+INSERT INTO public.voice_settings (key, value) VALUES
+  ('tts_enabled', 'false'),
+  ('tts_engine', 'aistudio'),
+  ('tts_model', 'gemini-2.5-flash-preview-tts'),
+  ('tts_voice', 'Aoede'),
+  ('live_engine', 'gemini-live'),
+  ('live_voice', 'Aoede'),
+  ('asr_engine', 'gemini-asr')
+ON CONFLICT (key) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.tts_usage_logs (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id      uuid REFERENCES public.agents(id) ON DELETE SET NULL,
+  channel_id    uuid REFERENCES public.channels(id) ON DELETE SET NULL,
+  engine        text NOT NULL,
+  model         text,
+  voice         text,
+  input_text    text NOT NULL,
+  input_length  int NOT NULL,
+  duration_ms   int,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS tts_usage_logs_created ON public.tts_usage_logs(created_at);
+CREATE INDEX IF NOT EXISTS tts_usage_logs_agent ON public.tts_usage_logs(agent_id);
+ALTER TABLE public.tts_usage_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "tts_usage_logs_admin_all" ON public.tts_usage_logs;
+CREATE POLICY "tts_usage_logs_admin_all" ON public.tts_usage_logs FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "tts_usage_logs_service_all" ON public.tts_usage_logs;
+CREATE POLICY "tts_usage_logs_service_all" ON public.tts_usage_logs FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+CREATE TABLE IF NOT EXISTS public.voice_temp_links (
+  id          text PRIMARY KEY DEFAULT encode(gen_random_bytes(16), 'hex'),
+  type        text NOT NULL CHECK (type IN ('live', 'asr')),
+  agent_id    uuid REFERENCES public.agents(id) ON DELETE CASCADE,
+  channel_id  uuid REFERENCES public.channels(id) ON DELETE SET NULL,
+  config      jsonb NOT NULL DEFAULT '{}',
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  expires_at  timestamptz NOT NULL DEFAULT (now() + interval '24 hours')
+);
+CREATE INDEX IF NOT EXISTS voice_temp_links_expires ON public.voice_temp_links(expires_at);
+ALTER TABLE public.voice_temp_links ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "voice_temp_links_admin_all" ON public.voice_temp_links;
+CREATE POLICY "voice_temp_links_admin_all" ON public.voice_temp_links FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "voice_temp_links_service_all" ON public.voice_temp_links;
+CREATE POLICY "voice_temp_links_service_all" ON public.voice_temp_links FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "voice_temp_links_anon_select" ON public.voice_temp_links;
+CREATE POLICY "voice_temp_links_anon_select" ON public.voice_temp_links FOR SELECT
+  USING (true);
+
+GRANT ALL ON public.voice_api_keys TO service_role, authenticated;
+GRANT ALL ON public.voice_settings TO service_role, authenticated;
+GRANT ALL ON public.tts_usage_logs TO service_role, authenticated;
+GRANT ALL ON public.voice_temp_links TO service_role, authenticated;
+GRANT SELECT ON public.voice_temp_links TO anon;
+
 CREATE OR REPLACE FUNCTION public.update_updated_at()
 RETURNS trigger AS $fn$
 BEGIN NEW.updated_at = now(); RETURN NEW; END;
@@ -1053,4 +1138,6 @@ DROP TRIGGER IF EXISTS sessions_updated_at ON public.sessions;
 CREATE TRIGGER sessions_updated_at BEFORE UPDATE ON public.sessions FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 DROP TRIGGER IF EXISTS channels_updated_at ON public.channels;
 CREATE TRIGGER channels_updated_at BEFORE UPDATE ON public.channels FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+DROP TRIGGER IF EXISTS voice_settings_updated_at ON public.voice_settings;
+CREATE TRIGGER voice_settings_updated_at BEFORE UPDATE ON public.voice_settings FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 `;

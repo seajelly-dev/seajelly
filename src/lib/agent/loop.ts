@@ -196,6 +196,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           "/new — Start a new session\n" +
           "/whoami — Show your identity profile\n" +
           "/status — Show session status\n" +
+          "/tts — Toggle TTS (owner only)\n" +
+          "/live — Get a live voice chat link\n" +
+          "/asr — Get an ASR transcription link\n" +
           "/help — Show this message\n\n" +
           "Send any text to chat.";
         await bot.api.sendMessage(telegramChatId, helpText, { parse_mode: "Markdown" });
@@ -235,6 +238,87 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           { parse_mode: "Markdown" }
         );
         return { success: true, reply: "start", traceId };
+      }
+
+      if (command === "/tts") {
+        if (!channel?.is_owner) {
+          await bot.api.sendMessage(telegramChatId, "⛔ Only the agent owner can toggle TTS.");
+          return { success: true, reply: "tts_denied", traceId };
+        }
+        const { data: currentSetting } = await supabase
+          .from("voice_settings")
+          .select("value")
+          .eq("key", "tts_enabled")
+          .single();
+        const isEnabled = currentSetting?.value === "true";
+        const newValue = isEnabled ? "false" : "true";
+        await supabase
+          .from("voice_settings")
+          .upsert({ key: "tts_enabled", value: newValue }, { onConflict: "key" });
+        const statusEmoji = newValue === "true" ? "🔊" : "🔇";
+        const statusText = newValue === "true" ? "enabled" : "disabled";
+        await bot.api.sendMessage(
+          telegramChatId,
+          `${statusEmoji} TTS has been *${statusText}* for all channels of this agent.`,
+          { parse_mode: "Markdown" }
+        );
+        return { success: true, reply: `tts_${statusText}`, traceId };
+      }
+
+      if (command === "/live") {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+        const { data: link, error: linkErr } = await supabase
+          .from("voice_temp_links")
+          .insert({
+            type: "live",
+            agent_id: typedAgent.id,
+            channel_id: channel?.id || null,
+            config: {},
+          })
+          .select("id, expires_at")
+          .single();
+        if (linkErr || !link) {
+          await bot.api.sendMessage(telegramChatId, "❌ Failed to create live voice link.");
+          return { success: false, error: "Failed to create live link", traceId };
+        }
+        const liveUrl = `${appUrl}/voice/live/${link.id}`;
+        await bot.api.sendMessage(
+          telegramChatId,
+          `🎙 *Live Voice Chat*\n\n` +
+          `[Open Live Voice](${liveUrl})\n\n` +
+          `⏰ Expires: ${new Date(link.expires_at).toLocaleString()}\n\n` +
+          `⚠️ *Security Warning:* This link contains your API key access. Do NOT share it with anyone.`,
+          { parse_mode: "Markdown" }
+        );
+        return { success: true, reply: liveUrl, traceId };
+      }
+
+      if (command === "/asr") {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+        const { data: link, error: linkErr } = await supabase
+          .from("voice_temp_links")
+          .insert({
+            type: "asr",
+            agent_id: typedAgent.id,
+            channel_id: channel?.id || null,
+            config: {},
+          })
+          .select("id, expires_at")
+          .single();
+        if (linkErr || !link) {
+          await bot.api.sendMessage(telegramChatId, "❌ Failed to create ASR link.");
+          return { success: false, error: "Failed to create ASR link", traceId };
+        }
+        const asrUrl = `${appUrl}/voice/asr/${link.id}`;
+        await bot.api.sendMessage(
+          telegramChatId,
+          `🎤 *ASR Transcription*\n\n` +
+          `[Open ASR Recorder](${asrUrl})\n\n` +
+          `⏰ Expires: ${new Date(link.expires_at).toLocaleString()}\n\n` +
+          `⚠️ *Security Warning:* This link contains your API key access. Do NOT share it with anyone.`,
+          { parse_mode: "Markdown" }
+        );
+        return { success: true, reply: asrUrl, traceId };
       }
     }
 
