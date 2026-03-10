@@ -12,6 +12,9 @@
     "src/app/api/webhook/telegram/[agentId]/route.ts": {
       "maxDuration": 300
     },
+    "src/app/api/webhook/qqbot/[agentId]/route.ts": {
+      "maxDuration": 300
+    },
     "src/app/api/worker/remind/route.ts": {
       "maxDuration": 60
     },

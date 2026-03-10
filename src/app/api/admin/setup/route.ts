@@ -461,6 +461,10 @@ async function handleAgent(body: {
           `);
         }
       }
+      if (body.platform_credentials.qqbot) {
+        const { invalidateQQBotCache } = await import("@/lib/platform/adapters/qqbot");
+        invalidateQQBotCache(agentId);
+      }
     }
 
     const origin = (body.app_origin || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");

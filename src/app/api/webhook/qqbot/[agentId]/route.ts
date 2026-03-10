@@ -8,6 +8,8 @@ import { handleInboundMessage } from "@/lib/platform/webhook-handler";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+export const preferredRegion = ["hnd1", "sin1", "iad1"];
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   return NextResponse.json({ status: "QQBot webhook endpoint active", method: "Use POST" });
@@ -21,27 +23,25 @@ export async function POST(
     const { agentId } = await params;
     const rawBody = await request.text();
 
-    console.log("QQBot webhook: incoming request, body_len:", rawBody.length, "raw:", rawBody.slice(0, 200));
-
     let body: Record<string, unknown>;
     try {
       body = JSON.parse(rawBody);
     } catch {
-      console.error("QQBot webhook: invalid JSON body");
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    let creds: { appId: string; appSecret: string };
+    let creds: Awaited<ReturnType<typeof resolveQQBotCredentials>>;
     try {
       creds = await resolveQQBotCredentials(agentId);
     } catch (credErr) {
-      console.error("QQBot webhook: failed to resolve credentials:", credErr);
+      console.error("QQBot webhook: credential error:", credErr);
       return NextResponse.json({ error: "Credential error" }, { status: 500 });
     }
 
     // Op 13: webhook URL validation challenge
     if (body.op === 13) {
       try {
+        const startedAt = Date.now();
         const d = body.d as { plain_token: string; event_ts: string | number };
         const eventTs = String(d.event_ts);
         const plainToken = String(d.plain_token);
@@ -52,12 +52,16 @@ export async function POST(
           "pt:", d.plain_token,
           "ts:", d.event_ts,
           "sig:", signature.slice(0, 20) + "...",
+          "elapsed_ms:", Date.now() - startedAt,
         );
         return new Response(JSON.stringify(respBody), {
           status: 200,
           headers: {
-            "Content-Type": "application/json",
-            "X-Bot-Appid": creds.appId,
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store, no-cache, max-age=0, must-revalidate, no-transform",
+            Pragma: "no-cache",
+            Expires: "0",
+            "Content-Encoding": "identity",
           },
         });
       } catch (signErr) {

@@ -10,7 +10,23 @@ interface QQBotCredentials {
 const QQ_API_BASE = "https://api.sgroup.qq.com";
 const QQ_TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken";
 
-let tokenCache: { token: string; expiresAt: number; appId: string } | null = null;
+const CREDENTIAL_CACHE_TTL_MS = 60_000;
+const credentialCache = new Map<string, { creds: QQBotCredentials; expiresAt: number }>();
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+export function invalidateQQBotCache(agentId?: string) {
+  if (!agentId) {
+    credentialCache.clear();
+    tokenCache.clear();
+    return;
+  }
+
+  const cached = credentialCache.get(agentId);
+  if (cached) {
+    tokenCache.delete(cached.creds.appId);
+  }
+  credentialCache.delete(agentId);
+}
 
 function getSupabase() {
   return createClient(
@@ -20,6 +36,11 @@ function getSupabase() {
 }
 
 export async function resolveQQBotCredentials(agentId: string): Promise<QQBotCredentials> {
+  const cached = credentialCache.get(agentId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.creds;
+  }
+
   const supabase = getSupabase();
   const { data: rows } = await supabase
     .from("agent_credentials")
@@ -34,14 +55,18 @@ export async function resolveQQBotCredentials(agentId: string): Promise<QQBotCre
   if (!map.app_id || !map.app_secret) {
     throw new Error(`Missing QQBot credentials for agent ${agentId}`);
   }
-  return { appId: map.app_id, appSecret: map.app_secret };
+  const creds = { appId: map.app_id, appSecret: map.app_secret };
+  credentialCache.set(agentId, { creds, expiresAt: Date.now() + CREDENTIAL_CACHE_TTL_MS });
+  return creds;
 }
 
 async function getAccessToken(agentId: string): Promise<string> {
-  if (tokenCache && tokenCache.expiresAt > Date.now() + 60_000) {
-    return tokenCache.token;
-  }
   const creds = await resolveQQBotCredentials(agentId);
+  const cachedToken = tokenCache.get(creds.appId);
+  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
+    return cachedToken.token;
+  }
+
   const res = await fetch(QQ_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -51,11 +76,10 @@ async function getAccessToken(agentId: string): Promise<string> {
     throw new Error(`QQBot getAccessToken failed: ${res.status} ${await res.text()}`);
   }
   const data = await res.json();
-  tokenCache = {
+  tokenCache.set(creds.appId, {
     token: data.access_token,
     expiresAt: Date.now() + (Number(data.expires_in) || 7200) * 1000,
-    appId: creds.appId,
-  };
+  });
   return data.access_token;
 }
 

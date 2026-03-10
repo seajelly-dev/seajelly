@@ -158,6 +158,10 @@ export async function POST(request: Request) {
 
   if (data?.id && platform_credentials) {
     await savePlatformCredentials(db, data.id, platform_credentials);
+    if (platform_credentials.qqbot) {
+      const { invalidateQQBotCache } = await import("@/lib/platform/adapters/qqbot");
+      invalidateQQBotCache(data.id);
+    }
   }
 
   return NextResponse.json({
@@ -205,6 +209,10 @@ export async function PUT(request: Request) {
 
   if (data?.id && platform_credentials) {
     await savePlatformCredentials(db, data.id, platform_credentials);
+    if (platform_credentials.qqbot) {
+      const { invalidateQQBotCache } = await import("@/lib/platform/adapters/qqbot");
+      invalidateQQBotCache(data.id);
+    }
   }
 
   return NextResponse.json({

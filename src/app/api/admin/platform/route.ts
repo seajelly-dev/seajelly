@@ -136,7 +136,8 @@ async function handleQQBot(action: string, agentId: string, body: Record<string,
     });
   }
   if (action === "test-connection") {
-    const { resolveQQBotCredentials } = await import("@/lib/platform/adapters/qqbot");
+    const { resolveQQBotCredentials, invalidateQQBotCache } = await import("@/lib/platform/adapters/qqbot");
+    invalidateQQBotCache(agentId);
     const creds = await resolveQQBotCredentials(agentId);
     const res = await fetch("https://bots.qq.com/app/getAppAccessToken", {
       method: "POST",
