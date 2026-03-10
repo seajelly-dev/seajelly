@@ -2,6 +2,7 @@ import type { PlatformSender, PlatformFileDownloader } from "./types";
 import { NullFileDownloader } from "./types";
 import { TelegramAdapter } from "./adapters/telegram";
 import { TelegramFileDownloader } from "./adapters/telegram-file";
+import { SlackFileDownloader } from "./adapters/slack-file";
 import { FeishuAdapter } from "./adapters/feishu";
 import { WeComAdapter } from "./adapters/wecom";
 import { SlackAdapter } from "./adapters/slack";
@@ -31,6 +32,8 @@ export function getFileDownloader(platform: string): PlatformFileDownloader {
   switch (platform) {
     case "telegram":
       return new TelegramFileDownloader();
+    case "slack":
+      return new SlackFileDownloader();
     default:
       return new NullFileDownloader();
   }

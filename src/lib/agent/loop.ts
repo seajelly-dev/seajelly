@@ -82,9 +82,12 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       throw new Error("No message text or file in payload");
     }
 
-    const command = messageText.startsWith("/")
-      ? messageText.split(/[\s@]/)[0].toLowerCase()
-      : null;
+    let command: string | null = null;
+    if (messageText.startsWith("/")) {
+      command = messageText.split(/[\s@]/)[0].toLowerCase();
+    } else if (messageText.startsWith("!")) {
+      command = "/" + messageText.slice(1).split(/[\s@]/)[0].toLowerCase();
+    }
 
     // ── Resolve channel from event payload ──
     const platformUid =
@@ -214,15 +217,16 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
 
       if (command === "/help") {
+        const prefix = platform === "telegram" ? "/" : "!";
         const helpText =
           `📋 *${typedAgent.name} — Commands*\n\n` +
-          "/new — Start a new session\n" +
-          "/whoami — Show your identity profile\n" +
-          "/status — Show session status\n" +
-          "/tts — Toggle TTS (owner only)\n" +
-          "/live — Get a live voice chat link\n" +
-          "/asr — Get an ASR transcription link\n" +
-          "/help — Show this message\n\n" +
+          `${prefix}new — Start a new session\n` +
+          `${prefix}whoami — Show your identity profile\n` +
+          `${prefix}status — Show session status\n` +
+          `${prefix}tts — Toggle TTS (owner only)\n` +
+          `${prefix}live — Get a live voice chat link\n` +
+          `${prefix}asr — Get an ASR transcription link\n` +
+          `${prefix}help — Show this message\n\n` +
           "Send any text to chat.";
         await sender.sendMarkdown(platformChatId, helpText);
         return { success: true, reply: helpText, traceId };

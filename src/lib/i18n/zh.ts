@@ -241,7 +241,7 @@ const zh: TranslationKeys = {
     hintTelegram: "前往 Telegram 搜索 @BotFather → 发送 /newbot 创建机器人 → 获取 Bot Token → 粘贴到下方。",
     hintFeishu: "前往飞书开放平台 → 创建企业自建应用 → 获取 App ID 和 App Secret → 开启机器人能力 → 配置事件订阅（填入下方 Webhook URL）。",
     hintWecom: "前往企业微信管理后台 → 应用管理 → 创建自建应用 → 获取 Corp ID、Corp Secret 和 Agent ID → 在接收消息设置中填入下方 Webhook URL。",
-    hintSlack: "前往 api.slack.com/apps → Create New App → 选择 From scratch → 在 OAuth & Permissions 中添加 chat:write 等 scope → Install to Workspace → 复制 Bot User OAuth Token → 在 Basic Information 中获取 Signing Secret → 在 Event Subscriptions 中启用并填入下方 Webhook URL。",
+    hintSlack: "前往 api.slack.com/apps → Create New App (From scratch) → OAuth & Permissions 添加 Bot Scope：chat:write、im:history、files:read → Install to Workspace → 复制 Bot User OAuth Token (xoxb- 开头) → Basic Information 获取 Signing Secret → Event Subscriptions 启用并填入下方 Webhook URL，订阅 message.im 事件 → App Home 开启 Messages Tab 并允许用户发消息 → Interactivity & Shortcuts 填入同一 Webhook URL。",
     hintQqbot: "前往 q.qq.com → 创建机器人 → 获取 AppID 和 AppSecret → 在开发设置中配置事件回调地址（填入下方 Webhook URL）。",
     credentialKeepHint: "留空则保持现有值",
     channelsTitle: "渠道管理",

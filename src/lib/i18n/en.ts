@@ -239,7 +239,7 @@ const en = {
     hintTelegram: "Search @BotFather on Telegram → send /newbot to create a bot → copy the Bot Token → paste it below.",
     hintFeishu: "Go to Feishu Open Platform → create a custom app → get App ID & App Secret → enable Bot capability → configure Event Subscription with the Webhook URL below.",
     hintWecom: "Go to WeCom Admin Console → App Management → create a custom app → get Corp ID, Corp Secret & Agent ID → paste the Webhook URL below into Receive Message settings.",
-    hintSlack: "Go to api.slack.com/apps → Create New App (From scratch) → add chat:write scope in OAuth & Permissions → Install to Workspace → copy Bot User OAuth Token → get Signing Secret from Basic Information → enable Event Subscriptions with the Webhook URL below.",
+    hintSlack: "Go to api.slack.com/apps → Create New App (From scratch) → add Bot Scopes in OAuth & Permissions: chat:write, im:history, files:read → Install to Workspace → copy Bot User OAuth Token (starts with xoxb-) → get Signing Secret from Basic Information → enable Event Subscriptions with the Webhook URL below and subscribe to message.im → enable Messages Tab in App Home → set the same Webhook URL in Interactivity & Shortcuts.",
     hintQqbot: "Go to q.qq.com → create a bot → get AppID & AppSecret → set the Event Callback URL in Developer Settings to the Webhook URL below.",
     credentialKeepHint: "Leave empty to keep current",
     channelsTitle: "Channels",

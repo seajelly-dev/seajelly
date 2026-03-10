@@ -104,7 +104,12 @@ export async function POST(
     }
 
     const event = body.event;
-    if (!event || event.type !== "message" || event.subtype) {
+    if (!event || event.type !== "message") {
+      return NextResponse.json({ ok: true });
+    }
+
+    const allowedSubtypes = new Set([undefined, "file_share", "me_message"]);
+    if (!allowedSubtypes.has(event.subtype)) {
       return NextResponse.json({ ok: true });
     }
 
