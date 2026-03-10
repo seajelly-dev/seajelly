@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/crypto/encrypt";
 
+const KEY_FIELDS = "id, provider_id, label, is_active, call_count, weight, cooldown_until, cooldown_reason, created_at";
+
 export async function GET(request: Request) {
   try { await requireAdmin(); } catch (e) { return authErrorResponse(e); }
 
@@ -15,7 +17,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await db
     .from("provider_api_keys")
-    .select("id, provider_id, label, is_active, call_count, created_at")
+    .select(KEY_FIELDS)
     .eq("provider_id", providerId)
     .order("created_at", { ascending: true });
 
@@ -27,7 +29,7 @@ export async function POST(request: Request) {
   try { await requireAdmin(); } catch (e) { return authErrorResponse(e); }
 
   const db = await createAdminClient();
-  const { provider_id, api_key, label } = await request.json();
+  const { provider_id, api_key, label, weight } = await request.json();
 
   if (!provider_id || !api_key) {
     return NextResponse.json({ error: "provider_id and api_key are required" }, { status: 400 });
@@ -39,8 +41,9 @@ export async function POST(request: Request) {
       provider_id,
       encrypted_value: encrypt(api_key),
       label: label || "",
+      weight: Math.max(1, Math.min(10, weight ?? 1)),
     })
-    .select("id, provider_id, label, is_active, call_count, created_at")
+    .select(KEY_FIELDS)
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -51,19 +54,24 @@ export async function PUT(request: Request) {
   try { await requireAdmin(); } catch (e) { return authErrorResponse(e); }
 
   const db = await createAdminClient();
-  const { id, is_active, label } = await request.json();
+  const { id, is_active, label, weight, cooldown_until } = await request.json();
 
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   const updates: Record<string, unknown> = {};
   if (is_active !== undefined) updates.is_active = is_active;
   if (label !== undefined) updates.label = label;
+  if (weight !== undefined) updates.weight = Math.max(1, Math.min(10, weight));
+  if (cooldown_until !== undefined) {
+    updates.cooldown_until = cooldown_until;
+    if (cooldown_until === null) updates.cooldown_reason = null;
+  }
 
   const { data, error } = await db
     .from("provider_api_keys")
     .update(updates)
     .eq("id", id)
-    .select("id, provider_id, label, is_active, call_count, created_at")
+    .select(KEY_FIELDS)
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

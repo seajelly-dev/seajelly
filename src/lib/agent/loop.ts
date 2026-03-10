@@ -1,6 +1,6 @@
 import { generateText, stepCountIs, type ModelMessage } from "ai";
 import { createClient } from "@supabase/supabase-js";
-import { getModel } from "./provider";
+import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown, getHumanReadableError } from "./provider";
 import { createAgentTools } from "./tools";
 import { AGENT_LIMITS } from "./limits";
 import { getBotForAgent } from "@/lib/telegram/bot";
@@ -306,7 +306,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       messages.push({ role: "user" as const, content: messageText });
     }
 
-    const { model, resolvedProviderId } = await getModel(typedAgent.model, typedAgent.provider_id);
+    const { model, resolvedProviderId, pickedKeyId } = await getModel(typedAgent.model, typedAgent.provider_id);
 
     let canEditAiSoul = true;
     if (channel) {
@@ -482,6 +482,15 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         maxOutputTokens: AGENT_LIMITS.MAX_TOKENS,
         abortSignal: abortController.signal,
       });
+    } catch (genErr) {
+      clearInterval(typingInterval);
+      clearTimeout(timer);
+      if (pickedKeyId && isRateLimitError(genErr)) {
+        const cd = getCooldownDuration(genErr);
+        const reason = genErr instanceof Error ? genErr.message : String(genErr);
+        markKeyCooldown(pickedKeyId, reason.slice(0, 500), cd);
+      }
+      throw genErr;
     } finally {
       clearInterval(typingInterval);
       clearTimeout(timer);
@@ -554,9 +563,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     if (event.platform_chat_id) {
       try {
         const bot = await getBotForAgent(event.agent_id!);
+        const humanError = getHumanReadableError(err);
         await bot.api.sendMessage(
           Number(event.platform_chat_id),
-          `Sorry, I encountered an error. Please try again later.`
+          `⚠️ 抱歉，处理消息时遇到了错误：${humanError}\n请稍后再试。`
         );
       } catch {
         // ignore send failure

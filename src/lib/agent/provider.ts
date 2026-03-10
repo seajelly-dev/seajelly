@@ -17,17 +17,115 @@ function getSupabase() {
   );
 }
 
-async function pickApiKey(providerId: string): Promise<string | null> {
+// ── Rate-limit / overload detection ──
+
+const RATE_LIMIT_PATTERNS = [
+  /rate.?limit/i,
+  /\b429\b/,
+  /high.?demand/i,
+  /overloaded/i,
+  /capacity/i,
+  /quota.?exceeded/i,
+  /too.?many.?requests/i,
+  /server.?overloaded/i,
+  /resource.?exhausted/i,
+];
+
+export function isRateLimitError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return RATE_LIMIT_PATTERNS.some((p) => p.test(msg));
+}
+
+export function getHumanReadableError(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (isRateLimitError(error)) {
+    return "模型当前负载过高或触发了速率限制";
+  }
+  if (/authentication|unauthorized|invalid.*key|api.?key/i.test(msg)) {
+    return "API 密钥认证失败";
+  }
+  if (/timeout|timed?\s*out|deadline/i.test(msg)) {
+    return "请求超时";
+  }
+  if (/abort/i.test(msg)) {
+    return "请求被中止（可能超出了最大处理时间）";
+  }
+  if (/context.?length|token.?limit|too.?long/i.test(msg)) {
+    return "消息过长，超出了模型的上下文窗口限制";
+  }
+  if (/network|connect|ECONNREFUSED|ENOTFOUND/i.test(msg)) {
+    return "网络连接失败";
+  }
+  const short = msg.length > 200 ? msg.slice(0, 200) + "..." : msg;
+  return short;
+}
+
+// ── Cooldown management ──
+
+const COOLDOWN_RATE_LIMIT_MS = 5 * 60 * 1000;
+const COOLDOWN_HIGH_DEMAND_MS = 3 * 60 * 1000;
+
+export function getCooldownDuration(error: unknown): number {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (/rate.?limit|\b429\b|too.?many.?requests|quota.?exceeded/i.test(msg)) {
+    return COOLDOWN_RATE_LIMIT_MS;
+  }
+  if (/high.?demand|overloaded|capacity|server.?overloaded|resource.?exhausted/i.test(msg)) {
+    return COOLDOWN_HIGH_DEMAND_MS;
+  }
+  return 0;
+}
+
+export async function markKeyCooldown(
+  keyId: string,
+  reason: string,
+  durationMs: number,
+): Promise<void> {
+  if (!keyId || durationMs <= 0) return;
   const supabase = getSupabase();
+  const until = new Date(Date.now() + durationMs).toISOString();
+  await supabase
+    .from("provider_api_keys")
+    .update({ cooldown_until: until, cooldown_reason: reason })
+    .eq("id", keyId)
+    .then(() => {}, () => {});
+}
+
+// ── Weighted random key selection with cooldown filtering ──
+
+interface PickedKey {
+  keyId: string;
+  apiKey: string;
+}
+
+async function pickApiKey(providerId: string): Promise<PickedKey | null> {
+  const supabase = getSupabase();
+  const now = new Date().toISOString();
+
   const { data: keys } = await supabase
     .from("provider_api_keys")
-    .select("id, encrypted_value, call_count")
+    .select("id, encrypted_value, call_count, weight, cooldown_until")
     .eq("provider_id", providerId)
     .eq("is_active", true);
 
   if (!keys || keys.length === 0) return null;
 
-  const picked = keys[Math.floor(Math.random() * keys.length)];
+  const available = keys.filter(
+    (k) => !k.cooldown_until || k.cooldown_until < now,
+  );
+  if (available.length === 0) return null;
+
+  const totalWeight = available.reduce((sum, k) => sum + (k.weight ?? 1), 0);
+  let roll = Math.random() * totalWeight;
+  let picked = available[0];
+  for (const k of available) {
+    roll -= k.weight ?? 1;
+    if (roll <= 0) {
+      picked = k;
+      break;
+    }
+  }
+
   try {
     const apiKey = decrypt(picked.encrypted_value);
     supabase
@@ -35,11 +133,13 @@ async function pickApiKey(providerId: string): Promise<string | null> {
       .update({ call_count: (picked.call_count ?? 0) + 1 })
       .eq("id", picked.id)
       .then(() => {}, () => {});
-    return apiKey;
+    return { keyId: picked.id, apiKey };
   } catch {
     return null;
   }
 }
+
+// ── Model creation ──
 
 function createModelFromType(
   type: ProviderType,
@@ -85,10 +185,18 @@ function inferProviderType(modelId: string): ProviderType {
   return "openai";
 }
 
+// ── Public API ──
+
+export interface GetModelResult {
+  model: LanguageModel;
+  resolvedProviderId: string | null;
+  pickedKeyId: string | null;
+}
+
 export async function getModel(
   modelId: string,
   providerId?: string | null,
-): Promise<{ model: LanguageModel; resolvedProviderId: string | null }> {
+): Promise<GetModelResult> {
   const supabase = getSupabase();
 
   if (providerId) {
@@ -100,11 +208,12 @@ export async function getModel(
       .single();
 
     if (provider) {
-      const apiKey = await pickApiKey(provider.id);
-      if (apiKey) {
+      const picked = await pickApiKey(provider.id);
+      if (picked) {
         return {
-          model: createModelFromType(provider.type as ProviderType, apiKey, modelId, provider.base_url),
+          model: createModelFromType(provider.type as ProviderType, picked.apiKey, modelId, provider.base_url),
           resolvedProviderId: provider.id,
+          pickedKeyId: picked.keyId,
         };
       }
       throw new Error(`No API key configured for provider: ${provider.type}`);
@@ -122,11 +231,12 @@ export async function getModel(
     .single();
 
   if (matchingProvider) {
-    const apiKey = await pickApiKey(matchingProvider.id);
-    if (apiKey) {
+    const picked = await pickApiKey(matchingProvider.id);
+    if (picked) {
       return {
-        model: createModelFromType(matchingProvider.type as ProviderType, apiKey, modelId, matchingProvider.base_url),
+        model: createModelFromType(matchingProvider.type as ProviderType, picked.apiKey, modelId, matchingProvider.base_url),
         resolvedProviderId: matchingProvider.id,
+        pickedKeyId: picked.keyId,
       };
     }
   }

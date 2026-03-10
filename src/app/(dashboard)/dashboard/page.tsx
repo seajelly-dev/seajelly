@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Card,
   CardContent,
@@ -13,6 +13,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Bot, MessageSquare, Radio, Zap, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
+import {
+  LineChart, Line, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer,
+} from "recharts";
 
 interface RecentEvent {
   id: string;
@@ -22,12 +27,33 @@ interface RecentEvent {
   created_at: string;
 }
 
+interface HourlyRow {
+  hour: string;
+  model_id: string;
+  call_count: number;
+  avg_duration_ms: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+}
+
+const MODEL_COLORS = [
+  "var(--chart-1, #2563eb)",
+  "var(--chart-2, #16a34a)",
+  "var(--chart-3, #ea580c)",
+  "var(--chart-4, #9333ea)",
+  "var(--chart-5, #dc2626)",
+  "#0891b2",
+  "#ca8a04",
+  "#be185d",
+];
+
 export default function DashboardPage() {
   const t = useT();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ agents: 0, sessions: 0, events: 0 });
   const [usage, setUsage] = useState({ total_calls: 0, total_input_tokens: 0, total_output_tokens: 0 });
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
+  const [hourlyData, setHourlyData] = useState<HourlyRow[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -50,7 +76,10 @@ export default function DashboardPage() {
       setRecentEvents((recent.data as RecentEvent[]) ?? []);
 
       try {
-        const usageRes = await fetch("/api/admin/usage?range=today");
+        const [usageRes, hourlyRes] = await Promise.all([
+          fetch("/api/admin/usage?range=today"),
+          fetch("/api/admin/usage/hourly?hours=24"),
+        ]);
         if (usageRes.ok) {
           const usageData = await usageRes.json();
           setUsage({
@@ -59,6 +88,10 @@ export default function DashboardPage() {
             total_output_tokens: usageData.total_output_tokens ?? 0,
           });
         }
+        if (hourlyRes.ok) {
+          const hd = await hourlyRes.json();
+          setHourlyData(hd.rows ?? []);
+        }
       } catch {}
 
       setLoading(false);
@@ -66,6 +99,40 @@ export default function DashboardPage() {
 
     fetchData().catch(console.error);
   }, []);
+
+  const modelNames = useMemo(
+    () => [...new Set(hourlyData.map((r) => r.model_id))].sort(),
+    [hourlyData],
+  );
+
+  const { durationRows, tokenRows } = useMemo(() => {
+    const hourMap = new Map<string, Record<string, number>>();
+    const tokenMap = new Map<string, Record<string, number>>();
+
+    for (const r of hourlyData) {
+      const hk = r.hour;
+      if (!hourMap.has(hk)) hourMap.set(hk, { _ts: new Date(hk).getTime() });
+      if (!tokenMap.has(hk)) tokenMap.set(hk, { _ts: new Date(hk).getTime() });
+
+      const dRow = hourMap.get(hk)!;
+      dRow[r.model_id] = Number(r.avg_duration_ms) || 0;
+
+      const tRow = tokenMap.get(hk)!;
+      tRow[`${r.model_id}_in`] = Number(r.total_input_tokens) || 0;
+      tRow[`${r.model_id}_out`] = Number(r.total_output_tokens) || 0;
+    }
+
+    const sortByTs = (a: Record<string, number>, b: Record<string, number>) => (a._ts ?? 0) - (b._ts ?? 0);
+    return {
+      durationRows: [...hourMap.values()].sort(sortByTs),
+      tokenRows: [...tokenMap.values()].sort(sortByTs),
+    };
+  }, [hourlyData]);
+
+  const formatHour = (ts: number) => {
+    const d = new Date(ts);
+    return `${String(d.getHours()).padStart(2, "0")}:00`;
+  };
 
   if (loading) {
     return (
@@ -141,6 +208,102 @@ export default function DashboardPage() {
           icon={<ArrowDownRight className="size-5 text-primary" />}
         />
       </div>
+
+      {hourlyData.length > 0 && (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card className="shadow-sm border-border/50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">{t("overview.avgResponseTime")}</CardTitle>
+              <CardDescription>{t("overview.avgResponseTimeDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={durationRows}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="_ts" tickFormatter={formatHour} tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                    <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" unit="ms" width={55} />
+                    <Tooltip
+                      labelFormatter={(v) => formatHour(v as number)}
+                      formatter={(v: number) => [`${v.toLocaleString()} ms`]}
+                      contentStyle={{ borderRadius: 8, fontSize: 12, border: "1px solid var(--border)" }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    {modelNames.map((name, i) => (
+                      <Line
+                        key={name}
+                        type="monotone"
+                        dataKey={name}
+                        name={name}
+                        stroke={MODEL_COLORS[i % MODEL_COLORS.length]}
+                        strokeWidth={2}
+                        dot={false}
+                        connectNulls
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-sm border-border/50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">{t("overview.tokenUsage")}</CardTitle>
+              <CardDescription>{t("overview.tokenUsageDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={tokenRows}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="_ts" tickFormatter={formatHour} tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                    <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={55} tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} />
+                    <Tooltip
+                      labelFormatter={(v) => formatHour(v as number)}
+                      formatter={(v: number, name: string) => {
+                        const isInput = name.endsWith("_in");
+                        const label = isInput ? "Input" : "Output";
+                        const modelName = name.replace(/_in$|_out$/, "");
+                        return [`${v.toLocaleString()}`, `${modelName} ${label}`];
+                      }}
+                      contentStyle={{ borderRadius: 8, fontSize: 12, border: "1px solid var(--border)" }}
+                    />
+                    <Legend
+                      wrapperStyle={{ fontSize: 11 }}
+                      formatter={(value: string) => {
+                        const isInput = value.endsWith("_in");
+                        const modelName = value.replace(/_in$|_out$/, "");
+                        return `${modelName} ${isInput ? "In" : "Out"}`;
+                      }}
+                    />
+                    {modelNames.map((name, i) => (
+                      <Bar
+                        key={`${name}_in`}
+                        dataKey={`${name}_in`}
+                        name={`${name}_in`}
+                        stackId={name}
+                        fill={MODEL_COLORS[i % MODEL_COLORS.length]}
+                        opacity={0.8}
+                      />
+                    ))}
+                    {modelNames.map((name, i) => (
+                      <Bar
+                        key={`${name}_out`}
+                        dataKey={`${name}_out`}
+                        name={`${name}_out`}
+                        stackId={name}
+                        fill={MODEL_COLORS[i % MODEL_COLORS.length]}
+                        opacity={0.45}
+                      />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Card className="shadow-sm border-border/50">
         <CardHeader className="pb-4">

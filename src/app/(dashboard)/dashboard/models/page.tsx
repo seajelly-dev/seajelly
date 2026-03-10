@@ -32,6 +32,7 @@ import {
   Layers,
   Globe,
   ChevronRight,
+  Snowflake,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
@@ -49,6 +50,9 @@ interface ApiKeyInfo {
   label: string;
   is_active: boolean;
   call_count: number;
+  weight: number;
+  cooldown_until: string | null;
+  cooldown_reason: string | null;
   created_at: string;
 }
 
@@ -223,6 +227,42 @@ export default function ModelsPage() {
       setKeys((prev) =>
         prev.map((item) => (item.id === k.id ? { ...item, is_active: k.is_active } : item))
       );
+    }
+  };
+
+  const handleUpdateWeight = async (k: ApiKeyInfo, newWeight: number) => {
+    const clamped = Math.max(1, Math.min(10, newWeight));
+    setKeys((prev) =>
+      prev.map((item) => (item.id === k.id ? { ...item, weight: clamped } : item))
+    );
+    try {
+      const res = await fetch("/api/admin/providers/keys", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: k.id, weight: clamped }),
+      });
+      if (!res.ok) throw new Error("Failed");
+    } catch {
+      setKeys((prev) =>
+        prev.map((item) => (item.id === k.id ? { ...item, weight: k.weight } : item))
+      );
+    }
+  };
+
+  const handleClearCooldown = async (k: ApiKeyInfo) => {
+    setKeys((prev) =>
+      prev.map((item) => (item.id === k.id ? { ...item, cooldown_until: null, cooldown_reason: null } : item))
+    );
+    try {
+      const res = await fetch("/api/admin/providers/keys", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: k.id, cooldown_until: null }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast.success(t("models.cooldownCleared"));
+    } catch {
+      if (selectedProviderId) fetchKeys(selectedProviderId);
     }
   };
 
@@ -440,27 +480,78 @@ export default function ModelsPage() {
                   <p className="text-sm text-muted-foreground py-4 text-center">{t("models.noKeys")}</p>
                 ) : (
                   <div className="flex flex-col gap-2">
-                    {keys.map((k) => (
-                      <div key={k.id} className="flex items-center justify-between rounded-lg border px-3 py-2.5">
-                        <div className="flex items-center gap-3">
-                          <Switch checked={k.is_active} onCheckedChange={() => handleToggleKey(k)} />
-                          <div>
-                            <span className="text-sm font-medium">{k.label || "Unnamed Key"}</span>
-                            <p className="text-xs text-muted-foreground">
-                              {k.call_count} {t("models.calls")} · {new Date(k.created_at).toLocaleDateString()}
-                            </p>
+                    {keys.map((k) => {
+                      const isCooling = !!k.cooldown_until && new Date(k.cooldown_until) > new Date();
+                      return (
+                        <div key={k.id} className={cn(
+                          "flex flex-col gap-2 rounded-lg border px-3 py-2.5",
+                          isCooling && "border-orange-300 bg-orange-50 dark:border-orange-700 dark:bg-orange-950/30"
+                        )}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <Switch checked={k.is_active} onCheckedChange={() => handleToggleKey(k)} />
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium">{k.label || "Unnamed Key"}</span>
+                                  {isCooling && (
+                                    <Badge variant="outline" className="gap-1 border-orange-400 text-orange-600 dark:text-orange-400 text-[10px]">
+                                      <Snowflake className="size-3" />
+                                      {t("models.cooling")}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {k.call_count} {t("models.calls")} · {t("models.weight")}: {k.weight}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1 rounded-md border px-1.5 py-0.5">
+                                <span className="text-[10px] text-muted-foreground">{t("models.weight")}</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={10}
+                                  value={k.weight}
+                                  onChange={(e) => handleUpdateWeight(k, parseInt(e.target.value, 10) || 1)}
+                                  className="w-8 bg-transparent text-center text-xs font-medium outline-none"
+                                />
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="text-muted-foreground hover:text-destructive"
+                                onClick={() => setDeleteTarget({ type: "key", id: k.id, name: k.label || "key" })}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
                           </div>
+                          {isCooling && (
+                            <div className="flex items-center justify-between rounded-md bg-orange-100 dark:bg-orange-950/50 px-2.5 py-1.5">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs text-orange-700 dark:text-orange-300">
+                                  {t("models.cooldownUntil")}: {new Date(k.cooldown_until!).toLocaleTimeString()}
+                                </p>
+                                {k.cooldown_reason && (
+                                  <p className="mt-0.5 truncate text-[10px] text-orange-600 dark:text-orange-400" title={k.cooldown_reason}>
+                                    {k.cooldown_reason.length > 100 ? k.cooldown_reason.slice(0, 100) + "..." : k.cooldown_reason}
+                                  </p>
+                                )}
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                className="shrink-0 ml-2 border-orange-400 text-orange-700 hover:bg-orange-200 dark:text-orange-300 dark:hover:bg-orange-900"
+                                onClick={() => handleClearCooldown(k)}
+                              >
+                                {t("models.clearCooldown")}
+                              </Button>
+                            </div>
+                          )}
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="text-muted-foreground hover:text-destructive"
-                          onClick={() => setDeleteTarget({ type: "key", id: k.id, name: k.label || "key" })}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>

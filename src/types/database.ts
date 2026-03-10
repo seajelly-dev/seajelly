@@ -50,6 +50,9 @@ export interface ProviderApiKey {
   label: string;
   is_active: boolean;
   call_count: number;
+  weight: number;
+  cooldown_until: string | null;
+  cooldown_reason: string | null;
   created_at: string;
 }
 

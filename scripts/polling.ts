@@ -11,7 +11,7 @@ import { resolve } from "path";
 import { createClient } from "@supabase/supabase-js";
 import { generateText, stepCountIs } from "ai";
 import { decrypt } from "@/lib/crypto/encrypt";
-import { getModel } from "@/lib/agent/provider";
+import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown, getHumanReadableError } from "@/lib/agent/provider";
 import { createAgentTools } from "@/lib/agent/tools";
 import { AGENT_LIMITS } from "@/lib/agent/limits";
 import { BOT_COMMANDS } from "@/lib/telegram/commands";
@@ -354,7 +354,7 @@ async function startBotForAgent(agent: AgentRow) {
         messages.push({ role: "user" as const, content: text });
       }
 
-      const { model } = await getModel(agent.model);
+      const { model, pickedKeyId } = await getModel(agent.model);
 
       let canEditAiSoul = true;
       if (channel.is_owner) {
@@ -501,6 +501,15 @@ async function startBotForAgent(agent: AgentRow) {
           stopWhen: stepCountIs(AGENT_LIMITS.MAX_STEPS),
           maxOutputTokens: AGENT_LIMITS.MAX_TOKENS,
         });
+      } catch (genErr) {
+        clearInterval(typingInterval);
+        if (mcpResult) await mcpResult.cleanup().catch(() => {});
+        if (pickedKeyId && isRateLimitError(genErr)) {
+          const cd = getCooldownDuration(genErr);
+          const reason = genErr instanceof Error ? genErr.message : String(genErr);
+          markKeyCooldown(pickedKeyId, reason.slice(0, 500), cd);
+        }
+        throw genErr;
       } finally {
         clearInterval(typingInterval);
         if (mcpResult) await mcpResult.cleanup().catch(() => {});
@@ -532,7 +541,8 @@ async function startBotForAgent(agent: AgentRow) {
         .eq("id", session.id);
     } catch (err) {
       console.error(`[${agent.name}] Error:`, err);
-      await ctx.reply("Sorry, something went wrong.");
+      const humanError = getHumanReadableError(err);
+      await ctx.reply(`⚠️ 抱歉，处理消息时遇到了错误：${humanError}\n请稍后再试。`);
     }
   }
 

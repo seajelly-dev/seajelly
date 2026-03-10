@@ -526,6 +526,9 @@ CREATE TABLE IF NOT EXISTS public.provider_api_keys (
   label           text NOT NULL DEFAULT '',
   is_active       boolean NOT NULL DEFAULT true,
   call_count      int NOT NULL DEFAULT 0,
+  weight          int NOT NULL DEFAULT 1,
+  cooldown_until  timestamptz DEFAULT NULL,
+  cooldown_reason text DEFAULT NULL,
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE public.provider_api_keys ENABLE ROW LEVEL SECURITY;
@@ -876,6 +879,33 @@ CREATE POLICY "api_usage_logs_admin_all" ON public.api_usage_logs FOR ALL USING 
 DROP POLICY IF EXISTS "api_usage_logs_service_all" ON public.api_usage_logs;
 CREATE POLICY "api_usage_logs_service_all" ON public.api_usage_logs FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+CREATE OR REPLACE FUNCTION public.hourly_usage_stats(hours_back int DEFAULT 24)
+RETURNS TABLE (
+  hour timestamptz,
+  model_id text,
+  call_count bigint,
+  avg_duration_ms numeric,
+  total_input_tokens bigint,
+  total_output_tokens bigint
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+  SELECT
+    date_trunc('hour', created_at) AS hour,
+    model_id,
+    count(*)::bigint AS call_count,
+    round(avg(duration_ms)::numeric, 0) AS avg_duration_ms,
+    sum(input_tokens)::bigint AS total_input_tokens,
+    sum(output_tokens)::bigint AS total_output_tokens
+  FROM public.api_usage_logs
+  WHERE created_at >= now() - (hours_back || ' hours')::interval
+  GROUP BY date_trunc('hour', created_at), model_id
+  ORDER BY hour ASC, model_id ASC;
+$fn$;
 
 INSERT INTO public.providers (id, name, type, base_url, is_builtin, enabled) VALUES
   ('00000000-0000-0000-0000-000000000001', 'Anthropic', 'anthropic', NULL, true, true),
