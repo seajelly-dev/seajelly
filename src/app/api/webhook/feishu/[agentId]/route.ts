@@ -64,6 +64,7 @@ export async function POST(
       const value = action?.value as Record<string, string> | undefined;
       const actionStr = value?.action || "";
       const match = actionStr.match(/^(approve|reject):(.+)$/);
+
       if (match) {
         const [, act, channelId] = match;
         const openId = body.open_id || body.event?.operator?.open_id || "";
@@ -73,7 +74,15 @@ export async function POST(
           callerUid: openId,
           fallbackAgentId: agentId,
         });
-        if (result?.targetUid) {
+
+        if (!result) {
+          return NextResponse.json({
+            config: { wide_screen_mode: true },
+            elements: [{ tag: "div", text: { tag: "plain_text", content: "⚠️ Already processed." } }],
+          });
+        }
+
+        if (result.targetUid) {
           try {
             const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
             await targetSender.sendText(
@@ -84,6 +93,12 @@ export async function POST(
             );
           } catch { /* target unreachable */ }
         }
+
+        const label = act === "approve" ? `✅ Approved: ${result.name}` : `❌ Rejected: ${result.name}`;
+        return NextResponse.json({
+          config: { wide_screen_mode: true },
+          elements: [{ tag: "div", text: { tag: "plain_text", content: label } }],
+        });
       }
       return NextResponse.json({});
     }

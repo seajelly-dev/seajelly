@@ -34,7 +34,16 @@ export async function handleApprovalCallback(
       callerUid,
       fallbackAgentId,
     });
-    if (!result) return;
+    if (!result) {
+      try {
+        const agentId = fallbackAgentId;
+        if (agentId) {
+          const bot = await getBotForAgent(agentId);
+          await bot.api.answerCallbackQuery(callbackQuery.id, { text: "⚠️ Already processed" });
+        }
+      } catch { /* ignore */ }
+      return;
+    }
 
     const bot = await getBotForAgent(result.agentId);
     const chatId = callbackQuery.message?.chat.id;

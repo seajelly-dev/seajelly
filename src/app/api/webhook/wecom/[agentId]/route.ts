@@ -95,16 +95,25 @@ export async function POST(
           callerUid,
           fallbackAgentId: agentId,
         });
-        if (result?.targetUid) {
-          try {
-            const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
-            await targetSender.sendText(
-              result.targetUid,
-              act === "approve"
-                ? "✅ Your access has been approved! You can start chatting now."
-                : "❌ Your access request has been rejected.",
-            );
-          } catch { /* target unreachable */ }
+
+        const ownerSender = await getSenderForAgent(agentId, "wecom");
+        if (!result) {
+          await ownerSender.sendText(callerUid, "⚠️ Already processed.").catch(() => {});
+        } else {
+          const label = act === "approve" ? `✅ Approved: ${result.name}` : `❌ Rejected: ${result.name}`;
+          await ownerSender.sendText(callerUid, label).catch(() => {});
+
+          if (result.targetUid) {
+            try {
+              const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
+              await targetSender.sendText(
+                result.targetUid,
+                act === "approve"
+                  ? "✅ Your access has been approved! You can start chatting now."
+                  : "❌ Your access request has been rejected.",
+              );
+            } catch { /* target unreachable */ }
+          }
         }
       }
       return NextResponse.json({ ok: true });
