@@ -39,9 +39,17 @@ export async function GET(req: NextRequest) {
 
     const engine = (link.config as Record<string, string>)?.engine || settings.asr_engine || "gemini-asr";
 
+    if (engine === "doubao-asr") {
+      const proxyUrl = settings.doubao_proxy_url || "";
+      if (!proxyUrl) {
+        return NextResponse.json({ error: "Doubao proxy URL not configured" }, { status: 500 });
+      }
+      return NextResponse.json({ engine, proxyUrl });
+    }
+
     const { data: keyRow } = await supabase
       .from("voice_api_keys")
-      .select("encrypted_value, extra_config")
+      .select("encrypted_value")
       .eq("engine", engine)
       .eq("is_active", true)
       .limit(1)
@@ -51,19 +59,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: `No API key configured for ASR engine: ${engine}` }, { status: 500 });
     }
 
-    const apiKey = decrypt(keyRow.encrypted_value);
-    const extraConfig = keyRow.extra_config as Record<string, string> || {};
-
-    if (engine === "doubao-asr") {
-      return NextResponse.json({
-        engine,
-        proxyUrl: extraConfig.proxy_url || "",
-      });
-    }
-
     return NextResponse.json({
       engine,
-      apiKey,
+      apiKey: decrypt(keyRow.encrypted_value),
       model: "gemini-2.5-flash-native-audio-preview-09-2025",
     });
   } catch (err) {

@@ -60,7 +60,6 @@ export default function VoicePage() {
   const [ttsKeyInput, setTtsKeyInput] = useState("");
   const [liveKeyInput, setLiveKeyInput] = useState("");
   const [asrKeyInput, setAsrKeyInput] = useState("");
-  const [doubaoKeyInput, setDoubaoKeyInput] = useState("");
   const [doubaoProxyInput, setDoubaoProxyInput] = useState("");
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
@@ -115,7 +114,6 @@ export default function VoicePage() {
       if (engine === "aistudio" || engine === "cloud-gemini") setTtsKeyInput("");
       if (engine === "gemini-live") setLiveKeyInput("");
       if (engine === "gemini-asr") setAsrKeyInput("");
-      if (engine === "doubao-asr") { setDoubaoKeyInput(""); setDoubaoProxyInput(""); }
     } catch {
       toast.error(t("voice.keySaveFailed"));
     } finally {
@@ -501,12 +499,12 @@ export default function VoicePage() {
                 </div>
               </div>
 
-              {/* Doubao ASR Key */}
+              {/* Doubao ASR Proxy */}
               <div className="flex flex-col gap-2 pt-2 border-t">
                 <div className="flex items-center gap-2">
                   <KeyRound className="size-4 text-muted-foreground" />
-                  <Label>{t("voice.apiKey")} (doubao-asr)</Label>
-                  {hasKey("doubao-asr") ? (
+                  <Label>{t("voice.doubaoAsr")}</Label>
+                  {settings.doubao_proxy_url ? (
                     <Badge variant="secondary" className="gap-1 text-green-600 dark:text-green-400">
                       <CheckCircle2 className="size-3" /> {t("voice.apiKeyConfigured")}
                     </Badge>
@@ -516,31 +514,21 @@ export default function VoicePage() {
                     </Badge>
                   )}
                 </div>
-                <div className="flex flex-col gap-2">
+                <p className="text-xs text-muted-foreground">{t("voice.doubaoProxyHint")}</p>
+                <div className="flex items-end gap-2">
                   <Input
-                    type="password"
-                    placeholder={t("voice.apiKeyPlaceholder")}
-                    value={doubaoKeyInput}
-                    onChange={(e) => setDoubaoKeyInput(e.target.value)}
+                    placeholder={t("voice.doubaoProxyPlaceholder")}
+                    value={doubaoProxyInput}
+                    onChange={(e) => setDoubaoProxyInput(e.target.value)}
                     className="max-w-sm"
                   />
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-xs text-muted-foreground">{t("voice.doubaoProxyUrl")}</Label>
-                    <Input
-                      placeholder={t("voice.doubaoProxyPlaceholder")}
-                      value={doubaoProxyInput}
-                      onChange={(e) => setDoubaoProxyInput(e.target.value)}
-                      className="max-w-sm"
-                    />
-                  </div>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="w-fit"
-                    onClick={() => saveKey("doubao-asr", doubaoKeyInput, { proxy_url: doubaoProxyInput })}
-                    disabled={!doubaoKeyInput.trim() || savingKey === "doubao-asr"}
+                    onClick={() => updateSettings({ doubao_proxy_url: doubaoProxyInput.trim() })}
+                    disabled={!doubaoProxyInput.trim()}
                   >
-                    {savingKey === "doubao-asr" ? <Loader2 className="size-4 animate-spin" /> : t("voice.saveKey")}
+                    {t("voice.saveKey")}
                   </Button>
                 </div>
               </div>
