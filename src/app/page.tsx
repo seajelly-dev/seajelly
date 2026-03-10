@@ -11,10 +11,11 @@ export default async function RootPage() {
     db = supabase;
   }
 
-  const [admins, secrets, agents] = await Promise.all([
+  const [admins, secrets, agents, providerKeys] = await Promise.all([
     db.from("admins").select("*", { count: "exact", head: true }),
     db.from("secrets").select("key_name"),
     db.from("agents").select("*", { count: "exact", head: true }),
+    db.from("provider_api_keys").select("*", { count: "exact", head: true }),
   ]);
 
   const hasAdmin = (admins.count ?? 0) > 0;
@@ -23,9 +24,7 @@ export default async function RootPage() {
     secretKeys.includes("SUPABASE_SERVICE_ROLE_KEY") &&
     secretKeys.includes("SUPABASE_ACCESS_TOKEN") &&
     secretKeys.includes("SUPABASE_PROJECT_REF");
-  const hasLLMKey = secretKeys.some((k) =>
-    ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "DEEPSEEK_API_KEY"].includes(k)
-  );
+  const hasLLMKey = (providerKeys.count ?? 0) > 0;
   const hasAgent = (agents.count ?? 0) > 0;
 
   if (!hasAdmin || !hasRequiredSecrets || !hasLLMKey || !hasAgent) {

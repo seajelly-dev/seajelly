@@ -1,39 +1,33 @@
-import type { SecretKeyName } from "@/types/database";
+import type { Model, Provider } from "@/types/database";
 
 export interface ModelDef {
   id: string;
+  model_id: string;
   label: string;
-  provider: string;
-  requiredKey: SecretKeyName;
+  provider_id: string;
+  provider_name?: string;
+  provider_type?: string;
 }
 
-export const MODEL_CATALOG: ModelDef[] = [
-  // Anthropic
-  { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4", provider: "Anthropic", requiredKey: "ANTHROPIC_API_KEY" },
-  { id: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku", provider: "Anthropic", requiredKey: "ANTHROPIC_API_KEY" },
-
-  // OpenAI
-  { id: "gpt-4o", label: "GPT-4o", provider: "OpenAI", requiredKey: "OPENAI_API_KEY" },
-  { id: "gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI", requiredKey: "OPENAI_API_KEY" },
-  { id: "o3-mini", label: "o3-mini", provider: "OpenAI", requiredKey: "OPENAI_API_KEY" },
-
-  // Google
-  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", provider: "Google", requiredKey: "GOOGLE_GENERATIVE_AI_API_KEY" },
-  { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", provider: "Google", requiredKey: "GOOGLE_GENERATIVE_AI_API_KEY" },
-  { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite", provider: "Google", requiredKey: "GOOGLE_GENERATIVE_AI_API_KEY" },
-  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google", requiredKey: "GOOGLE_GENERATIVE_AI_API_KEY" },
-  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "Google", requiredKey: "GOOGLE_GENERATIVE_AI_API_KEY" },
-  { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", provider: "Google", requiredKey: "GOOGLE_GENERATIVE_AI_API_KEY" },
-
-  // DeepSeek
-  { id: "deepseek-chat", label: "DeepSeek Chat", provider: "DeepSeek", requiredKey: "DEEPSEEK_API_KEY" },
-  { id: "deepseek-reasoner", label: "DeepSeek Reasoner", provider: "DeepSeek", requiredKey: "DEEPSEEK_API_KEY" },
-];
-
-/**
- * Filter models by which API keys the user has configured.
- * @param configuredKeys - set of key_name strings from the secrets table
- */
-export function getAvailableModels(configuredKeys: Set<string>): ModelDef[] {
-  return MODEL_CATALOG.filter((m) => configuredKeys.has(m.requiredKey));
+export interface ModelWithProvider extends Model {
+  provider_name: string;
+  provider_type: string;
 }
+
+export function toModelDef(m: ModelWithProvider): ModelDef {
+  return {
+    id: m.id,
+    model_id: m.model_id,
+    label: m.label,
+    provider_id: m.provider_id,
+    provider_name: m.provider_name,
+    provider_type: m.provider_type,
+  };
+}
+
+export const BUILTIN_PROVIDER_IDS = {
+  anthropic: "00000000-0000-0000-0000-000000000001",
+  openai: "00000000-0000-0000-0000-000000000002",
+  google: "00000000-0000-0000-0000-000000000003",
+  deepseek: "00000000-0000-0000-0000-000000000004",
+} as const;

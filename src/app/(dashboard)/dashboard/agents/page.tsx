@@ -46,12 +46,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
-import type { Agent, McpServer, Skill } from "@/types/database";
-import {
-  getAvailableModels,
-  MODEL_CATALOG,
-  type ModelDef,
-} from "@/lib/models";
+import type { Agent, McpServer, Skill, Provider } from "@/types/database";
+import type { ModelDef } from "@/lib/models";
 
 export default function AgentsPage() {
   const t = useT();
@@ -79,6 +75,7 @@ export default function AgentsPage() {
   const [form, setForm] = useState({
     name: "",
     system_prompt: "",
+    provider_id: "",
     model: "",
     access_mode: "open" as "open" | "approval" | "whitelist",
     ai_soul: "",
@@ -87,8 +84,8 @@ export default function AgentsPage() {
   });
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
-  const [availableModels, setAvailableModels] =
-    useState<ModelDef[]>(MODEL_CATALOG);
+  const [allProviders, setAllProviders] = useState<Provider[]>([]);
+  const [allModels, setAllModels] = useState<ModelDef[]>([]);
 
   const [boundMcpNames, setBoundMcpNames] = useState<string[]>([]);
   const [boundSkillNames, setBoundSkillNames] = useState<string[]>([]);
@@ -117,18 +114,23 @@ export default function AgentsPage() {
 
   const fetchModels = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/secrets");
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to load secrets");
-      }
-      const keyNames = new Set(
-        (data.secrets ?? []).map((s: { key_name: string }) => s.key_name)
-      );
-      const models = getAvailableModels(keyNames as Set<string>);
-      setAvailableModels(models.length > 0 ? models : MODEL_CATALOG);
+      const [provRes, modRes] = await Promise.all([
+        fetch("/api/admin/providers"),
+        fetch("/api/admin/models"),
+      ]);
+      const provData = await provRes.json();
+      const modData = await modRes.json();
+      setAllProviders(provData.providers ?? []);
+      setAllModels((modData.models ?? []).map((m: ModelDef & Record<string, unknown>) => ({
+        id: m.id,
+        model_id: m.model_id,
+        label: m.label,
+        provider_id: m.provider_id,
+        provider_name: m.provider_name,
+        provider_type: m.provider_type,
+      })));
     } catch {
-      // fallback to full catalog
+      // fallback empty
     }
   }, []);
 
@@ -213,16 +215,32 @@ export default function AgentsPage() {
     agentsWithBot.forEach((a) => fetchWebhookInfo(a.id));
   }, [agents, fetchWebhookInfo]);
 
+  const filteredModels = form.provider_id
+    ? allModels.filter((m) => m.provider_id === form.provider_id)
+    : [];
+
+  const selectedProviderName =
+    allProviders.find((p) => p.id === form.provider_id)?.name ?? "";
+  const selectedModelLabel =
+    allModels.find((m) => m.model_id === form.model && m.provider_id === form.provider_id)?.label
+    ?? allModels.find((m) => m.model_id === form.model)?.label
+    ?? form.model;
+
   const openCreate = () => {
     setEditingAgent(null);
     const defaultToolsConfig: Record<string, boolean> = {};
     for (const t of PRIVILEGED_TOOLS) {
       defaultToolsConfig[t.key] = t.defaultOn;
     }
+    const firstProvider = allProviders[0];
+    const firstModel = firstProvider
+      ? allModels.find((m) => m.provider_id === firstProvider.id)
+      : allModels[0];
     setForm({
       name: "",
       system_prompt: "",
-      model: availableModels[0]?.id ?? "",
+      provider_id: firstProvider?.id ?? "",
+      model: firstModel?.model_id ?? "",
       access_mode: "open",
       ai_soul: "",
       telegram_bot_token: "",
@@ -239,6 +257,7 @@ export default function AgentsPage() {
     setForm({
       name: agent.name,
       system_prompt: agent.system_prompt,
+      provider_id: agent.provider_id || "",
       model: agent.model,
       access_mode: agent.access_mode || "open",
       ai_soul: agent.ai_soul || "",
@@ -257,7 +276,9 @@ export default function AgentsPage() {
     setSaving(true);
     try {
       const method = editingAgent ? "PUT" : "POST";
-      const payload = editingAgent ? { id: editingAgent.id, ...form } : form;
+      const { provider_id, ...restForm } = form;
+      const formData = { ...restForm, provider_id: provider_id || null };
+      const payload = editingAgent ? { id: editingAgent.id, ...formData } : formData;
       const res = await fetch("/api/admin/agents", {
         method,
         headers: { "Content-Type": "application/json" },
@@ -375,23 +396,55 @@ export default function AgentsPage() {
                   </p>
                 </div>
                 <div className="flex flex-col gap-1.5">
+                  <Label>{t("agents.provider")}</Label>
+                  <Select
+                    value={form.provider_id}
+                    onValueChange={(v) => {
+                      const pid = v ?? "";
+                      const provModels = allModels.filter((m) => m.provider_id === pid);
+                      setForm((f) => ({
+                        ...f,
+                        provider_id: pid,
+                        model: provModels[0]?.model_id ?? "",
+                      }));
+                    }}
+                  >
+                    <SelectTrigger>
+                      {selectedProviderName ? (
+                        <span>{selectedProviderName}</span>
+                      ) : (
+                        <span className="text-muted-foreground">{t("agents.selectProvider")}</span>
+                      )}
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allProviders.filter((p) => p.enabled).map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
                   <Label>{t("agents.model")}</Label>
                   <Select
                     value={form.model}
                     onValueChange={(v) =>
                       setForm((f) => ({ ...f, model: v ?? f.model }))
                     }
+                    disabled={!form.provider_id}
                   >
                     <SelectTrigger id="agents-model-select-trigger">
-                      <SelectValue />
+                      {form.model ? (
+                        <span>{selectedModelLabel}</span>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          {form.provider_id ? t("agents.selectModel") : t("agents.selectProviderFirst")}
+                        </span>
+                      )}
                     </SelectTrigger>
                     <SelectContent>
-                      {availableModels.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
+                      {filteredModels.map((m) => (
+                        <SelectItem key={m.model_id} value={m.model_id}>
                           {m.label}
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            {m.provider}
-                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>

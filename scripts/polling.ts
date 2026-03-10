@@ -354,7 +354,7 @@ async function startBotForAgent(agent: AgentRow) {
         messages.push({ role: "user" as const, content: text });
       }
 
-      const model = await getModel(agent.model);
+      const { model } = await getModel(agent.model);
 
       let canEditAiSoul = true;
       if (channel.is_owner) {

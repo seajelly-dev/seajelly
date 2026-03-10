@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Bot, MessageSquare, Radio } from "lucide-react";
+import { Bot, MessageSquare, Radio, Zap, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 
@@ -26,6 +26,7 @@ export default function DashboardPage() {
   const t = useT();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ agents: 0, sessions: 0, events: 0 });
+  const [usage, setUsage] = useState({ total_calls: 0, total_input_tokens: 0, total_output_tokens: 0 });
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
 
   useEffect(() => {
@@ -47,6 +48,19 @@ export default function DashboardPage() {
         events: events.count ?? 0,
       });
       setRecentEvents((recent.data as RecentEvent[]) ?? []);
+
+      try {
+        const usageRes = await fetch("/api/admin/usage?range=today");
+        if (usageRes.ok) {
+          const usageData = await usageRes.json();
+          setUsage({
+            total_calls: usageData.total_calls ?? 0,
+            total_input_tokens: usageData.total_input_tokens ?? 0,
+            total_output_tokens: usageData.total_output_tokens ?? 0,
+          });
+        }
+      } catch {}
+
       setLoading(false);
     };
 
@@ -104,6 +118,27 @@ export default function DashboardPage() {
           value={stats.events}
           desc={t("overview.eventsDesc")}
           icon={<Radio className="size-5 text-primary" />}
+        />
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-3">
+        <StatCard
+          title={t("overview.apiCalls")}
+          value={usage.total_calls}
+          desc={t("overview.apiCallsDesc")}
+          icon={<Zap className="size-5 text-primary" />}
+        />
+        <StatCard
+          title={t("overview.inputTokens")}
+          value={usage.total_input_tokens}
+          desc={t("overview.inputTokensDesc")}
+          icon={<ArrowUpRight className="size-5 text-primary" />}
+        />
+        <StatCard
+          title={t("overview.outputTokens")}
+          value={usage.total_output_tokens}
+          desc={t("overview.outputTokensDesc")}
+          icon={<ArrowDownRight className="size-5 text-primary" />}
         />
       </div>
 
@@ -171,7 +206,7 @@ function StatCard({
             {icon}
           </div>
         </div>
-        <CardTitle className="text-4xl font-bold tracking-tight tabular-nums mt-2">{value}</CardTitle>
+        <CardTitle className="text-4xl font-bold tracking-tight tabular-nums mt-2">{value.toLocaleString()}</CardTitle>
       </CardHeader>
       <CardContent>
         <p className="text-sm text-muted-foreground">{desc}</p>

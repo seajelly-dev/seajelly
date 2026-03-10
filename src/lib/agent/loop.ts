@@ -306,7 +306,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       messages.push({ role: "user" as const, content: messageText });
     }
 
-    const model = await getModel(typedAgent.model);
+    const { model, resolvedProviderId } = await getModel(typedAgent.model, typedAgent.provider_id);
 
     let canEditAiSoul = true;
     if (channel) {
@@ -488,6 +488,22 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     const reply = result.text || "[No response generated]";
+
+    const usageDurationMs = Date.now() - startTime;
+    supabase
+      .from("api_usage_logs")
+      .insert({
+        agent_id: typedAgent.id,
+        provider_id: resolvedProviderId,
+        model_id: typedAgent.model,
+        input_tokens: result.usage?.inputTokens ?? 0,
+        output_tokens: result.usage?.outputTokens ?? 0,
+        duration_ms: usageDurationMs,
+      })
+      .then(
+        () => {},
+        () => {},
+      );
 
     await bot.api
       .sendMessage(telegramChatId, reply, { parse_mode: "Markdown" })

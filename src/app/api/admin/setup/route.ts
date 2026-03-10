@@ -20,10 +20,11 @@ export async function GET() {
     db = await createClient();
   }
 
-  const [admins, secrets, agents] = await Promise.all([
+  const [admins, secrets, agents, providerKeys] = await Promise.all([
     db.from("admins").select("*", { count: "exact", head: true }),
     db.from("secrets").select("key_name"),
     db.from("agents").select("*", { count: "exact", head: true }),
+    db.from("provider_api_keys").select("*", { count: "exact", head: true }),
   ]);
 
   const hasAdmin = (admins.count ?? 0) > 0;
@@ -32,14 +33,7 @@ export async function GET() {
     secretKeys.includes("SUPABASE_ACCESS_TOKEN") &&
     secretKeys.includes("SUPABASE_PROJECT_REF");
   const hasServiceRole = secretKeys.includes("SUPABASE_SERVICE_ROLE_KEY");
-  const hasLLMKey = secretKeys.some((k) =>
-    [
-      "OPENAI_API_KEY",
-      "ANTHROPIC_API_KEY",
-      "GOOGLE_GENERATIVE_AI_API_KEY",
-      "DEEPSEEK_API_KEY",
-    ].includes(k)
-  );
+  const hasLLMKey = (providerKeys.count ?? 0) > 0;
   const hasAgent = (agents.count ?? 0) > 0;
 
   const setupComplete =
@@ -277,9 +271,18 @@ async function handleRegister(body: {
 
 // ─── Step 2: Save API keys ───
 // Uses Management API to bypass RLS (user may not have confirmed email yet)
+// Now saves LLM provider keys to provider_api_keys table, and other secrets to secrets table.
+
+const LLM_KEY_TO_PROVIDER: Record<string, string> = {
+  ANTHROPIC_API_KEY: "00000000-0000-0000-0000-000000000001",
+  OPENAI_API_KEY: "00000000-0000-0000-0000-000000000002",
+  GOOGLE_GENERATIVE_AI_API_KEY: "00000000-0000-0000-0000-000000000003",
+  DEEPSEEK_API_KEY: "00000000-0000-0000-0000-000000000004",
+};
 
 async function handleSecrets(body: {
   secrets: Record<string, string>;
+  providerKeys?: { providerId: string; apiKey: string }[];
   access_token: string;
   project_ref: string;
 }) {
@@ -311,11 +314,12 @@ async function handleSecrets(body: {
   }
 
   try {
-    const entries = Object.entries(body.secrets).filter(
-      ([, value]) => value && value.trim() !== ""
-    );
+    let saved = 0;
 
-    for (const [keyName, value] of entries) {
+    const secretEntries = Object.entries(body.secrets).filter(
+      ([key, value]) => value && value.trim() !== "" && !LLM_KEY_TO_PROVIDER[key]
+    );
+    for (const [keyName, value] of secretEntries) {
       const encryptedValue = encrypt(value).replace(/'/g, "''");
       const escapedKey = keyName.replace(/'/g, "''");
       await execSQL(`
@@ -323,9 +327,23 @@ async function handleSecrets(body: {
         VALUES ('${escapedKey}', '${encryptedValue}')
         ON CONFLICT (key_name) DO UPDATE SET encrypted_value = EXCLUDED.encrypted_value, updated_at = now();
       `);
+      saved++;
     }
 
-    return NextResponse.json({ success: true, count: entries.length });
+    const providerKeyEntries = body.providerKeys?.filter(
+      (pk) => pk.apiKey && pk.apiKey.trim() !== ""
+    ) ?? [];
+    for (const pk of providerKeyEntries) {
+      const encryptedValue = encrypt(pk.apiKey).replace(/'/g, "''");
+      const escapedProviderId = pk.providerId.replace(/'/g, "''");
+      await execSQL(`
+        INSERT INTO public.provider_api_keys (provider_id, encrypted_value, label, is_active)
+        VALUES ('${escapedProviderId}', '${encryptedValue}', 'Setup Key', true);
+      `);
+      saved++;
+    }
+
+    return NextResponse.json({ success: true, count: saved });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to save secrets" },
@@ -485,13 +503,46 @@ ALTER TABLE public.secrets ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "secrets_admin_all" ON public.secrets;
 CREATE POLICY "secrets_admin_all" ON public.secrets FOR ALL USING (public.is_admin());
 
+CREATE TABLE IF NOT EXISTS public.providers (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        text NOT NULL,
+  type        text NOT NULL CHECK (type IN ('anthropic','openai','google','deepseek','openai_compatible')),
+  base_url    text,
+  is_builtin  boolean NOT NULL DEFAULT false,
+  enabled     boolean NOT NULL DEFAULT true,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.providers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "providers_admin_all" ON public.providers;
+CREATE POLICY "providers_admin_all" ON public.providers FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "providers_service_select" ON public.providers;
+CREATE POLICY "providers_service_select" ON public.providers FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+CREATE TABLE IF NOT EXISTS public.provider_api_keys (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id     uuid NOT NULL REFERENCES public.providers(id) ON DELETE CASCADE,
+  encrypted_value text NOT NULL,
+  label           text NOT NULL DEFAULT '',
+  is_active       boolean NOT NULL DEFAULT true,
+  call_count      int NOT NULL DEFAULT 0,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.provider_api_keys ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "provider_api_keys_admin_all" ON public.provider_api_keys;
+CREATE POLICY "provider_api_keys_admin_all" ON public.provider_api_keys FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "provider_api_keys_service_select" ON public.provider_api_keys;
+CREATE POLICY "provider_api_keys_service_select" ON public.provider_api_keys FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
 CREATE TABLE IF NOT EXISTS public.agents (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name              text NOT NULL,
   system_prompt     text NOT NULL DEFAULT '',
   tools_config      jsonb NOT NULL DEFAULT '{}',
   memory_namespace  text NOT NULL DEFAULT 'default',
-  model             text NOT NULL DEFAULT 'claude-sonnet-4-20250514',
+  model             text NOT NULL DEFAULT 'claude-sonnet-4-6',
+  provider_id       uuid REFERENCES public.providers(id) ON DELETE SET NULL,
   is_default        boolean NOT NULL DEFAULT false,
   access_mode       text NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','approval','whitelist')),
   ai_soul           text NOT NULL DEFAULT '',
@@ -790,12 +841,79 @@ DROP POLICY IF EXISTS "html_previews_anon_select" ON public.html_previews;
 CREATE POLICY "html_previews_anon_select" ON public.html_previews FOR SELECT
   USING (true);
 
+CREATE TABLE IF NOT EXISTS public.models (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  model_id    text NOT NULL,
+  label       text NOT NULL,
+  provider_id uuid NOT NULL REFERENCES public.providers(id) ON DELETE CASCADE,
+  is_builtin  boolean NOT NULL DEFAULT false,
+  enabled     boolean NOT NULL DEFAULT true,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(model_id, provider_id)
+);
+ALTER TABLE public.models ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "models_admin_all" ON public.models;
+CREATE POLICY "models_admin_all" ON public.models FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "models_service_select" ON public.models;
+CREATE POLICY "models_service_select" ON public.models FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+CREATE TABLE IF NOT EXISTS public.api_usage_logs (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id        uuid REFERENCES public.agents(id) ON DELETE SET NULL,
+  provider_id     uuid REFERENCES public.providers(id) ON DELETE SET NULL,
+  model_id        text NOT NULL,
+  input_tokens    int NOT NULL DEFAULT 0,
+  output_tokens   int NOT NULL DEFAULT 0,
+  duration_ms     int,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS api_usage_logs_created ON public.api_usage_logs(created_at);
+CREATE INDEX IF NOT EXISTS api_usage_logs_agent ON public.api_usage_logs(agent_id);
+ALTER TABLE public.api_usage_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "api_usage_logs_admin_all" ON public.api_usage_logs;
+CREATE POLICY "api_usage_logs_admin_all" ON public.api_usage_logs FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "api_usage_logs_service_all" ON public.api_usage_logs;
+CREATE POLICY "api_usage_logs_service_all" ON public.api_usage_logs FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+INSERT INTO public.providers (id, name, type, base_url, is_builtin, enabled) VALUES
+  ('00000000-0000-0000-0000-000000000001', 'Anthropic', 'anthropic', NULL, true, true),
+  ('00000000-0000-0000-0000-000000000002', 'OpenAI', 'openai', NULL, true, true),
+  ('00000000-0000-0000-0000-000000000003', 'Google', 'google', NULL, true, true),
+  ('00000000-0000-0000-0000-000000000004', 'DeepSeek', 'deepseek', 'https://api.deepseek.com/v1', true, true)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.models (model_id, label, provider_id, is_builtin) VALUES
+  ('claude-opus-4-6', 'Claude Opus 4.6', '00000000-0000-0000-0000-000000000001', true),
+  ('claude-sonnet-4-6', 'Claude Sonnet 4.6', '00000000-0000-0000-0000-000000000001', true),
+  ('claude-haiku-4-5-20251001', 'Claude Haiku 4.5', '00000000-0000-0000-0000-000000000001', true),
+  ('claude-sonnet-4-20250514', 'Claude Sonnet 4', '00000000-0000-0000-0000-000000000001', true),
+  ('gpt-5.4', 'GPT-5.4', '00000000-0000-0000-0000-000000000002', true),
+  ('gpt-5-mini', 'GPT-5 Mini', '00000000-0000-0000-0000-000000000002', true),
+  ('gpt-5-nano', 'GPT-5 Nano', '00000000-0000-0000-0000-000000000002', true),
+  ('gpt-4.1', 'GPT-4.1', '00000000-0000-0000-0000-000000000002', true),
+  ('gpt-4.1-mini', 'GPT-4.1 Mini', '00000000-0000-0000-0000-000000000002', true),
+  ('gemini-3.1-pro-preview', 'Gemini 3.1 Pro', '00000000-0000-0000-0000-000000000003', true),
+  ('gemini-3-flash-preview', 'Gemini 3 Flash', '00000000-0000-0000-0000-000000000003', true),
+  ('gemini-3.1-flash-lite-preview', 'Gemini 3.1 Flash Lite', '00000000-0000-0000-0000-000000000003', true),
+  ('gemini-2.5-pro', 'Gemini 2.5 Pro', '00000000-0000-0000-0000-000000000003', true),
+  ('gemini-2.5-flash', 'Gemini 2.5 Flash', '00000000-0000-0000-0000-000000000003', true),
+  ('gemini-2.5-flash-lite', 'Gemini 2.5 Flash Lite', '00000000-0000-0000-0000-000000000003', true),
+  ('deepseek-chat', 'DeepSeek Chat', '00000000-0000-0000-0000-000000000004', true),
+  ('deepseek-reasoner', 'DeepSeek Reasoner', '00000000-0000-0000-0000-000000000004', true)
+ON CONFLICT (model_id, provider_id) DO NOTHING;
+
 -- Ensure Supabase API roles can reach schema objects (RLS still applies row-level checks)
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT SELECT ON public.events TO anon;
 GRANT SELECT ON public.html_previews TO anon;
+GRANT ALL ON public.providers TO service_role, authenticated;
+GRANT ALL ON public.provider_api_keys TO service_role, authenticated;
+GRANT ALL ON public.models TO service_role, authenticated;
+GRANT ALL ON public.api_usage_logs TO service_role, authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;

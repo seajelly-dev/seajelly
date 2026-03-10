@@ -26,7 +26,7 @@ export async function summarizeMessages(
     .map((m) => `${m.role}: ${m.content}`)
     .join("\n");
 
-  const model = await getModel(modelId);
+  const { model } = await getModel(modelId);
 
   const result = await generateText({
     model,

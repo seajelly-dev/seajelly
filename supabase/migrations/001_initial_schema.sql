@@ -49,7 +49,45 @@ DROP POLICY IF EXISTS "secrets_admin_all" ON public.secrets;
 CREATE POLICY "secrets_admin_all" ON public.secrets FOR ALL USING (public.is_admin());
 
 -- ============================================================
--- 3. agents
+-- 3. providers
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.providers (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        text NOT NULL,
+  type        text NOT NULL CHECK (type IN ('anthropic','openai','google','deepseek','openai_compatible')),
+  base_url    text,
+  is_builtin  boolean NOT NULL DEFAULT false,
+  enabled     boolean NOT NULL DEFAULT true,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.providers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "providers_admin_all" ON public.providers;
+CREATE POLICY "providers_admin_all" ON public.providers FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "providers_service_select" ON public.providers;
+CREATE POLICY "providers_service_select" ON public.providers FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+-- ============================================================
+-- 4. provider_api_keys
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.provider_api_keys (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id     uuid NOT NULL REFERENCES public.providers(id) ON DELETE CASCADE,
+  encrypted_value text NOT NULL,
+  label           text NOT NULL DEFAULT '',
+  is_active       boolean NOT NULL DEFAULT true,
+  call_count      int NOT NULL DEFAULT 0,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.provider_api_keys ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "provider_api_keys_admin_all" ON public.provider_api_keys;
+CREATE POLICY "provider_api_keys_admin_all" ON public.provider_api_keys FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "provider_api_keys_service_select" ON public.provider_api_keys;
+CREATE POLICY "provider_api_keys_service_select" ON public.provider_api_keys FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+-- ============================================================
+-- 5. agents
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.agents (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -57,7 +95,8 @@ CREATE TABLE IF NOT EXISTS public.agents (
   system_prompt     text NOT NULL DEFAULT '',
   tools_config      jsonb NOT NULL DEFAULT '{}',
   memory_namespace  text NOT NULL DEFAULT 'default',
-  model             text NOT NULL DEFAULT 'claude-sonnet-4-20250514',
+  model             text NOT NULL DEFAULT 'claude-sonnet-4-6',
+  provider_id       uuid REFERENCES public.providers(id) ON DELETE SET NULL,
   is_default        boolean NOT NULL DEFAULT false,
   access_mode       text NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','approval','whitelist')),
   ai_soul           text NOT NULL DEFAULT '',
@@ -359,12 +398,87 @@ DROP POLICY IF EXISTS "html_previews_anon_select" ON public.html_previews;
 CREATE POLICY "html_previews_anon_select" ON public.html_previews FOR SELECT
   USING (true);
 
+-- ============================================================
+-- 16. models
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.models (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  model_id    text NOT NULL,
+  label       text NOT NULL,
+  provider_id uuid NOT NULL REFERENCES public.providers(id) ON DELETE CASCADE,
+  is_builtin  boolean NOT NULL DEFAULT false,
+  enabled     boolean NOT NULL DEFAULT true,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(model_id, provider_id)
+);
+ALTER TABLE public.models ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "models_admin_all" ON public.models;
+CREATE POLICY "models_admin_all" ON public.models FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "models_service_select" ON public.models;
+CREATE POLICY "models_service_select" ON public.models FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+-- ============================================================
+-- 19. api_usage_logs
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.api_usage_logs (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id        uuid REFERENCES public.agents(id) ON DELETE SET NULL,
+  provider_id     uuid REFERENCES public.providers(id) ON DELETE SET NULL,
+  model_id        text NOT NULL,
+  input_tokens    int NOT NULL DEFAULT 0,
+  output_tokens   int NOT NULL DEFAULT 0,
+  duration_ms     int,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS api_usage_logs_created ON public.api_usage_logs(created_at);
+CREATE INDEX IF NOT EXISTS api_usage_logs_agent ON public.api_usage_logs(agent_id);
+ALTER TABLE public.api_usage_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "api_usage_logs_admin_all" ON public.api_usage_logs;
+CREATE POLICY "api_usage_logs_admin_all" ON public.api_usage_logs FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "api_usage_logs_service_all" ON public.api_usage_logs;
+CREATE POLICY "api_usage_logs_service_all" ON public.api_usage_logs FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+-- Seed built-in providers (fixed UUIDs for idempotency)
+INSERT INTO public.providers (id, name, type, base_url, is_builtin, enabled) VALUES
+  ('00000000-0000-0000-0000-000000000001', 'Anthropic', 'anthropic', NULL, true, true),
+  ('00000000-0000-0000-0000-000000000002', 'OpenAI', 'openai', NULL, true, true),
+  ('00000000-0000-0000-0000-000000000003', 'Google', 'google', NULL, true, true),
+  ('00000000-0000-0000-0000-000000000004', 'DeepSeek', 'deepseek', 'https://api.deepseek.com/v1', true, true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Seed built-in models
+INSERT INTO public.models (model_id, label, provider_id, is_builtin) VALUES
+  ('claude-opus-4-6', 'Claude Opus 4.6', '00000000-0000-0000-0000-000000000001', true),
+  ('claude-sonnet-4-6', 'Claude Sonnet 4.6', '00000000-0000-0000-0000-000000000001', true),
+  ('claude-haiku-4-5-20251001', 'Claude Haiku 4.5', '00000000-0000-0000-0000-000000000001', true),
+  ('claude-sonnet-4-20250514', 'Claude Sonnet 4', '00000000-0000-0000-0000-000000000001', true),
+  ('gpt-5.4', 'GPT-5.4', '00000000-0000-0000-0000-000000000002', true),
+  ('gpt-5-mini', 'GPT-5 Mini', '00000000-0000-0000-0000-000000000002', true),
+  ('gpt-5-nano', 'GPT-5 Nano', '00000000-0000-0000-0000-000000000002', true),
+  ('gpt-4.1', 'GPT-4.1', '00000000-0000-0000-0000-000000000002', true),
+  ('gpt-4.1-mini', 'GPT-4.1 Mini', '00000000-0000-0000-0000-000000000002', true),
+  ('gemini-3.1-pro-preview', 'Gemini 3.1 Pro', '00000000-0000-0000-0000-000000000003', true),
+  ('gemini-3-flash-preview', 'Gemini 3 Flash', '00000000-0000-0000-0000-000000000003', true),
+  ('gemini-3.1-flash-lite-preview', 'Gemini 3.1 Flash Lite', '00000000-0000-0000-0000-000000000003', true),
+  ('gemini-2.5-pro', 'Gemini 2.5 Pro', '00000000-0000-0000-0000-000000000003', true),
+  ('gemini-2.5-flash', 'Gemini 2.5 Flash', '00000000-0000-0000-0000-000000000003', true),
+  ('gemini-2.5-flash-lite', 'Gemini 2.5 Flash Lite', '00000000-0000-0000-0000-000000000003', true),
+  ('deepseek-chat', 'DeepSeek Chat', '00000000-0000-0000-0000-000000000004', true),
+  ('deepseek-reasoner', 'DeepSeek Reasoner', '00000000-0000-0000-0000-000000000004', true)
+ON CONFLICT (model_id, provider_id) DO NOTHING;
+
 -- Ensure Supabase API roles can reach schema objects (RLS still applies row-level checks)
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT SELECT ON public.events TO anon;
 GRANT SELECT ON public.html_previews TO anon;
+GRANT ALL ON public.providers TO service_role, authenticated;
+GRANT ALL ON public.provider_api_keys TO service_role, authenticated;
+GRANT ALL ON public.models TO service_role, authenticated;
+GRANT ALL ON public.api_usage_logs TO service_role, authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;

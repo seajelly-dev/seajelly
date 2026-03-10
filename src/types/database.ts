@@ -23,10 +23,54 @@ export interface Agent {
   tools_config: Record<string, unknown>;
   memory_namespace: string;
   model: string;
+  provider_id: string | null;
   is_default: boolean;
   access_mode: AccessMode;
   ai_soul: string;
   telegram_bot_token: string | null;
+  created_at: string;
+}
+
+export type ProviderType = "anthropic" | "openai" | "google" | "deepseek" | "openai_compatible";
+
+export interface Provider {
+  id: string;
+  name: string;
+  type: ProviderType;
+  base_url: string | null;
+  is_builtin: boolean;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface ProviderApiKey {
+  id: string;
+  provider_id: string;
+  encrypted_value: string;
+  label: string;
+  is_active: boolean;
+  call_count: number;
+  created_at: string;
+}
+
+export interface Model {
+  id: string;
+  model_id: string;
+  label: string;
+  provider_id: string;
+  is_builtin: boolean;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface ApiUsageLog {
+  id: string;
+  agent_id: string | null;
+  provider_id: string | null;
+  model_id: string;
+  input_tokens: number;
+  output_tokens: number;
+  duration_ms: number | null;
   created_at: string;
 }
 
@@ -160,10 +204,6 @@ export const SECRET_KEYS = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "SUPABASE_ACCESS_TOKEN",
   "SUPABASE_PROJECT_REF",
-  "OPENAI_API_KEY",
-  "ANTHROPIC_API_KEY",
-  "GOOGLE_GENERATIVE_AI_API_KEY",
-  "DEEPSEEK_API_KEY",
   "EMBEDDING_API_KEY",
   "E2B_API_KEY",
   "GITHUB_TOKEN",

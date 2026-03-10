@@ -19,6 +19,7 @@ import {
   Code2,
   Settings,
   LogOut,
+  Cpu,
 } from "lucide-react";
 import Image from "next/image";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -49,6 +50,7 @@ const NAV_ITEMS: { titleKey: string; href: string; icon: LucideIcon }[] = [
   { titleKey: "sidebar.agents", href: "/dashboard/agents", icon: Bot },
   { titleKey: "sidebar.channels", href: "/dashboard/channels", icon: Users },
   { titleKey: "sidebar.memories", href: "/dashboard/memories", icon: Brain },
+  { titleKey: "sidebar.models", href: "/dashboard/models", icon: Cpu },
   { titleKey: "sidebar.secrets", href: "/dashboard/secrets", icon: KeyRound },
   { titleKey: "sidebar.sessions", href: "/dashboard/sessions", icon: MessageSquare },
   { titleKey: "sidebar.tasks", href: "/dashboard/tasks", icon: Clock },

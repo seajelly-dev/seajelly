@@ -24,7 +24,7 @@ import { toast } from "sonner";
 import { CrabLogo } from "@/components/crab-logo";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useT } from "@/lib/i18n";
-import { getAvailableModels } from "@/lib/models";
+import type { ModelDef } from "@/lib/models";
 
 export default function SetupPage() {
   const router = useRouter();
@@ -42,12 +42,18 @@ export default function SetupPage() {
 
   const [secrets, setSecrets] = useState({
     SUPABASE_SERVICE_ROLE_KEY: "",
-    OPENAI_API_KEY: "",
-    ANTHROPIC_API_KEY: "",
-    GOOGLE_GENERATIVE_AI_API_KEY: "",
-    DEEPSEEK_API_KEY: "",
     EMBEDDING_API_KEY: "",
   });
+
+  const PROVIDER_CHOICES = [
+    { id: "00000000-0000-0000-0000-000000000001", name: "Anthropic" },
+    { id: "00000000-0000-0000-0000-000000000002", name: "OpenAI" },
+    { id: "00000000-0000-0000-0000-000000000003", name: "Google" },
+    { id: "00000000-0000-0000-0000-000000000004", name: "DeepSeek" },
+  ];
+  const [providerKeys, setProviderKeys] = useState<Record<string, string>>(
+    () => Object.fromEntries(PROVIDER_CHOICES.map((p) => [p.id, ""]))
+  );
 
   const [agentName, setAgentName] = useState("Crab");
   const [systemPrompt, setSystemPrompt] = useState(
@@ -88,18 +94,28 @@ You have persistent memory across conversations. Use it wisely:
   );
   const [model, setModel] = useState("");
   const [botToken, setBotToken] = useState("");
-  const [availableModels, setAvailableModels] = useState<
-    ReturnType<typeof getAvailableModels>
-  >([]);
+  const [availableModels, setAvailableModels] = useState<ModelDef[]>([]);
 
   const STEPS_KEYS = ["connect", "register", "secrets", "agent"] as const;
 
-  const loadAvailableModels = (keys: string[]) => {
-    const models = getAvailableModels(new Set(keys));
-    setAvailableModels(models);
-    if (models.length > 0 && !model) {
-      setModel(models[0].id);
-    }
+  const loadAvailableModels = async (_keys?: string[]) => {
+    try {
+      const res = await fetch("/api/admin/models");
+      if (res.ok) {
+        const data = await res.json();
+        const models: ModelDef[] = (data.models ?? []).map((m: ModelDef & Record<string, unknown>) => ({
+          id: m.id,
+          model_id: m.model_id,
+          label: m.label,
+          provider_id: m.provider_id,
+          provider_name: m.provider_name,
+        }));
+        setAvailableModels(models);
+        if (models.length > 0 && !model) {
+          setModel(models[0].model_id);
+        }
+      }
+    } catch {}
   };
 
   useEffect(() => {
@@ -194,23 +210,24 @@ You have persistent memory across conversations. Use it wisely:
       toast.error(t("setup.errors.serviceRoleRequired"));
       return;
     }
-    const hasLLMKey =
-      secrets.OPENAI_API_KEY ||
-      secrets.ANTHROPIC_API_KEY ||
-      secrets.GOOGLE_GENERATIVE_AI_API_KEY ||
-      secrets.DEEPSEEK_API_KEY;
-    if (!hasLLMKey) {
+    const hasProviderKey = Object.values(providerKeys).some((v) => v.trim() !== "");
+    if (!hasProviderKey) {
       toast.error(t("setup.errors.llmKeyRequired"));
       return;
     }
     setLoading(true);
     try {
+      const pkEntries = Object.entries(providerKeys)
+        .filter(([, v]) => v.trim() !== "")
+        .map(([providerId, apiKey]) => ({ providerId, apiKey }));
+
       const res = await fetch("/api/admin/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           step: "secrets",
           secrets,
+          providerKeys: pkEntries,
           access_token: supabasePAT,
           project_ref: projectRef,
         }),
@@ -218,10 +235,7 @@ You have persistent memory across conversations. Use it wisely:
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       toast.success(t("setup.success.keysSaved", { count: data.count }));
-      const filledKeys = Object.entries(secrets)
-        .filter(([, v]) => v.trim() !== "")
-        .map(([k]) => k);
-      loadAvailableModels(filledKeys);
+      loadAvailableModels();
       setCurrentStep(3);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("setup.errors.saveKeysFailed"));
@@ -405,42 +419,21 @@ You have persistent memory across conversations. Use it wisely:
                 <p className="mb-3 text-sm font-medium text-muted-foreground">
                   {t("setup.llmKeysTitle")}
                 </p>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {t("setup.llmKeysHint")}
+                </p>
                 <div className="flex flex-col gap-3">
-                  <SecretField
-                    label={t("setup.anthropicKey")}
-                    placeholder={t("setup.pasteKeyPlaceholder")}
-                    value={secrets.ANTHROPIC_API_KEY}
-                    onChange={(v) =>
-                      setSecrets((s) => ({ ...s, ANTHROPIC_API_KEY: v }))
-                    }
-                  />
-                  <SecretField
-                    label={t("setup.openaiKey")}
-                    placeholder={t("setup.pasteKeyPlaceholder")}
-                    value={secrets.OPENAI_API_KEY}
-                    onChange={(v) =>
-                      setSecrets((s) => ({ ...s, OPENAI_API_KEY: v }))
-                    }
-                  />
-                  <SecretField
-                    label={t("setup.googleKey")}
-                    placeholder={t("setup.pasteKeyPlaceholder")}
-                    value={secrets.GOOGLE_GENERATIVE_AI_API_KEY}
-                    onChange={(v) =>
-                      setSecrets((s) => ({
-                        ...s,
-                        GOOGLE_GENERATIVE_AI_API_KEY: v,
-                      }))
-                    }
-                  />
-                  <SecretField
-                    label={t("setup.deepseekKey")}
-                    placeholder={t("setup.pasteKeyPlaceholder")}
-                    value={secrets.DEEPSEEK_API_KEY}
-                    onChange={(v) =>
-                      setSecrets((s) => ({ ...s, DEEPSEEK_API_KEY: v }))
-                    }
-                  />
+                  {PROVIDER_CHOICES.map((p) => (
+                    <SecretField
+                      key={p.id}
+                      label={`${p.name} API Key`}
+                      placeholder={t("setup.pasteKeyPlaceholder")}
+                      value={providerKeys[p.id] ?? ""}
+                      onChange={(v) =>
+                        setProviderKeys((prev) => ({ ...prev, [p.id]: v }))
+                      }
+                    />
+                  ))}
                 </div>
               </div>
               <SecretField
@@ -501,10 +494,10 @@ You have persistent memory across conversations. Use it wisely:
                     </SelectTrigger>
                     <SelectContent>
                       {availableModels.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
+                        <SelectItem key={m.model_id} value={m.model_id}>
                           {m.label}
                           <span className="ml-2 text-xs text-muted-foreground">
-                            {m.provider}
+                            {m.provider_name}
                           </span>
                         </SelectItem>
                       ))}
