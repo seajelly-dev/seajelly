@@ -21,6 +21,8 @@ export async function POST(
     const { agentId } = await params;
     const rawBody = await request.text();
 
+    console.log("QQBot webhook: incoming request, body_len:", rawBody.length, "raw:", rawBody.slice(0, 200));
+
     let body: Record<string, unknown>;
     try {
       body = JSON.parse(rawBody);
@@ -40,25 +42,23 @@ export async function POST(
     // Op 13: webhook URL validation challenge
     if (body.op === 13) {
       try {
-        const d = body.d as { plain_token: string; event_ts: string };
-        console.log(
-          "QQBot webhook: secret_len:", creds.appSecret.length,
-          "secret_prefix:", creds.appSecret.slice(0, 4),
-          "secret_has_whitespace:", /\s/.test(creds.appSecret),
-        );
-        const signature = signQQBotChallenge(creds.appSecret, d.event_ts, d.plain_token);
+        const d = body.d as { plain_token: string; event_ts: string | number };
+        const eventTs = String(d.event_ts);
+        const plainToken = String(d.plain_token);
+        const signature = signQQBotChallenge(creds.appSecret, eventTs, plainToken);
         const respBody = { plain_token: d.plain_token, signature };
         console.log(
-          "QQBot webhook: challenge response for agent", agentId,
-          "plain_token:", d.plain_token,
-          "event_ts:", d.event_ts,
-          "sig_len:", signature.length,
-          "sig_prefix:", signature.slice(0, 16),
-          "resp:", JSON.stringify(respBody),
+          "QQBot webhook: challenge ok, agent:", agentId,
+          "pt:", d.plain_token,
+          "ts:", d.event_ts,
+          "sig:", signature.slice(0, 20) + "...",
         );
         return new Response(JSON.stringify(respBody), {
           status: 200,
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Bot-Appid": creds.appId,
+          },
         });
       } catch (signErr) {
         console.error("QQBot webhook: challenge signing failed:", signErr);
