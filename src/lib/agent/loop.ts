@@ -566,7 +566,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         const humanError = getHumanReadableError(err);
         await bot.api.sendMessage(
           Number(event.platform_chat_id),
-          `⚠️ 抱歉，处理消息时遇到了错误：${humanError}\n请稍后再试。`
+          `⚠️ Error: ${humanError}`
         );
       } catch {
         // ignore send failure

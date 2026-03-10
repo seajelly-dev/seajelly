@@ -476,7 +476,7 @@ INSERT INTO public.providers (id, name, type, base_url, is_builtin, enabled) VAL
   ('00000000-0000-0000-0000-000000000001', 'Anthropic', 'anthropic', NULL, true, true),
   ('00000000-0000-0000-0000-000000000002', 'OpenAI', 'openai', NULL, true, true),
   ('00000000-0000-0000-0000-000000000003', 'Google', 'google', NULL, true, true),
-  ('00000000-0000-0000-0000-000000000004', 'DeepSeek', 'deepseek', 'https://api.deepseek.com/v1', true, true)
+  ('00000000-0000-0000-0000-000000000004', 'DeepSeek', 'deepseek', 'https://api.deepseek.com', true, true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Seed built-in models

@@ -7,7 +7,7 @@ import type { LanguageModel } from "ai";
 import type { ProviderType } from "@/types/database";
 
 const BUILTIN_BASE_URLS: Record<string, string | undefined> = {
-  deepseek: "https://api.deepseek.com/v1",
+  deepseek: "https://api.deepseek.com",
 };
 
 function getSupabase() {
@@ -39,22 +39,28 @@ export function isRateLimitError(error: unknown): boolean {
 export function getHumanReadableError(error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
   if (isRateLimitError(error)) {
-    return "模型当前负载过高或触发了速率限制";
+    return "Rate limit / high demand — please retry later";
+  }
+  if (/\b404\b|not.?found/i.test(msg)) {
+    return "Model not found — please check provider & model settings";
+  }
+  if (/No API key configured/i.test(msg)) {
+    return "No API key configured for this provider";
   }
   if (/authentication|unauthorized|invalid.*key|api.?key/i.test(msg)) {
-    return "API 密钥认证失败";
+    return "API key authentication failed";
   }
   if (/timeout|timed?\s*out|deadline/i.test(msg)) {
-    return "请求超时";
+    return "Request timed out";
   }
   if (/abort/i.test(msg)) {
-    return "请求被中止（可能超出了最大处理时间）";
+    return "Request aborted (possibly exceeded max processing time)";
   }
   if (/context.?length|token.?limit|too.?long/i.test(msg)) {
-    return "消息过长，超出了模型的上下文窗口限制";
+    return "Message too long — exceeds context window limit";
   }
   if (/network|connect|ECONNREFUSED|ENOTFOUND/i.test(msg)) {
-    return "网络连接失败";
+    return "Network connection failed";
   }
   const short = msg.length > 200 ? msg.slice(0, 200) + "..." : msg;
   return short;
@@ -165,12 +171,12 @@ function createModelFromType(
         apiKey,
         baseURL: baseUrl || BUILTIN_BASE_URLS.deepseek!,
       });
-      return openai(modelId);
+      return openai.chat(modelId);
     }
     case "openai_compatible": {
       if (!baseUrl) throw new Error("base_url required for openai_compatible provider");
       const openai = createOpenAI({ apiKey, baseURL: baseUrl });
-      return openai(modelId);
+      return openai.chat(modelId);
     }
     default:
       throw new Error(`Unsupported provider type: ${type}`);

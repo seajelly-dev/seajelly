@@ -84,6 +84,7 @@ interface AgentRow {
   id: string;
   name: string;
   model: string;
+  provider_id: string | null;
   system_prompt: string;
   access_mode: string;
   ai_soul: string;
@@ -354,7 +355,7 @@ async function startBotForAgent(agent: AgentRow) {
         messages.push({ role: "user" as const, content: text });
       }
 
-      const { model, pickedKeyId } = await getModel(agent.model);
+      const { model, pickedKeyId } = await getModel(agent.model, agent.provider_id);
 
       let canEditAiSoul = true;
       if (channel.is_owner) {
@@ -542,7 +543,7 @@ async function startBotForAgent(agent: AgentRow) {
     } catch (err) {
       console.error(`[${agent.name}] Error:`, err);
       const humanError = getHumanReadableError(err);
-      await ctx.reply(`⚠️ 抱歉，处理消息时遇到了错误：${humanError}\n请稍后再试。`);
+      await ctx.reply(`⚠️ Error: ${humanError}`);
     }
   }
 
@@ -650,7 +651,7 @@ async function main() {
 
   const { data: agents, error } = await supabase
     .from("agents")
-    .select("id, name, model, system_prompt, access_mode, ai_soul, telegram_bot_token, tools_config")
+    .select("id, name, model, provider_id, system_prompt, access_mode, ai_soul, telegram_bot_token, tools_config")
     .not("telegram_bot_token", "is", null);
 
   if (error) {
