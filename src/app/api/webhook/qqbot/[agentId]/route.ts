@@ -41,6 +41,11 @@ export async function POST(
     if (body.op === 13) {
       try {
         const d = body.d as { plain_token: string; event_ts: string };
+        console.log(
+          "QQBot webhook: secret_len:", creds.appSecret.length,
+          "secret_prefix:", creds.appSecret.slice(0, 4),
+          "secret_has_whitespace:", /\s/.test(creds.appSecret),
+        );
         const signature = signQQBotChallenge(creds.appSecret, d.event_ts, d.plain_token);
         const respBody = { plain_token: d.plain_token, signature };
         console.log(
