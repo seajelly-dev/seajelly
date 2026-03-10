@@ -144,7 +144,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             typedAgent.id,
             channel,
             typedAgent.access_mode === "approval"
-          ).catch(() => {});
+          ).catch((err) => {
+            console.error("notifyOwnerOfNewChannel failed:", err);
+          });
         }
       }
 
@@ -152,8 +154,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         await sender.sendText(
           platformChatId,
           "⏳ This agent is in approval mode. Your access request has been sent to the owner. " +
-          "You will be notified once the owner approves or rejects your request. Please wait.\n\n" +
-          "⏳ 此 Agent 处于审核模式，您的访问请求已发送给管理员。审核结果将会通知您，请耐心等待。"
+          "You will be notified once approved or rejected. Please wait."
         );
         return { success: true, reply: "[pending_approval]", traceId };
       }
@@ -699,7 +700,8 @@ async function notifyOwnerOfNewChannel(
   let ownerSender: PlatformSender;
   try {
     ownerSender = await getSenderForAgent(agentId, ownerChannel.platform);
-  } catch {
+  } catch (err) {
+    console.error("notifyOwner: getSenderForAgent failed:", ownerChannel.platform, err);
     return;
   }
 
@@ -716,17 +718,21 @@ async function notifyOwnerOfNewChannel(
       `*Platform:* ${newChannel.platform}\n` +
       `*ID:* \`${newChannel.platform_uid}\``;
 
-  if (needsApproval) {
-    await ownerSender.sendInteractiveButtons(
-      ownerChannel.platform_uid,
-      text,
-      [[
-        { label: "✅ Approve", callbackData: `approve:${newChannel.id}` },
-        { label: "❌ Reject", callbackData: `reject:${newChannel.id}` },
-      ]],
-      { parseMode: "Markdown" },
-    );
-  } else {
-    await ownerSender.sendMarkdown(ownerChannel.platform_uid, text);
+  try {
+    if (needsApproval) {
+      await ownerSender.sendInteractiveButtons(
+        ownerChannel.platform_uid,
+        text,
+        [[
+          { label: "✅ Approve", callbackData: `approve:${newChannel.id}` },
+          { label: "❌ Reject", callbackData: `reject:${newChannel.id}` },
+        ]],
+        { parseMode: "Markdown" },
+      );
+    } else {
+      await ownerSender.sendMarkdown(ownerChannel.platform_uid, text);
+    }
+  } catch (err) {
+    console.error("notifyOwner: send failed:", ownerChannel.platform, ownerChannel.platform_uid, err);
   }
 }

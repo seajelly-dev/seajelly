@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { getSenderForAgent } from "@/lib/platform/sender";
 
@@ -88,10 +88,11 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  if (before && !before.is_allowed && filtered.is_allowed === true) {
-    notifyApprovalResult(before.agent_id, before.platform, before.platform_uid, true).catch(() => {});
-  } else if (before && before.is_allowed && filtered.is_allowed === false) {
-    notifyApprovalResult(before.agent_id, before.platform, before.platform_uid, false).catch(() => {});
+  if (before && filtered.is_allowed !== undefined && before.is_allowed !== filtered.is_allowed) {
+    const approved = filtered.is_allowed === true;
+    after(async () => {
+      await notifyApprovalResult(before.agent_id, before.platform, before.platform_uid, approved);
+    });
   }
 
   return NextResponse.json({ channel: data });
@@ -108,10 +109,12 @@ async function notifyApprovalResult(
     await sender.sendText(
       platformUid,
       approved
-        ? "✅ Your access has been approved! You can start chatting now.\n\n✅ 您的访问请求已通过审核，现在可以开始对话了。"
-        : "❌ Your access has been revoked.\n\n❌ 您的访问权限已被撤销。",
+        ? "✅ Your access has been approved! You can start chatting now."
+        : "❌ Your access has been revoked.",
     );
-  } catch { /* user unreachable */ }
+  } catch (err) {
+    console.error("notifyApprovalResult failed:", platform, platformUid, err);
+  }
 }
 
 export async function DELETE(request: Request) {
