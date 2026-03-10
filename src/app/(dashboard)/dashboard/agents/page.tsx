@@ -134,6 +134,14 @@ const PLATFORMS: PlatformDef[] = [
   },
 ];
 
+const PLATFORM_HINT_KEYS: Record<PlatformKey, string> = {
+  telegram: "hintTelegram",
+  feishu: "hintFeishu",
+  wecom: "hintWecom",
+  slack: "hintSlack",
+  qqbot: "hintQqbot",
+};
+
 function useOrigin() {
   const [origin, setOrigin] = useState("");
   useEffect(() => { setOrigin(window.location.origin); }, []);
@@ -478,6 +486,9 @@ export default function AgentsPage() {
       const isConnected = channelExpanded === "telegram"
         ? !!form.telegram_bot_token || !!(editingAgent as AgentExt)?.has_bot_token
         : !!(editingAgent as AgentExt)?.platforms?.[channelExpanded];
+      const hasNewInput = channelExpanded === "telegram"
+        ? !!form.telegram_bot_token
+        : Object.values(form.platform_credentials[channelExpanded] || {}).some((v) => v?.trim());
 
       return (
         <DialogContent className="sm:max-w-2xl">
@@ -551,6 +562,11 @@ export default function AgentsPage() {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
+                {PLATFORM_HINT_KEYS[channelExpanded as PlatformKey] && (
+                  <p className="text-xs text-muted-foreground rounded-md bg-muted/50 px-3 py-2">
+                    {t(`agents.${PLATFORM_HINT_KEYS[channelExpanded as PlatformKey]}` as never)}
+                  </p>
+                )}
                 {plat.fields.map((field) => (
                   <div key={field.name} className="flex flex-col gap-1.5">
                     <Label>{field.label}</Label>
@@ -591,7 +607,7 @@ export default function AgentsPage() {
                         </Button>
                       </div>
                     </div>
-                    {isConnected && (
+                    {(isConnected || hasNewInput) && (
                       <div className="flex items-center gap-3">
                         <Button
                           variant="outline"
