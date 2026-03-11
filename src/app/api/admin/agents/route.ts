@@ -84,12 +84,26 @@ export async function GET() {
   }
 
   const agentIds = (data ?? []).map((a) => a.id);
-  const { data: creds } = agentIds.length > 0
-    ? await db
-        .from("agent_credentials")
-        .select("agent_id, platform, credential_type")
-        .in("agent_id", agentIds)
-    : { data: [] };
+  const [{ data: creds }, { data: ownerChannels }] = await Promise.all([
+    agentIds.length > 0
+      ? db
+          .from("agent_credentials")
+          .select("agent_id, platform, credential_type")
+          .in("agent_id", agentIds)
+      : Promise.resolve({ data: [] as { agent_id: string; platform: string; credential_type: string }[] }),
+    agentIds.length > 0
+      ? db
+          .from("channels")
+          .select("agent_id, display_name, platform_uid, platform")
+          .in("agent_id", agentIds)
+          .eq("is_owner", true)
+      : Promise.resolve({ data: [] as { agent_id: string; display_name: string | null; platform_uid: string; platform: string }[] }),
+  ]);
+
+  const ownerMap = new Map<string, { display_name: string | null; platform_uid: string; platform: string }>();
+  for (const ch of ownerChannels ?? []) {
+    ownerMap.set(ch.agent_id, { display_name: ch.display_name, platform_uid: ch.platform_uid, platform: ch.platform });
+  }
 
   const credMap = new Map<string, Set<string>>();
   for (const c of creds ?? []) {
@@ -108,11 +122,14 @@ export async function GET() {
       slack: (agentCreds?.has("slack:bot_token") && agentCreds?.has("slack:signing_secret")) ?? false,
       qqbot: (agentCreds?.has("qqbot:app_id") && agentCreds?.has("qqbot:app_secret")) ?? false,
     };
+    const owner = ownerMap.get(a.id);
     return {
       ...a,
       telegram_bot_token: a.telegram_bot_token ? "••••••" : null,
       has_bot_token: platforms.telegram,
       platforms,
+      owner_name: owner?.display_name || owner?.platform_uid || null,
+      owner_platform: owner?.platform || null,
     };
   });
 

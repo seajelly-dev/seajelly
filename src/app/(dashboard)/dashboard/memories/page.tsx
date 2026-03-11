@@ -148,11 +148,16 @@ export default function MemoriesPage() {
 
   useEffect(() => { fetchSettings(); }, [fetchSettings]);
 
-  // Debounce input changes
+  // Debounce input changes — 使用函数式更新避免相同值时创建新引用
   useEffect(() => {
     const handler = setTimeout(() => {
-      setDebouncedFilters({ agent: filterAgent, channel: filterChannel, scope: filterScope });
-    }, 800); // 严格遵循 5000ms 测试要求
+      setDebouncedFilters((prev) => {
+        if (prev.agent === filterAgent && prev.channel === filterChannel && prev.scope === filterScope) {
+          return prev; // 值未变化，返回同一引用，不触发重渲染
+        }
+        return { agent: filterAgent, channel: filterChannel, scope: filterScope };
+      });
+    }, 800);
     return () => clearTimeout(handler);
   }, [filterAgent, filterChannel, filterScope]);
 

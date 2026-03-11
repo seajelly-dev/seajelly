@@ -44,6 +44,7 @@ import {
   Copy,
   Zap,
   ArrowLeft,
+  User,
 } from "lucide-react";
 import {
   TelegramIcon,
@@ -182,6 +183,8 @@ You have persistent memory across conversations. Use it wisely:
 type AgentExt = Agent & {
   has_bot_token?: boolean;
   platforms?: Record<string, boolean>;
+  owner_name?: string | null;
+  owner_platform?: string | null;
 };
 
 export default function AgentsPage() {
@@ -1062,7 +1065,7 @@ export default function AgentsPage() {
                         <Badge variant="secondary" className="text-[10px] h-5 px-1.5 shrink-0 bg-muted/60 hover:bg-muted font-medium">{t("agents.default")}</Badge>
                       )}
                     </CardTitle>
-                    <CardDescription className="mt-2 flex items-center gap-2 text-xs">
+                    <CardDescription className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                       <span className="font-mono text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded-md border border-border/30 truncate max-w-[120px] sm:max-w-[200px]" title={agent.model}>{agent.model}</span>
                       <span className="text-muted-foreground/30">•</span>
                       <span className="flex items-center gap-1 text-muted-foreground">
@@ -1072,6 +1075,13 @@ export default function AgentsPage() {
                           : agent.access_mode === "approval"
                             ? t("agents.approval")
                             : t("agents.open")}
+                      </span>
+                      <span className="text-muted-foreground/30">•</span>
+                      <span className="flex items-center gap-1 text-muted-foreground" title={(agent as AgentExt).owner_name || t("agents.noOwner")}>
+                        <User className="size-3" />
+                        <span className="truncate max-w-[80px] sm:max-w-[120px]">
+                          {(agent as AgentExt).owner_name || t("agents.noOwner")}
+                        </span>
                       </span>
                     </CardDescription>
                   </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -63,18 +63,26 @@ const NAV_ITEMS: { titleKey: string; href: string; icon: LucideIcon }[] = [
   { titleKey: "sidebar.settings", href: "/dashboard/settings", icon: Settings },
 ];
 
-export function DashboardSidebar({ userEmail }: { userEmail: string }) {
-  const pathname = usePathname();
+/**
+ * 隔离 useSearchParams —— 该 hook 会触发 Suspense 边界，
+ * 如果放在 DashboardSidebar 顶层，可能导致整个 sidebar 被 Suspense
+ * 捕获，从而使 I18nProvider context 在 SSR 时不可用。
+ */
+function LoginGateCapture() {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const t = useT();
-
   useEffect(() => {
     const key = searchParams.get(LOGIN_GATE_QUERY_PARAM);
     if (key) {
       sessionStorage.setItem("seajelly_login_gate_key", key);
     }
   }, [searchParams]);
+  return null;
+}
+
+export function DashboardSidebar({ userEmail }: { userEmail: string }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const t = useT();
 
   const handleSignOut = async () => {
     const supabase = createClient();
@@ -89,6 +97,9 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
 
   return (
     <Sidebar>
+      <Suspense fallback={null}>
+        <LoginGateCapture />
+      </Suspense>
       <SidebarHeader className="border-b px-4 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
