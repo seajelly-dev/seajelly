@@ -63,6 +63,7 @@ interface ToolsOptions {
   isOwner?: boolean;
   sender: PlatformSender;
   platformChatId: string;
+  platform: string;
 }
 
 function computePushPayloadHash(params: {
@@ -82,7 +83,7 @@ function computePushPayloadHash(params: {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-export function createAgentTools({ agentId, channelId, isOwner, sender, platformChatId }: ToolsOptions) {
+export function createAgentTools({ agentId, channelId, isOwner, sender, platformChatId, platform }: ToolsOptions) {
   const supabase = getSupabase();
 
   function getTaskJobName(taskConfig: unknown): string | null {
@@ -413,25 +414,13 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           return { success: false, error: "CRON_SECRET not configured — cannot schedule tasks" };
         }
 
-        const chatIdResult = await supabase
-          .from("sessions")
-          .select("platform_chat_id")
-          .eq("agent_id", agentId)
-          .eq("is_active", true)
-          .order("updated_at", { ascending: false })
-          .limit(1)
-          .single();
-
-        if (!chatIdResult.data?.platform_chat_id) {
-          return { success: false, error: "No active chat session found" };
-        }
-
-        const chatId = chatIdResult.data.platform_chat_id;
+        const chatId = platformChatId;
 
         const bodyObj: Record<string, unknown> = {
           task_type,
           agent_id: agentId,
           chat_id: chatId,
+          platform,
           job_name,
         };
         if (task_type === "reminder") bodyObj.message = message;
@@ -447,7 +436,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           return { success: false, error: result.error };
         }
 
-        const taskConfig: Record<string, unknown> = { job_name, chat_id: chatId };
+        const taskConfig: Record<string, unknown> = { job_name, chat_id: chatId, platform };
         if (message) taskConfig.message = message;
         if (prompt) taskConfig.prompt = prompt;
         if (once) taskConfig.once = true;

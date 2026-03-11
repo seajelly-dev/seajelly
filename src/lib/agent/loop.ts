@@ -434,6 +434,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       isOwner: canEditAiSoul,
       sender,
       platformChatId,
+      platform,
     });
 
     // ── Filter tools by tools_config (least-privilege enforcement) ──

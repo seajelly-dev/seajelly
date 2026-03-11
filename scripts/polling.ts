@@ -379,6 +379,7 @@ async function startBotForAgent(agent: AgentRow) {
         isOwner: canEditAiSoul,
         sender: pollingSender,
         platformChatId: pollingPlatformChatId,
+        platform: "telegram",
       });
 
       const TOOL_DEFAULTS: Record<string, boolean> = {

@@ -63,6 +63,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  let onceJobName: string | null = null;
+  let agentIdForCleanup: string | null = null;
+
   try {
     const body = await request.json();
     const { task_type, agent_id, chat_id, platform_chat_id: pci, ...rest } = body;
@@ -74,6 +77,9 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    agentIdForCleanup = agent_id;
+    onceJobName = rest.once && typeof rest.job_name === "string" ? rest.job_name : null;
 
     const type = task_type || "reminder";
     const platform = (rest.platform as string) || "telegram";
@@ -138,30 +144,25 @@ export async function POST(request: Request) {
         );
     }
 
-    // For one-shot tasks, mark local rows disabled immediately (authoritative UI state),
-    // then unschedule pg_cron in background.
-    let localDisabled = 0;
-    const onceJobName =
-      rest.once && typeof rest.job_name === "string" ? rest.job_name : null;
-    if (onceJobName) {
-      localDisabled = await disableLocalCronJobs(agent_id, onceJobName);
-      after(async () => {
-        try {
-          await unscheduleCronJob(onceJobName);
-        } catch (e) {
-          console.warn("One-shot cleanup failed:", e);
-        }
-      });
-    }
-
     return NextResponse.json({
       success: true,
       task_type: type,
-      once_cleanup: onceJobName ? { local_disabled: localDisabled } : undefined,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("Cron worker error:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
+  } finally {
+    if (onceJobName && agentIdForCleanup) {
+      const localDisabled = await disableLocalCronJobs(agentIdForCleanup, onceJobName);
+      console.log(`Once cleanup: ${onceJobName} disabled ${localDisabled} local rows`);
+      after(async () => {
+        try {
+          await unscheduleCronJob(onceJobName!);
+        } catch (e) {
+          console.warn("One-shot pg_cron cleanup failed:", e);
+        }
+      });
+    }
   }
 }
