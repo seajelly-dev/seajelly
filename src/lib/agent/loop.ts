@@ -695,7 +695,11 @@ async function notifyOwnerOfNewChannel(
     .eq("is_owner", true)
     .single();
 
-  if (!ownerChannel) return;
+  if (!ownerChannel) {
+    console.warn("notifyOwner: no owner channel found for agent", agentId);
+    return;
+  }
+  console.log("notifyOwner: owner is", ownerChannel.platform, ownerChannel.platform_uid);
 
   let ownerSender: PlatformSender;
   try {
@@ -719,6 +723,10 @@ async function notifyOwnerOfNewChannel(
       `*ID:* \`${newChannel.platform_uid}\``;
 
   try {
+    console.log(
+      "notifyOwner: sending to", ownerChannel.platform, ownerChannel.platform_uid,
+      "needsApproval:", needsApproval, "newChannel:", newChannel.id,
+    );
     if (needsApproval) {
       await ownerSender.sendInteractiveButtons(
         ownerChannel.platform_uid,
@@ -732,6 +740,7 @@ async function notifyOwnerOfNewChannel(
     } else {
       await ownerSender.sendMarkdown(ownerChannel.platform_uid, text);
     }
+    console.log("notifyOwner: sent successfully to", ownerChannel.platform);
   } catch (err) {
     console.error("notifyOwner: send failed:", ownerChannel.platform, ownerChannel.platform_uid, err);
   }
