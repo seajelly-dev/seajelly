@@ -567,6 +567,11 @@ export default function AgentsPage() {
                     {t(`agents.${PLATFORM_HINT_KEYS[channelExpanded as PlatformKey]}` as never)}
                   </p>
                 )}
+                {channelExpanded === "wecom" && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 rounded-md bg-amber-50 dark:bg-amber-950/30 px-3 py-2">
+                    {t("agents.wecomGatewayHint")}
+                  </p>
+                )}
                 {plat.fields.map((field) => (
                   <div key={field.name} className="flex flex-col gap-1.5">
                     <Label>{field.label}</Label>

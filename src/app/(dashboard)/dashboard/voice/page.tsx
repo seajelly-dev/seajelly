@@ -60,6 +60,8 @@ export default function VoicePage() {
   const [liveKeyInput, setLiveKeyInput] = useState("");
   const [asrKeyInput, setAsrKeyInput] = useState("");
   const [doubaoProxyInput, setDoubaoProxyInput] = useState("");
+  const [doubaoAppKeyInput, setDoubaoAppKeyInput] = useState("");
+  const [doubaoAccessKeyInput, setDoubaoAccessKeyInput] = useState("");
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
   const [previewPlaying, setPreviewPlaying] = useState(false);
@@ -508,12 +510,12 @@ export default function VoicePage() {
                 </div>
               </div>
 
-              {/* Doubao ASR Proxy */}
+              {/* Doubao ASR */}
               <div className="flex flex-col gap-2 pt-2 border-t">
                 <div className="flex items-center gap-2">
                   <KeyRound className="size-4 text-muted-foreground" />
                   <Label>{t("voice.doubaoAsr")}</Label>
-                  {settings.doubao_proxy_url ? (
+                  {(settings.doubao_app_key && settings.doubao_access_key) || settings.doubao_proxy_url ? (
                     <Badge variant="secondary" className="gap-1 text-green-600 dark:text-green-400">
                       <CheckCircle2 className="size-3" /> {t("voice.apiKeyConfigured")}
                     </Badge>
@@ -523,7 +525,42 @@ export default function VoicePage() {
                     </Badge>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground">{t("voice.doubaoProxyHint")}</p>
+                <p className="text-xs text-muted-foreground">{t("voice.doubaoCredentialsHint")}</p>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">App Key</Label>
+                    <Input
+                      type="password"
+                      placeholder="doubao_app_key"
+                      value={doubaoAppKeyInput}
+                      onChange={(e) => setDoubaoAppKeyInput(e.target.value)}
+                      className="w-56"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Access Key</Label>
+                    <Input
+                      type="password"
+                      placeholder="doubao_access_key"
+                      value={doubaoAccessKeyInput}
+                      onChange={(e) => setDoubaoAccessKeyInput(e.target.value)}
+                      className="w-56"
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => updateSettings({
+                      doubao_app_key: doubaoAppKeyInput.trim(),
+                      doubao_access_key: doubaoAccessKeyInput.trim(),
+                    })}
+                    disabled={!doubaoAppKeyInput.trim() || !doubaoAccessKeyInput.trim()}
+                  >
+                    {t("voice.saveKey")}
+                  </Button>
+                </div>
+
+                <p className="text-xs text-muted-foreground mt-2">{t("voice.doubaoProxyHint")}</p>
                 <div className="flex items-end gap-2">
                   <Input
                     placeholder={t("voice.doubaoProxyPlaceholder")}

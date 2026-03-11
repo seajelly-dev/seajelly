@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Shield, Settings2, RefreshCw, Save, Copy } from "lucide-react";
+import { Shield, Settings2, RefreshCw, Save, Copy, Globe, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +32,12 @@ export default function SettingsPage() {
   const [memoryChannelLimit, setMemoryChannelLimit] = useState("25");
   const [memoryGlobalLimit, setMemoryGlobalLimit] = useState("25");
   const [savingLimits, setSavingLimits] = useState(false);
+
+  const [gatewayUrl, setGatewayUrl] = useState("");
+  const [gatewaySecret, setGatewaySecret] = useState("");
+  const [savingGateway, setSavingGateway] = useState(false);
+  const [testingGateway, setTestingGateway] = useState(false);
+  const [gatewayTestResult, setGatewayTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const [gateEnabled, setGateEnabled] = useState(false);
   const [customKey, setCustomKey] = useState("");
@@ -50,6 +62,8 @@ export default function SettingsPage() {
 
       setMemoryChannelLimit(settingsData.settings?.memory_inject_limit_channel ?? "25");
       setMemoryGlobalLimit(settingsData.settings?.memory_inject_limit_global ?? "25");
+      setGatewayUrl(settingsData.settings?.gateway_url ?? "");
+      setGatewaySecret(settingsData.settings?.gateway_secret ?? "");
       setGateEnabled(!!gateData.enabled);
     } catch {
       toast.error(t("settings.loadFailed"));
@@ -95,6 +109,59 @@ export default function SettingsPage() {
       toast.error(t("settings.saveFailed"));
     } finally {
       setSavingLimits(false);
+    }
+  };
+
+  const saveGateway = async () => {
+    setSavingGateway(true);
+    try {
+      await Promise.all([
+        fetch("/api/admin/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: "gateway_url", value: gatewayUrl.trim() }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: "gateway_secret", value: gatewaySecret.trim() }),
+        }),
+      ]);
+      toast.success(t("settings.gatewayConfigSaved"));
+    } catch {
+      toast.error(t("settings.saveFailed"));
+    } finally {
+      setSavingGateway(false);
+    }
+  };
+
+  const testGateway = async () => {
+    setTestingGateway(true);
+    setGatewayTestResult(null);
+    try {
+      const res = await fetch("/api/admin/platform", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "gateway",
+          action: "test-gateway",
+          gateway_url: gatewayUrl.trim(),
+          gateway_secret: gatewaySecret.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setGatewayTestResult({
+          ok: true,
+          message: `IP: ${data.ip} | v${data.version} | WS: ${data.ws_enabled ? "enabled" : "disabled"}`,
+        });
+      } else {
+        setGatewayTestResult({ ok: false, message: data.error || "Test failed" });
+      }
+    } catch (err) {
+      setGatewayTestResult({ ok: false, message: err instanceof Error ? err.message : "Test failed" });
+    } finally {
+      setTestingGateway(false);
     }
   };
 
@@ -274,6 +341,74 @@ export default function SettingsPage() {
                 {savingLimits ? t("common.saving") : t("common.save")}
               </Button>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Globe className="size-5 text-muted-foreground" />
+            <CardTitle>{t("settings.gatewayTitle")}</CardTitle>
+          </div>
+          <CardDescription>{t("settings.gatewayDesc")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="space-y-1.5 flex-1 min-w-[200px]">
+                  <Label>{t("settings.gatewayUrl")}</Label>
+                  <Input
+                    placeholder="https://gw.yourdomain.com:9100"
+                    value={gatewayUrl}
+                    onChange={(e) => setGatewayUrl(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5 flex-1 min-w-[200px]">
+                  <Label>{t("settings.gatewaySecretLabel")}</Label>
+                  <Input
+                    type="password"
+                    placeholder="Gateway Secret"
+                    value={gatewaySecret}
+                    onChange={(e) => setGatewaySecret(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={saveGateway} disabled={savingGateway || !gatewayUrl.trim() || !gatewaySecret.trim()}>
+                  <Save className="mr-1 size-4" />
+                  {savingGateway ? t("common.saving") : t("common.save")}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={testGateway}
+                  disabled={testingGateway || !gatewayUrl.trim() || !gatewaySecret.trim()}
+                >
+                  {testingGateway ? <Loader2 className="mr-1 size-4 animate-spin" /> : null}
+                  {testingGateway ? t("settings.gatewayTesting") : t("settings.gatewayTest")}
+                </Button>
+                {gatewayTestResult && (
+                  <Badge
+                    variant={gatewayTestResult.ok ? "secondary" : "destructive"}
+                    className={`gap-1 ${gatewayTestResult.ok ? "text-green-600 dark:text-green-400" : ""}`}
+                  >
+                    {gatewayTestResult.ok ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}
+                    {gatewayTestResult.message}
+                  </Badge>
+                )}
+              </div>
+              <Collapsible>
+                <CollapsibleTrigger className="text-xs text-muted-foreground underline cursor-pointer hover:text-foreground">
+                  {t("settings.gatewayInstallGuide")}
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2">
+                  <pre className="text-xs bg-muted p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">{t("settings.gatewayInstallSteps")}</pre>
+                </CollapsibleContent>
+              </Collapsible>
+            </>
           )}
         </CardContent>
       </Card>

@@ -235,6 +235,32 @@ async function handleQQBot(action: string, agentId: string, body: Record<string,
   return NextResponse.json({ error: "Invalid action for qqbot" }, { status: 400 });
 }
 
+async function handleGateway(action: string, body: Record<string, unknown>) {
+  if (action === "test-gateway") {
+    const gatewayUrl = (body.gateway_url as string)?.trim();
+    const gatewaySecret = (body.gateway_secret as string)?.trim();
+    if (!gatewayUrl || !gatewaySecret) {
+      return NextResponse.json({ error: "gateway_url and gateway_secret required" }, { status: 400 });
+    }
+    const res = await fetch(`${gatewayUrl.replace(/\/$/, "")}/health`, {
+      headers: { "X-Gateway-Secret": gatewaySecret },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Gateway returned ${res.status}: ${text}`);
+    }
+    const data = await res.json();
+    return NextResponse.json({
+      success: true,
+      ip: data.ip,
+      version: data.version,
+      ws_enabled: data.ws_enabled,
+    });
+  }
+  return NextResponse.json({ error: "Invalid gateway action" }, { status: 400 });
+}
+
 export async function POST(request: Request) {
   try {
     await requireAdmin();
@@ -244,6 +270,17 @@ export async function POST(request: Request) {
 
   const body = await request.json();
   const { platform, action, agent_id } = body;
+
+  if (platform === "gateway") {
+    try {
+      return await handleGateway(action, body);
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Failed" },
+        { status: 500 },
+      );
+    }
+  }
 
   if (!agent_id) {
     return NextResponse.json({ error: "agent_id required" }, { status: 400 });

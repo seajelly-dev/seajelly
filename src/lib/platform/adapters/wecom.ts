@@ -11,13 +11,53 @@ interface WeComCredentials {
   encodingAesKey: string;
 }
 
+interface GatewayConfig {
+  url: string;
+  secret: string;
+}
+
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+let _gatewayCache: GatewayConfig | null | undefined;
 
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
+}
+
+async function getGatewayConfig(): Promise<GatewayConfig | null> {
+  if (_gatewayCache !== undefined) return _gatewayCache;
+  const supabase = getSupabase();
+  const { data } = await supabase
+    .from("system_settings")
+    .select("key, value")
+    .in("key", ["gateway_url", "gateway_secret"]);
+  const map: Record<string, string> = {};
+  for (const r of data || []) map[r.key] = r.value;
+  if (map.gateway_url && map.gateway_secret) {
+    _gatewayCache = { url: map.gateway_url, secret: map.gateway_secret };
+  } else {
+    _gatewayCache = null;
+  }
+  setTimeout(() => { _gatewayCache = undefined; }, 60_000);
+  return _gatewayCache;
+}
+
+async function gatewayFetch(
+  gw: GatewayConfig,
+  target: { url: string; method: string; headers?: Record<string, string>; body?: string },
+): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+  const res = await fetch(`${gw.url.replace(/\/$/, "")}/proxy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Gateway-Secret": gw.secret },
+    body: JSON.stringify(target),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Gateway proxy error (${res.status}): ${txt}`);
+  }
+  return res.json();
 }
 
 export async function resolveWeComCredentials(agentId: string): Promise<WeComCredentials> {
@@ -44,12 +84,33 @@ export async function resolveWeComCredentials(agentId: string): Promise<WeComCre
   };
 }
 
+async function wecomApiFetch(url: string, init?: RequestInit): Promise<Response> {
+  const gw = await getGatewayConfig();
+  if (!gw) return fetch(url, init);
+
+  const proxyResult = await gatewayFetch(gw, {
+    url,
+    method: init?.method || "GET",
+    headers: init?.headers ? Object.fromEntries(
+      init.headers instanceof Headers
+        ? init.headers.entries()
+        : Object.entries(init.headers as Record<string, string>)
+    ) : undefined,
+    body: typeof init?.body === "string" ? init.body : undefined,
+  });
+
+  return new Response(proxyResult.body, {
+    status: proxyResult.status,
+    headers: proxyResult.headers,
+  });
+}
+
 async function getAccessToken(agentId: string): Promise<string> {
   const cached = tokenCache.get(agentId);
   if (cached && cached.expiresAt > Date.now()) return cached.token;
 
   const creds = await resolveWeComCredentials(agentId);
-  const resp = await fetch(
+  const resp = await wecomApiFetch(
     `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${creds.corpId}&corpsecret=${creds.corpSecret}`,
   );
   const data = await resp.json();
@@ -73,7 +134,7 @@ async function wecomSendMsg(
     agentid: Number(creds.agentIdWeCom),
     ...body,
   };
-  const res = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`, {
+  const res = await wecomApiFetch(`https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -141,6 +202,8 @@ export class WeComAdapter implements PlatformSender {
     const token = await getAccessToken(this.agentId);
     const form = new FormData();
     form.append("media", new Blob([new Uint8Array(audio)]), filename || "voice.amr");
+    // Media upload uses multipart/form-data which the JSON proxy can't handle; falls back to direct fetch.
+    // WeCom media upload may fail if IP is not whitelisted, but voice is rarely used.
     const uploadResp = await fetch(
       `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=voice`,
       { method: "POST", body: form },

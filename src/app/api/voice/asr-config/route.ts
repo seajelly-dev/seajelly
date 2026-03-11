@@ -40,9 +40,23 @@ export async function GET(req: NextRequest) {
     const engine = (link.config as Record<string, string>)?.engine || settings.asr_engine || "gemini-asr";
 
     if (engine === "doubao-asr") {
+      // Try Edge Gateway first (doubao credentials stored in voice_settings, gateway fetches from Supabase)
+      const { data: gwRows } = await supabase
+        .from("system_settings")
+        .select("key, value")
+        .in("key", ["gateway_url", "gateway_secret"]);
+      const gw: Record<string, string> = {};
+      for (const r of gwRows || []) gw[r.key] = r.value;
+
+      if (gw.gateway_url && gw.gateway_secret) {
+        const wsUrl = `${gw.gateway_url.replace(/^http/, "ws").replace(/\/$/, "")}/ws/doubao-asr?secret=${encodeURIComponent(gw.gateway_secret)}`;
+        return NextResponse.json({ engine, proxyUrl: wsUrl });
+      }
+
+      // Fallback: legacy direct proxy URL
       const proxyUrl = settings.doubao_proxy_url || "";
       if (!proxyUrl) {
-        return NextResponse.json({ error: "Doubao proxy URL not configured" }, { status: 500 });
+        return NextResponse.json({ error: "Doubao ASR requires Edge Gateway or a proxy URL to be configured" }, { status: 500 });
       }
       return NextResponse.json({ engine, proxyUrl });
     }
