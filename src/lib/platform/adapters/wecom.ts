@@ -44,22 +44,6 @@ async function getGatewayConfig(): Promise<GatewayConfig | null> {
   return _gatewayCache;
 }
 
-async function gatewayFetch(
-  gw: GatewayConfig,
-  target: { url: string; method: string; headers?: Record<string, string>; body?: string },
-): Promise<{ status: number; headers: Record<string, string>; body: string }> {
-  const res = await fetch(`${gw.url.replace(/\/$/, "")}/proxy`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Gateway-Secret": gw.secret },
-    body: JSON.stringify(target),
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Gateway proxy error (${res.status}): ${txt}`);
-  }
-  return res.json();
-}
-
 export async function resolveWeComCredentials(agentId: string): Promise<WeComCredentials> {
   const supabase = getSupabase();
   const { data: rows } = await supabase
@@ -84,24 +68,27 @@ export async function resolveWeComCredentials(agentId: string): Promise<WeComCre
   };
 }
 
-async function wecomApiFetch(url: string, init?: RequestInit): Promise<Response> {
+export async function wecomApiFetch(url: string, init?: RequestInit): Promise<Response> {
   const gw = await getGatewayConfig();
   if (!gw) return fetch(url, init);
 
-  const proxyResult = await gatewayFetch(gw, {
-    url,
-    method: init?.method || "GET",
-    headers: init?.headers ? Object.fromEntries(
-      init.headers instanceof Headers
-        ? init.headers.entries()
-        : Object.entries(init.headers as Record<string, string>)
-    ) : undefined,
-    body: typeof init?.body === "string" ? init.body : undefined,
-  });
+  const reqHeaders: Record<string, string> = {};
+  if (init?.headers) {
+    const entries = init.headers instanceof Headers
+      ? init.headers.entries()
+      : Object.entries(init.headers as Record<string, string>);
+    for (const [k, v] of entries) reqHeaders[k] = v;
+  }
 
-  return new Response(proxyResult.body, {
-    status: proxyResult.status,
-    headers: proxyResult.headers,
+  return fetch(`${gw.url.replace(/\/$/, "")}/proxy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Gateway-Secret": gw.secret },
+    body: JSON.stringify({
+      url,
+      method: init?.method || "GET",
+      headers: Object.keys(reqHeaders).length > 0 ? reqHeaders : undefined,
+      body: typeof init?.body === "string" ? init.body : undefined,
+    }),
   });
 }
 

@@ -1,6 +1,6 @@
 import type { PlatformFileDownloader, PlatformFile } from "../types";
 import { guessMime } from "../file-utils";
-import { resolveWeComCredentials } from "./wecom";
+import { resolveWeComCredentials, wecomApiFetch } from "./wecom";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
@@ -11,7 +11,7 @@ async function getAccessToken(agentId: string): Promise<string> {
   if (cached && cached.expiresAt > Date.now()) return cached.token;
 
   const creds = await resolveWeComCredentials(agentId);
-  const resp = await fetch(
+  const resp = await wecomApiFetch(
     `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${creds.corpId}&corpsecret=${creds.corpSecret}`,
   );
   const data = await resp.json();
@@ -32,7 +32,7 @@ export class WeComFileDownloader implements PlatformFileDownloader {
     try {
       const token = await getAccessToken(agentId);
       const url = `https://qyapi.weixin.qq.com/cgi-bin/media/get?access_token=${token}&media_id=${fileRef}`;
-      const res = await fetch(url);
+      const res = await wecomApiFetch(url);
       if (!res.ok) {
         console.warn("WeCom file download failed:", res.status, res.statusText);
         return null;

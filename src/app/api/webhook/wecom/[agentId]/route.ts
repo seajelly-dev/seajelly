@@ -3,6 +3,7 @@ import {
   resolveWeComCredentials,
   decryptWeComMsg,
   verifyWeComSignature,
+  wecomApiFetch,
 } from "@/lib/platform/adapters/wecom";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
 import { processChannelApproval } from "@/lib/platform/approval-core";
@@ -132,6 +133,26 @@ export async function POST(
     const fromUser = msg.FromUserName || "";
     const msgId = msg.MsgId || `${Date.now()}`;
 
+    // Fetch user display name via WeCom API (through gateway if configured)
+    let displayName: string | null = null;
+    try {
+      const tokenResp = await wecomApiFetch(
+        `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${creds.corpId}&corpsecret=${creds.corpSecret}`,
+      );
+      const tokenData = await tokenResp.json();
+      if (tokenData.access_token) {
+        const userResp = await wecomApiFetch(
+          `https://qyapi.weixin.qq.com/cgi-bin/user/get?access_token=${tokenData.access_token}&userid=${encodeURIComponent(fromUser)}`,
+        );
+        const userData = await userResp.json();
+        if (userData.errcode === 0 && userData.name) {
+          displayName = userData.name;
+        }
+      }
+    } catch (e) {
+      console.warn("WeCom fetch user name failed:", e);
+    }
+
     let text = "";
     let fileRef: string | null = null;
     let fileMime: string | null = null;
@@ -154,7 +175,7 @@ export async function POST(
       agentId,
       platformChatId: fromUser,
       platformUid: fromUser,
-      displayName: null,
+      displayName,
       text,
       fileRef,
       fileMime,

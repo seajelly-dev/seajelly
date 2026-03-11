@@ -157,12 +157,6 @@ type ProxyRequest struct {
 	Body    string            `json:"body"`
 }
 
-type ProxyResponse struct {
-	Status  int               `json:"status"`
-	Headers map[string]string `json:"headers"`
-	Body    string            `json:"body"`
-}
-
 func handleProxy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -205,7 +199,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		httpReq.Header.Set(k, v)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"upstream: %s"}`, err.Error()), http.StatusBadGateway)
@@ -213,18 +207,15 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
-	respHeaders := make(map[string]string)
-	for k := range resp.Header {
-		respHeaders[k] = resp.Header.Get(k)
+	// Raw passthrough: copy upstream status, headers, body directly
+	for k, vals := range resp.Header {
+		for _, v := range vals {
+			w.Header().Add(k, v)
+		}
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ProxyResponse{
-		Status:  resp.StatusCode,
-		Headers: respHeaders,
-		Body:    string(respBody),
-	})
+	w.Header().Set("X-Proxy-Status", fmt.Sprintf("%d", resp.StatusCode))
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 func fetchDoubaoCredentials() (appKey, accessKey string, err error) {
