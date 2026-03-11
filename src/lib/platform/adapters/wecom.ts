@@ -68,15 +68,21 @@ async function wecomSendMsg(
 ): Promise<void> {
   const token = await getAccessToken(agentId);
   const creds = await resolveWeComCredentials(agentId);
-  await fetch(`https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`, {
+  const payload = {
+    touser: toUser,
+    agentid: Number(creds.agentIdWeCom),
+    ...body,
+  };
+  const res = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      touser: toUser,
-      agentid: Number(creds.agentIdWeCom),
-      ...body,
-    }),
+    body: JSON.stringify(payload),
   });
+  const data = await res.json();
+  if (data.errcode && data.errcode !== 0) {
+    console.error("WeCom sendMsg failed:", data.errcode, data.errmsg, "touser:", toUser, "agentid:", creds.agentIdWeCom);
+    throw new Error(`WeCom sendMsg error: ${data.errcode} ${data.errmsg}`);
+  }
 }
 
 // WeCom AES crypto utilities
