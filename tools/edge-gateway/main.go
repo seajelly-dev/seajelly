@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -98,6 +101,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/proxy", handleProxy)
+	mux.HandleFunc("/upload", handleUpload)
 	mux.HandleFunc("/ws/doubao-asr", handleWSDoubaoASR)
 
 	addr := fmt.Sprintf(":%d", *flagPort)
@@ -214,6 +218,75 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("X-Proxy-Status", fmt.Sprintf("%d", resp.StatusCode))
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
+type UploadRequest struct {
+	URL      string `json:"url"`
+	FileName string `json:"file_name"`
+	FileData string `json:"file_data"`
+	MimeType string `json:"mime_type"`
+}
+
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	if !verifySecret(r) {
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		return
+	}
+
+	var req UploadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+		return
+	}
+
+	parsed, err := url.Parse(req.URL)
+	if err != nil || !allowedHosts[parsed.Hostname()] {
+		http.Error(w, fmt.Sprintf(`{"error":"domain not allowed: %s"}`, parsed.Hostname()), http.StatusForbidden)
+		return
+	}
+
+	fileBytes, err := base64.StdEncoding.DecodeString(req.FileData)
+	if err != nil {
+		http.Error(w, `{"error":"invalid base64 file_data"}`, http.StatusBadRequest)
+		return
+	}
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("media", req.FileName)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+	part.Write(fileBytes)
+	writer.Close()
+
+	httpReq, err := http.NewRequest("POST", req.URL, &buf)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"upstream: %s"}`, err.Error()), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	for k, vals := range resp.Header {
+		for _, v := range vals {
+			w.Header().Add(k, v)
+		}
+	}
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 }

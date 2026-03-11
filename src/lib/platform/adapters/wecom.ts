@@ -187,16 +187,30 @@ export class WeComAdapter implements PlatformSender {
 
   async sendVoice(chatId: string, audio: Buffer, filename?: string): Promise<void> {
     const token = await getAccessToken(this.agentId);
-    const form = new FormData();
-    form.append("media", new Blob([new Uint8Array(audio)]), filename || "voice.amr");
-    // Media upload uses multipart/form-data which the JSON proxy can't handle; falls back to direct fetch.
-    // WeCom media upload may fail if IP is not whitelisted, but voice is rarely used.
-    const uploadResp = await fetch(
-      `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=voice`,
-      { method: "POST", body: form },
-    );
-    const uploadData = await uploadResp.json();
+    const uploadUrl = `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=voice`;
+    const gw = await getGatewayConfig();
+
+    let uploadData: { errcode?: number; media_id?: string };
+    if (gw) {
+      const resp = await fetch(`${gw.url.replace(/\/$/, "")}/upload`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Gateway-Secret": gw.secret },
+        body: JSON.stringify({
+          url: uploadUrl,
+          file_name: filename || "voice.amr",
+          file_data: audio.toString("base64"),
+        }),
+      });
+      uploadData = await resp.json();
+    } else {
+      const form = new FormData();
+      form.append("media", new Blob([new Uint8Array(audio)]), filename || "voice.amr");
+      const resp = await fetch(uploadUrl, { method: "POST", body: form });
+      uploadData = await resp.json();
+    }
+
     if (uploadData.errcode) {
+      console.error("WeCom voice upload failed:", uploadData.errcode, (uploadData as Record<string, unknown>).errmsg);
       await this.sendText(chatId, "[语音发送失败]");
       return;
     }
