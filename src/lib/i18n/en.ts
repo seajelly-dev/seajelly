@@ -22,6 +22,9 @@ const en = {
     noData: "No data",
     signOut: "Sign Out",
     back: "Back",
+    prev: "Previous",
+    next: "Next",
+    pageInfo: "Page {page} of {total}",
   },
 
   setup: {

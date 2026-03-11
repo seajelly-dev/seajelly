@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto/encrypt";
+import { getSenderForAgent } from "@/lib/platform/sender";
+import { botT, getBotLocaleOrDefault } from "@/lib/i18n/bot";
 import crypto from "crypto";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -146,6 +148,28 @@ export async function POST(request: NextRequest) {
         .from("channels")
         .update({ is_allowed: true })
         .eq("id", channelId);
+
+      try {
+        const { data: ch } = await db
+          .from("channels")
+          .select("platform, platform_uid, agent_id, agents:agent_id(bot_locale)")
+          .eq("id", channelId)
+          .single();
+        if (ch) {
+          const locale = getBotLocaleOrDefault(
+            (ch.agents as { bot_locale?: string } | null)?.bot_locale
+          );
+          const sender = await getSenderForAgent(ch.agent_id, ch.platform);
+          const msg = planType === "time"
+            ? botT(locale, "subscriptionActivated", {
+                date: new Date(now.getTime() + durationDays * 86400000).toLocaleDateString(),
+              })
+            : botT(locale, "subscriptionActivatedQuota", { quota: quotaAmount });
+          await sender.sendText(ch.platform_uid, msg);
+        }
+      } catch (err) {
+        console.error("[stripe-webhook] Failed to notify user:", err);
+      }
     }
   }
 

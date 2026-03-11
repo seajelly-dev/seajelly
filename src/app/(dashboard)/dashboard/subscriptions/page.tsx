@@ -49,6 +49,21 @@ import {
   Check,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
+import {
+  TelegramIcon,
+  FeishuIcon,
+  WeComIcon,
+  SlackIcon,
+  QQBotIcon,
+} from "@/components/icons/platform-icons";
+
+const PLATFORM_MAP: Record<string, { label: string; icon: React.FC<{ className?: string }> }> = {
+  telegram: { label: "Telegram", icon: TelegramIcon },
+  feishu: { label: "Feishu", icon: FeishuIcon },
+  wecom: { label: "WeCom", icon: WeComIcon },
+  slack: { label: "Slack", icon: SlackIcon },
+  qqbot: { label: "QQBot", icon: QQBotIcon },
+};
 
 interface AgentOption { id: string; name: string }
 
@@ -108,6 +123,9 @@ export default function SubscriptionsPage() {
   const [subs, setSubs] = useState<SubRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [subsPage, setSubsPage] = useState(1);
+  const [subsTotal, setSubsTotal] = useState(0);
+  const subsPageSize = 20;
 
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
@@ -186,23 +204,25 @@ export default function SubscriptionsPage() {
       .catch(() => {});
   }, []);
 
-  const fetchData = useCallback(async (isRefresh = false) => {
+  const fetchData = useCallback(async (isRefresh = false, page?: number) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
+    const p = page ?? subsPage;
     try {
       const agentParam = filterAgent !== "all" ? `&agent_id=${filterAgent}` : "";
       const [plansRes, subsRes] = await Promise.all([
         fetch(`/api/admin/subscriptions?view=plans${agentParam}`).then((r) => r.json()),
-        fetch(`/api/admin/subscriptions?view=subscriptions${agentParam}`).then((r) => r.json()),
+        fetch(`/api/admin/subscriptions?view=subscriptions${agentParam}&page=${p}`).then((r) => r.json()),
       ]);
       setPlans(plansRes.plans ?? []);
       setSubs(subsRes.subscriptions ?? []);
+      setSubsTotal(subsRes.total ?? 0);
     } catch {
       toast.error(t("subscriptions.loadFailed"));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [t, filterAgent]);
+  }, [t, filterAgent, subsPage]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -403,7 +423,7 @@ export default function SubscriptionsPage() {
 
         {activeTab === "plans" && (
           <div className="flex items-center gap-2">
-            <Select value={filterAgent} onValueChange={(v) => setFilterAgent(v ?? "all")}>
+            <Select value={filterAgent} onValueChange={(v) => { setFilterAgent(v ?? "all"); setSubsPage(1); }}>
               <SelectTrigger className="w-[180px]">
                 {filterAgent === "all" ? t("subscriptions.allAgents") : agents.find((a) => a.id === filterAgent)?.name || filterAgent}
               </SelectTrigger>
@@ -579,34 +599,70 @@ export default function SubscriptionsPage() {
                     <p className="text-sm text-muted-foreground py-8 text-center">{t("subscriptions.noSubscriptions")}</p>
                   ) : (
                     <div className="space-y-2">
-                      {subs.map((sub) => (
-                        <div key={sub.id} className="flex items-center gap-4 rounded-lg border px-4 py-3 transition-colors hover:bg-muted/40">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium truncate">
-                                {sub.channels?.display_name || sub.channels?.platform_uid || "—"}
-                              </span>
-                              <Badge variant={sub.status === "active" ? "secondary" : sub.status === "expired" ? "outline" : "destructive"} className="text-xs">
-                                {sub.status === "active" ? t("subscriptions.statusActive") : sub.status === "expired" ? t("subscriptions.statusExpired") : t("subscriptions.statusCancelled")}
-                              </Badge>
-                              {sub.payment_provider === "manual" && (
-                                <Badge variant="outline" className="text-xs">{t("subscriptions.grantedManually")}</Badge>
-                              )}
+                      {subs.map((sub) => {
+                        const plat = PLATFORM_MAP[sub.channels?.platform ?? ""];
+                        const PlatIcon = plat?.icon;
+                        return (
+                          <div key={sub.id} className="flex items-center gap-4 rounded-lg border px-4 py-3 transition-colors hover:bg-muted/40">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium truncate">
+                                  {sub.channels?.display_name || sub.channels?.platform_uid || "—"}
+                                </span>
+                                <Badge variant="outline" className="text-xs gap-1 shrink-0">
+                                  {PlatIcon && <PlatIcon className="size-3" />}
+                                  {plat?.label ?? sub.channels?.platform ?? "—"}
+                                </Badge>
+                                <Badge variant={sub.status === "active" ? "secondary" : sub.status === "expired" ? "outline" : "destructive"} className="text-xs">
+                                  {sub.status === "active" ? t("subscriptions.statusActive") : sub.status === "expired" ? t("subscriptions.statusExpired") : t("subscriptions.statusCancelled")}
+                                </Badge>
+                                {sub.payment_provider === "manual" && (
+                                  <Badge variant="outline" className="text-xs">{t("subscriptions.grantedManually")}</Badge>
+                                )}
+                                {sub.payment_provider === "stripe" && (
+                                  <Badge variant="secondary" className="text-xs gap-1"><CreditCard className="size-3" />Stripe</Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                                <span>{sub.channels?.agents?.name || "—"}</span>
+                                <span>{sub.plans?.name || (sub.type === "time" ? t("subscriptions.planTypeTime") : t("subscriptions.planTypeQuota"))}</span>
+                                {sub.type === "time" && <span>{t("subscriptions.expiresAt")}: {formatDate(sub.expires_at)}</span>}
+                                {sub.type === "quota" && <span>{t("subscriptions.quotaUsed")}: {sub.quota_used}/{sub.quota_total}</span>}
+                              </div>
                             </div>
-                            <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
-                              <span>{sub.channels?.agents?.name || "—"}</span>
-                              <span>{sub.plans?.name || (sub.type === "time" ? t("subscriptions.planTypeTime") : t("subscriptions.planTypeQuota"))}</span>
-                              {sub.type === "time" && <span>{t("subscriptions.expiresAt")}: {formatDate(sub.expires_at)}</span>}
-                              {sub.type === "quota" && <span>{t("subscriptions.quotaUsed")}: {sub.quota_used}/{sub.quota_total}</span>}
-                            </div>
+                            {sub.status === "active" && (
+                              <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => cancelSub(sub)}>
+                                {t("subscriptions.cancelSubscription")}
+                              </Button>
+                            )}
                           </div>
-                          {sub.status === "active" && (
-                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => cancelSub(sub)}>
-                              {t("subscriptions.cancelSubscription")}
-                            </Button>
-                          )}
-                        </div>
-                      ))}
+                        );
+                      })}
+                    </div>
+                  )}
+                  {subsTotal > subsPageSize && (
+                    <div className="flex items-center justify-between pt-4 border-t mt-4">
+                      <p className="text-xs text-muted-foreground">
+                        {t("common.pageInfo", { page: subsPage, total: Math.ceil(subsTotal / subsPageSize) })}
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={subsPage <= 1}
+                          onClick={() => { const p = subsPage - 1; setSubsPage(p); fetchData(true, p); }}
+                        >
+                          {t("common.prev")}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={subsPage >= Math.ceil(subsTotal / subsPageSize)}
+                          onClick={() => { const p = subsPage + 1; setSubsPage(p); fetchData(true, p); }}
+                        >
+                          {t("common.next")}
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -619,27 +675,6 @@ export default function SubscriptionsPage() {
       {/* ═══════ Tab: Stripe Payment Setup ═══════ */}
       {activeTab === "stripe" && (
         <div className="flex flex-col gap-6">
-          {/* Setup guide */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">{t("subscriptions.stripeGuideTitle")}</CardTitle>
-              <CardDescription>{t("subscriptions.stripeConfigDesc")}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-md border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/30 p-4 text-sm space-y-1">
-                {t("subscriptions.stripeGuideSteps").split("\n").map((step, i) => (
-                  <p key={i} className="text-blue-800 dark:text-blue-300 text-xs leading-relaxed">{step}</p>
-                ))}
-                <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-blue-200 dark:border-blue-800">
-                  <Info className="size-3.5 text-amber-600 shrink-0" />
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
-                    {t("subscriptions.stripeTestMode")}: {t("subscriptions.stripeTestModeHint")}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Keys */}
           <div className="grid gap-6 sm:grid-cols-2">
             {/* Secret Key */}
@@ -756,6 +791,27 @@ export default function SubscriptionsPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Setup guide */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">{t("subscriptions.stripeGuideTitle")}</CardTitle>
+              <CardDescription>{t("subscriptions.stripeConfigDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/30 p-4 text-sm space-y-1">
+                {t("subscriptions.stripeGuideSteps").split("\n").map((step, i) => (
+                  <p key={i} className="text-blue-800 dark:text-blue-300 text-xs leading-relaxed">{step}</p>
+                ))}
+                <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-blue-200 dark:border-blue-800">
+                  <Info className="size-3.5 text-amber-600 shrink-0" />
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    {t("subscriptions.stripeTestMode")}: {t("subscriptions.stripeTestModeHint")}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 

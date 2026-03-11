@@ -24,6 +24,9 @@ const zh: TranslationKeys = {
     noData: "暂无数据",
     signOut: "退出登录",
     back: "返回",
+    prev: "上一页",
+    next: "下一页",
+    pageInfo: "第 {page} / {total} 页",
   },
 
   setup: {

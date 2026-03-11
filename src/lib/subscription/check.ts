@@ -21,14 +21,13 @@ export async function checkSubscription(params: CheckParams): Promise<Subscripti
   const { supabase, agentId, channel, sender, platformChatId, agentLocale } = params;
   const locale: Locale = getBotLocaleOrDefault(agentLocale);
 
-  const { data: activeSub } = await supabase
+  const { data: allActiveSubs } = await supabase
     .from("channel_subscriptions")
     .select("*")
     .eq("channel_id", channel.id)
-    .eq("status", "active")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .eq("status", "active");
+
+  const activeSub = pickBestSubscription(allActiveSubs ?? []);
 
   if (activeSub) {
     if (activeSub.type === "time") {
@@ -173,4 +172,33 @@ function appendClientRef(paymentLink: string, channelId: string): string {
   } catch {
     return paymentLink;
   }
+}
+
+function pickBestSubscription(
+  subs: Array<Record<string, unknown>>,
+): Record<string, unknown> | null {
+  if (subs.length === 0) return null;
+  if (subs.length === 1) return subs[0];
+
+  const timeSubs = subs.filter((s) => s.type === "time" && s.expires_at);
+  if (timeSubs.length > 0) {
+    timeSubs.sort(
+      (a, b) =>
+        new Date(b.expires_at as string).getTime() -
+        new Date(a.expires_at as string).getTime(),
+    );
+    return timeSubs[0];
+  }
+
+  const quotaSubs = subs.filter((s) => s.type === "quota");
+  if (quotaSubs.length > 0) {
+    quotaSubs.sort(
+      (a, b) =>
+        ((b.quota_total as number) - (b.quota_used as number)) -
+        ((a.quota_total as number) - (a.quota_used as number)),
+    );
+    return quotaSubs[0];
+  }
+
+  return subs[0];
 }
