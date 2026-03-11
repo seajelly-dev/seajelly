@@ -102,6 +102,9 @@ export async function PUT(request: Request) {
     const approved = filtered.is_allowed === true;
     after(async () => {
       await notifyApprovalResult(before.agent_id, before.platform, before.platform_uid, approved);
+      if (approved) {
+        await replayLastMessage(db, id, before.agent_id, before.platform, before.platform_uid);
+      }
     });
   }
 
@@ -158,4 +161,41 @@ export async function DELETE(request: Request) {
   }
 
   return NextResponse.json({ success: true });
+}
+
+async function replayLastMessage(
+  db: Awaited<ReturnType<typeof createAdminClient>>,
+  channelId: string,
+  agentId: string,
+  platform: string,
+  platformUid: string,
+) {
+  try {
+    const { data: lastEvent } = await db
+      .from("events")
+      .select("payload, platform_chat_id")
+      .eq("agent_id", agentId)
+      .eq("source", platform)
+      .eq("platform_chat_id", platformUid)
+      .eq("status", "processed")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!lastEvent) return;
+
+    const payload = (lastEvent.payload ?? {}) as Record<string, unknown>;
+    const text = payload.text ?? payload.message;
+    if (!text) return;
+
+    await db.from("events").insert({
+      source: platform,
+      agent_id: agentId,
+      platform_chat_id: lastEvent.platform_chat_id ?? platformUid,
+      payload: lastEvent.payload,
+      status: "pending",
+    });
+  } catch (err) {
+    console.error("replayLastMessage failed:", err);
+  }
 }

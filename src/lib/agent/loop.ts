@@ -123,7 +123,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           .select("id", { count: "exact", head: true })
           .eq("agent_id", typedAgent.id);
         const isFirstChannel = (existingCount ?? 0) === 0;
-        const autoAllow = typedAgent.access_mode === "open" || isFirstChannel;
+        const autoAllow = typedAgent.access_mode === "open" || typedAgent.access_mode === "subscription" || isFirstChannel;
 
         const { data: newChannel } = await supabase
           .from("channels")
@@ -171,10 +171,12 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           agentLocale: typedAgent.bot_locale,
         });
         if (!subResult.allowed) {
-          if (subResult.message === "[pending_approval]") {
+          const bl = getBotLocaleOrDefault(typedAgent.bot_locale);
+          if (subResult.message === "[pending_approval_first]") {
             await supabase.from("channels").update({ is_allowed: false }).eq("id", channel.id);
             await notifyOwnerOfNewChannel(typedAgent.id, channel as Channel, true).catch(() => {});
-            const bl = getBotLocaleOrDefault(typedAgent.bot_locale);
+            await sender.sendText(platformChatId, botT(bl, "trialExhaustedApproval"));
+          } else if (subResult.message === "[pending_approval]") {
             await sender.sendText(platformChatId, botT(bl, "pendingApproval"));
           }
           return { success: true, reply: subResult.message, traceId };

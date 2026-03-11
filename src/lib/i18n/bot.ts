@@ -55,6 +55,9 @@ const botStrings = {
 
     trialRemaining: "🎁 You have {n} free trial message(s) remaining.",
     trialExhausted: "⏳ Your free trial has been used up.",
+    trialExhaustedApproval:
+      "⏳ Your free trial has been used up. Your access request has been sent to the owner for approval. " +
+      "You will be notified once approved. Please wait.",
     subscriptionRequired: "🔒 A subscription is required to continue. Choose a plan below:",
     subscriptionPlanItem: "• *{name}* — {price} ({desc})",
     subscriptionPayHere: "👉 [Subscribe Now]({url})",
@@ -169,6 +172,8 @@ const botStrings = {
 
     trialRemaining: "🎁 你还有 {n} 次免费试用机会。",
     trialExhausted: "⏳ 免费试用已用完。",
+    trialExhaustedApproval:
+      "⏳ 免费试用已用完。你的访问请求已发送给实控人审批，审批通过后会通知你，请耐心等待。",
     subscriptionRequired: "🔒 需要订阅后才能继续使用。请选择套餐：",
     subscriptionPlanItem: "• *{name}* — {price}（{desc}）",
     subscriptionPayHere: "👉 [立即订阅]({url})",

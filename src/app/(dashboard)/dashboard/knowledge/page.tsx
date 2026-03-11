@@ -569,16 +569,23 @@ export default function KnowledgePage() {
                       className="border rounded-xl p-4 flex items-start justify-between gap-4 hover:bg-muted/30 transition-colors"
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <h3 className="font-medium text-sm truncate">{article.title}</h3>
                           <Badge variant="secondary" className={STATUS_COLORS[article.chunk_status] || ""}>
                             {STATUS_LABELS[article.chunk_status] || article.chunk_status}
                           </Badge>
-                          {article.chunks_count > 0 && (
-                            <Badge variant="outline" className="text-xs">
-                              {article.chunks_count} chunks
-                            </Badge>
-                          )}
+                          {(article.total_chunks ?? 0) > 0 && (() => {
+                            const total = article.total_chunks ?? 0;
+                            const embedded = article.embedded_count ?? 0;
+                            const allDone = embedded === total;
+                            const partial = embedded > 0 && embedded < total;
+                            return (
+                              <Badge variant="outline" className={`text-xs ${allDone ? "bg-emerald-100 text-emerald-700 border-emerald-300" : partial ? "bg-amber-100 text-amber-700 border-amber-300" : "bg-gray-100 text-gray-600"}`}>
+                                <Zap className="size-3 mr-0.5" />
+                                {embedded}/{total}
+                              </Badge>
+                            );
+                          })()}
                         </div>
                         {article.source_url && (
                           <p className="text-xs text-muted-foreground truncate">{article.source_url}</p>

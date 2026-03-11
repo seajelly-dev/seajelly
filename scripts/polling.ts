@@ -64,7 +64,7 @@ async function resolveChannel(
     .select("id", { count: "exact", head: true })
     .eq("agent_id", agentId);
   const isFirstChannel = (existingCount ?? 0) === 0;
-  const autoAllow = accessMode === "open" || isFirstChannel;
+  const autoAllow = accessMode === "open" || accessMode === "subscription" || isFirstChannel;
 
   const { data: created } = await supabase
     .from("channels")
@@ -248,9 +248,11 @@ async function startBotForAgent(agent: AgentRow) {
           agentLocale: agent.bot_locale,
         });
         if (!subResult.allowed) {
-          if (subResult.message === "[pending_approval]") {
+          if (subResult.message === "[pending_approval_first]") {
             await supabase.from("channels").update({ is_allowed: false }).eq("id", channel.id);
             notifyOwner(bot, agent.id, channel as Channel, true, locale).catch(() => {});
+            await ctx.reply(t("trialExhaustedApproval"));
+          } else if (subResult.message === "[pending_approval]") {
             await ctx.reply(t("pendingApproval"));
           }
           return;

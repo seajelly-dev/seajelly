@@ -148,6 +148,9 @@ async function handleNoSubscription(
     return { allowed: false, message: botT(locale, "trialExhausted") };
   }
 
+  if (channel.is_allowed) {
+    return { allowed: false, message: "[pending_approval_first]" };
+  }
   return { allowed: false, message: "[pending_approval]" };
 }
 

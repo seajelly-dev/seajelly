@@ -145,11 +145,19 @@ export async function searchKnowledgeForAgent(
     .select("knowledge_base_id")
     .eq("agent_id", agentId);
 
-  const kbIds = (kbRows ?? []).map((r) => r.knowledge_base_id as string);
+  const boundIds = (kbRows ?? []).map((r) => r.knowledge_base_id as string);
 
-  if (kbIds.length === 0) {
+  if (boundIds.length === 0) {
     return { success: false, chunks: [], articles: [], error: "No knowledge bases mounted on this agent" };
   }
 
-  return searchKnowledgeWithArticles({ query, topK, kbIds });
+  const { data: childKbs } = await supabase
+    .from("knowledge_bases")
+    .select("id")
+    .in("parent_id", boundIds);
+
+  const childIds = (childKbs ?? []).map((r) => r.id as string);
+  const allKbIds = [...new Set([...boundIds, ...childIds])];
+
+  return searchKnowledgeWithArticles({ query, topK, kbIds: allKbIds });
 }

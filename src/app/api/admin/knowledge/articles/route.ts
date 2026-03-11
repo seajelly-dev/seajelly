@@ -26,7 +26,31 @@ export async function GET(request: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ articles: data ?? [] });
+
+  const articles = data ?? [];
+  if (articles.length > 0) {
+    const articleIds = articles.map((a) => a.id);
+    const { data: embedStats } = await db
+      .from("knowledge_chunks")
+      .select("article_id, embed_status")
+      .in("article_id", articleIds);
+
+    const statsMap = new Map<string, { embedded: number; total: number }>();
+    for (const row of embedStats ?? []) {
+      const s = statsMap.get(row.article_id) ?? { embedded: 0, total: 0 };
+      s.total++;
+      if (row.embed_status === "embedded") s.embedded++;
+      statsMap.set(row.article_id, s);
+    }
+
+    for (const article of articles) {
+      const s = statsMap.get(article.id);
+      (article as Record<string, unknown>).embedded_count = s?.embedded ?? 0;
+      (article as Record<string, unknown>).total_chunks = s?.total ?? 0;
+    }
+  }
+
+  return NextResponse.json({ articles });
 }
 
 export async function POST(request: Request) {

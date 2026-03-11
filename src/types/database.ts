@@ -208,6 +208,8 @@ export interface KnowledgeArticle {
   source_url: string | null;
   chunk_status: ArticleChunkStatus;
   chunks_count: number;
+  embedded_count?: number;
+  total_chunks?: number;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
