@@ -9,6 +9,7 @@ import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import type { PlatformSender } from "@/lib/platform/types";
 import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
 import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText } from "@/lib/i18n/bot";
+import { checkSubscription } from "@/lib/subscription/check";
 import type { Locale } from "@/lib/i18n/types";
 
 interface LoopResult {
@@ -110,8 +111,6 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
       if (existingChannel) {
         channel = existingChannel as Channel;
-      } else if (typedAgent.access_mode === "whitelist") {
-        // whitelist: no channel, no entry
       } else {
         let resolvedDisplayName = displayName;
         if (!resolvedDisplayName && msgPayload) {
@@ -160,6 +159,29 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         const bl = getBotLocaleOrDefault(typedAgent.bot_locale);
         await sender.sendText(platformChatId, botT(bl, "pendingApproval"));
         return { success: true, reply: "[pending_approval]", traceId };
+      }
+
+      if (typedAgent.access_mode === "subscription" && channel) {
+        const subResult = await checkSubscription({
+          supabase,
+          agentId: typedAgent.id,
+          channel: channel as Channel,
+          sender,
+          platformChatId,
+          agentLocale: typedAgent.bot_locale,
+        });
+        if (!subResult.allowed) {
+          if (subResult.message === "[pending_approval]") {
+            await supabase.from("channels").update({ is_allowed: false }).eq("id", channel.id);
+            await notifyOwnerOfNewChannel(typedAgent.id, channel as Channel, true).catch(() => {});
+            const bl = getBotLocaleOrDefault(typedAgent.bot_locale);
+            await sender.sendText(platformChatId, botT(bl, "pendingApproval"));
+          }
+          return { success: true, reply: subResult.message, traceId };
+        }
+        if (subResult.message) {
+          sender.sendText(platformChatId, subResult.message).catch(() => {});
+        }
       }
     }
 

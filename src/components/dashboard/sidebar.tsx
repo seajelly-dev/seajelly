@@ -21,6 +21,7 @@ import {
   LogOut,
   Cpu,
   AudioLines,
+  CreditCard,
 } from "lucide-react";
 import Image from "next/image";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -50,6 +51,7 @@ const NAV_ITEMS: { titleKey: string; href: string; icon: LucideIcon }[] = [
   { titleKey: "sidebar.overview", href: "/dashboard", icon: LayoutDashboard },
   { titleKey: "sidebar.agents", href: "/dashboard/agents", icon: Bot },
   { titleKey: "sidebar.channels", href: "/dashboard/channels", icon: Users },
+  { titleKey: "sidebar.subscriptions", href: "/dashboard/subscriptions", icon: CreditCard },
   { titleKey: "sidebar.memories", href: "/dashboard/memories", icon: Brain },
   { titleKey: "sidebar.models", href: "/dashboard/models", icon: Cpu },
   { titleKey: "sidebar.voice", href: "/dashboard/voice", icon: AudioLines },

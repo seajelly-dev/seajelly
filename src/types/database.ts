@@ -14,7 +14,7 @@ export interface Secret {
   updated_at: string;
 }
 
-export type AccessMode = "open" | "approval" | "whitelist";
+export type AccessMode = "open" | "approval" | "subscription";
 
 export interface Agent {
   id: string;
@@ -99,8 +99,56 @@ export interface Channel {
   user_soul: string;
   is_allowed: boolean;
   is_owner: boolean;
+  trial_used: number;
   created_at: string;
   updated_at: string;
+}
+
+export type SubscriptionPlanType = "time" | "quota";
+
+export interface SubscriptionPlan {
+  id: string;
+  agent_id: string;
+  name: string;
+  type: SubscriptionPlanType;
+  duration_days: number | null;
+  quota_amount: number | null;
+  price_cents: number;
+  currency: string;
+  stripe_payment_link: string | null;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export type FallbackAction = "require_approval" | "require_payment";
+
+export interface SubscriptionRule {
+  id: string;
+  agent_id: string;
+  trial_count: number;
+  fallback_action: FallbackAction;
+  expire_reminder_days: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SubscriptionStatus = "active" | "expired" | "cancelled";
+
+export interface ChannelSubscription {
+  id: string;
+  channel_id: string;
+  plan_id: string | null;
+  type: SubscriptionPlanType;
+  starts_at: string | null;
+  expires_at: string | null;
+  quota_total: number | null;
+  quota_used: number;
+  payment_provider: string | null;
+  payment_id: string | null;
+  status: SubscriptionStatus;
+  reminder_sent: boolean;
+  created_at: string;
 }
 
 export interface ChatMessage {
@@ -221,6 +269,8 @@ export const SECRET_KEYS = [
   "EMBEDDING_API_KEY",
   "E2B_API_KEY",
   "GITHUB_TOKEN",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
 ] as const;
 
 export type SecretKeyName = (typeof SECRET_KEYS)[number];

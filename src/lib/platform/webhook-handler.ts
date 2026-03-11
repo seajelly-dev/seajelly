@@ -72,9 +72,6 @@ export async function handleInboundMessage(params: InboundMessageParams): Promis
     if (channel && !channel.is_allowed) {
       return NextResponse.json({ ok: true, blocked: true });
     }
-    if (!channel && agent.access_mode === "whitelist") {
-      return NextResponse.json({ ok: true, blocked: true });
-    }
   }
 
   await supabase.from("events").insert({

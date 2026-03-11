@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS public.agents (
   model             text NOT NULL DEFAULT 'claude-sonnet-4-6',
   provider_id       uuid REFERENCES public.providers(id) ON DELETE SET NULL,
   is_default        boolean NOT NULL DEFAULT false,
-  access_mode       text NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','approval','whitelist')),
+  access_mode       text NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','approval','subscription')),
   ai_soul           text NOT NULL DEFAULT '',
   telegram_bot_token text,
   webhook_secret    text,
@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS public.channels (
   user_soul     text NOT NULL DEFAULT '',
   is_allowed    boolean NOT NULL DEFAULT true,
   is_owner      boolean NOT NULL DEFAULT false,
+  trial_used    int NOT NULL DEFAULT 0,
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now()
 );
@@ -671,6 +672,9 @@ GRANT ALL ON public.voice_settings TO service_role, authenticated;
 GRANT ALL ON public.tts_usage_logs TO service_role, authenticated;
 GRANT ALL ON public.voice_temp_links TO service_role, authenticated;
 GRANT SELECT ON public.voice_temp_links TO anon;
+GRANT ALL ON public.subscription_plans TO service_role, authenticated;
+GRANT ALL ON public.subscription_rules TO service_role, authenticated;
+GRANT ALL ON public.channel_subscriptions TO service_role, authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
@@ -770,6 +774,79 @@ CREATE POLICY "voice_temp_links_anon_select" ON public.voice_temp_links FOR SELE
   USING (true);
 
 -- ============================================================
+-- 21. subscription_plans
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.subscription_plans (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id        uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  name            text NOT NULL,
+  type            text NOT NULL CHECK (type IN ('time','quota')),
+  duration_days   int,
+  quota_amount    int,
+  price_cents     int NOT NULL,
+  currency        text NOT NULL DEFAULT 'usd',
+  stripe_payment_link text,
+  is_active       boolean NOT NULL DEFAULT true,
+  sort_order      int NOT NULL DEFAULT 0,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS subscription_plans_agent ON public.subscription_plans(agent_id);
+ALTER TABLE public.subscription_plans ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "subscription_plans_admin_all" ON public.subscription_plans;
+CREATE POLICY "subscription_plans_admin_all" ON public.subscription_plans FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "subscription_plans_service_select" ON public.subscription_plans;
+CREATE POLICY "subscription_plans_service_select" ON public.subscription_plans FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+-- ============================================================
+-- 22. subscription_rules
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.subscription_rules (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id              uuid NOT NULL UNIQUE REFERENCES public.agents(id) ON DELETE CASCADE,
+  trial_count           int NOT NULL DEFAULT 3,
+  fallback_action       text NOT NULL DEFAULT 'require_approval'
+                        CHECK (fallback_action IN ('require_approval','require_payment')),
+  expire_reminder_days  int NOT NULL DEFAULT 3,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.subscription_rules ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "subscription_rules_admin_all" ON public.subscription_rules;
+CREATE POLICY "subscription_rules_admin_all" ON public.subscription_rules FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "subscription_rules_service_select" ON public.subscription_rules;
+CREATE POLICY "subscription_rules_service_select" ON public.subscription_rules FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+-- ============================================================
+-- 23. channel_subscriptions
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.channel_subscriptions (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  channel_id        uuid NOT NULL REFERENCES public.channels(id) ON DELETE CASCADE,
+  plan_id           uuid REFERENCES public.subscription_plans(id) ON DELETE SET NULL,
+  type              text NOT NULL CHECK (type IN ('time','quota')),
+  starts_at         timestamptz,
+  expires_at        timestamptz,
+  quota_total       int,
+  quota_used        int NOT NULL DEFAULT 0,
+  payment_provider  text,
+  payment_id        text,
+  status            text NOT NULL DEFAULT 'active'
+                    CHECK (status IN ('active','expired','cancelled')),
+  reminder_sent     boolean NOT NULL DEFAULT false,
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS channel_subscriptions_channel ON public.channel_subscriptions(channel_id);
+CREATE INDEX IF NOT EXISTS channel_subscriptions_status ON public.channel_subscriptions(status);
+ALTER TABLE public.channel_subscriptions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "channel_subscriptions_admin_all" ON public.channel_subscriptions;
+CREATE POLICY "channel_subscriptions_admin_all" ON public.channel_subscriptions FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "channel_subscriptions_service_all" ON public.channel_subscriptions;
+CREATE POLICY "channel_subscriptions_service_all" ON public.channel_subscriptions FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+-- ============================================================
 -- Triggers
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.update_updated_at()
@@ -785,3 +862,5 @@ DROP TRIGGER IF EXISTS channels_updated_at ON public.channels;
 CREATE TRIGGER channels_updated_at BEFORE UPDATE ON public.channels FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 DROP TRIGGER IF EXISTS voice_settings_updated_at ON public.voice_settings;
 CREATE TRIGGER voice_settings_updated_at BEFORE UPDATE ON public.voice_settings FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+DROP TRIGGER IF EXISTS subscription_rules_updated_at ON public.subscription_rules;
+CREATE TRIGGER subscription_rules_updated_at BEFORE UPDATE ON public.subscription_rules FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();

@@ -200,7 +200,9 @@ export default function AgentsPage() {
     system_prompt: "",
     provider_id: "",
     model: "",
-    access_mode: "open" as "open" | "approval" | "whitelist",
+    access_mode: "open" as "open" | "approval" | "subscription",
+    subscription_trial_count: 3,
+    subscription_fallback: "require_approval" as "require_approval" | "require_payment",
     bot_locale: "en" as "en" | "zh",
     ai_soul: "",
     telegram_bot_token: "",
@@ -324,6 +326,8 @@ export default function AgentsPage() {
       telegram_bot_token: "",
       tools_config: defaultToolsConfig,
       platform_credentials: {},
+      subscription_trial_count: 3,
+      subscription_fallback: "require_approval" as const,
     };
   }
 
@@ -335,9 +339,22 @@ export default function AgentsPage() {
     setDialogOpen(true);
   };
 
-  const openEdit = (agent: Agent) => {
+  const openEdit = async (agent: Agent) => {
     setEditingAgent(agent);
     const tc = (agent.tools_config ?? {}) as Record<string, boolean>;
+    let trialCount = 3;
+    let fallback: "require_approval" | "require_payment" = "require_approval";
+    if (agent.access_mode === "subscription") {
+      try {
+        const ruleRes = await fetch(`/api/admin/subscriptions?view=rules&agent_id=${agent.id}`);
+        const ruleData = await ruleRes.json();
+        const rule = (ruleData.rules ?? [])[0];
+        if (rule) {
+          trialCount = rule.trial_count ?? 3;
+          fallback = rule.fallback_action || "require_approval";
+        }
+      } catch { /* fallback defaults */ }
+    }
     setForm({
       name: agent.name,
       system_prompt: agent.system_prompt,
@@ -349,6 +366,8 @@ export default function AgentsPage() {
       telegram_bot_token: "",
       tools_config: tc,
       platform_credentials: {},
+      subscription_trial_count: trialCount,
+      subscription_fallback: fallback,
     });
     fetchBoundResources(agent.id);
     setDialogOpen(true);
@@ -362,7 +381,7 @@ export default function AgentsPage() {
     setSaving(true);
     try {
       const method = editingAgent ? "PUT" : "POST";
-      const { provider_id, platform_credentials, ...restForm } = form;
+      const { provider_id, platform_credentials, subscription_trial_count, subscription_fallback, ...restForm } = form;
       const hasCreds = Object.values(platform_credentials).some(
         (fields) => Object.values(fields).some((v) => v.trim()),
       );
@@ -381,6 +400,22 @@ export default function AgentsPage() {
       if (!res.ok) throw new Error(data.error);
 
       const savedAgentId = editingAgent?.id || data.agent?.id;
+
+      if (savedAgentId && form.access_mode === "subscription") {
+        try {
+          await fetch("/api/admin/subscriptions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "upsert_rule",
+              agent_id: savedAgentId,
+              trial_count: subscription_trial_count,
+              fallback_action: subscription_fallback,
+            }),
+          });
+        } catch { /* non-blocking */ }
+      }
+
       const baseUrl = origin || window.location.origin;
       if (savedAgentId && form.telegram_bot_token && baseUrl) {
         try {
@@ -858,11 +893,11 @@ export default function AgentsPage() {
                   <Select
                     value={form.access_mode}
                     onValueChange={(v) =>
-                      setForm((f) => ({ ...f, access_mode: (v ?? f.access_mode) as "open" | "approval" | "whitelist" }))
+                      setForm((f) => ({ ...f, access_mode: (v ?? f.access_mode) as "open" | "approval" | "subscription" }))
                     }
                   >
                     <SelectTrigger>
-                      {form.access_mode === "whitelist" ? t("agents.whitelist") : form.access_mode === "approval" ? t("agents.approval") : t("agents.open")}
+                      {form.access_mode === "subscription" ? t("agents.subscription") : form.access_mode === "approval" ? t("agents.approval") : t("agents.open")}
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="open">
@@ -877,10 +912,10 @@ export default function AgentsPage() {
                           <div className="text-xs text-muted-foreground">{t("agents.accessModeApprovalDesc")}</div>
                         </div>
                       </SelectItem>
-                      <SelectItem value="whitelist">
+                      <SelectItem value="subscription">
                         <div>
-                          <div>{t("agents.whitelist")}</div>
-                          <div className="text-xs text-muted-foreground">{t("agents.accessModeWhitelistDesc")}</div>
+                          <div>{t("agents.subscription")}</div>
+                          <div className="text-xs text-muted-foreground">{t("agents.accessModeSubscriptionDesc")}</div>
                         </div>
                       </SelectItem>
                     </SelectContent>
@@ -905,6 +940,43 @@ export default function AgentsPage() {
                   <p className="text-xs text-muted-foreground">{t("agents.botLocaleHint")}</p>
                 </div>
               </div>
+
+              {/* Subscription inline config */}
+              {form.access_mode === "subscription" && (
+                <div className="flex flex-col gap-3 rounded-md border p-3 bg-muted/30">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label>{t("agents.subscriptionTrialCount")}</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={form.subscription_trial_count}
+                        onChange={(e) => setForm((f) => ({ ...f, subscription_trial_count: parseInt(e.target.value) || 0 }))}
+                      />
+                      <p className="text-xs text-muted-foreground">{t("agents.subscriptionTrialCountHint")}</p>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label>{t("agents.subscriptionFallback")}</Label>
+                      <Select
+                        value={form.subscription_fallback}
+                        onValueChange={(v) => setForm((f) => ({ ...f, subscription_fallback: (v ?? f.subscription_fallback) as "require_approval" | "require_payment" }))}
+                      >
+                        <SelectTrigger>
+                          {form.subscription_fallback === "require_payment" ? t("agents.subscriptionFallbackPayment") : t("agents.subscriptionFallbackApproval")}
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="require_approval">{t("agents.subscriptionFallbackApproval")}</SelectItem>
+                          <SelectItem value="require_payment">{t("agents.subscriptionFallbackPayment")}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground">{t("agents.subscriptionConfigHint")}</p>
+                    <a href="/dashboard/subscriptions" className="text-xs text-primary hover:underline shrink-0">{t("agents.subscriptionGoToPlans")}</a>
+                  </div>
+                </div>
+              )}
 
               {/* System prompt */}
               <div className="flex flex-col gap-1.5">
@@ -1069,9 +1141,9 @@ export default function AgentsPage() {
                       <span className="font-mono text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded-md border border-border/30 truncate max-w-[120px] sm:max-w-[200px]" title={agent.model}>{agent.model}</span>
                       <span className="text-muted-foreground/30">•</span>
                       <span className="flex items-center gap-1 text-muted-foreground">
-                        {agent.access_mode === "whitelist" ? <Lock className="size-3" /> : <Globe className="size-3" />}
-                        {agent.access_mode === "whitelist"
-                          ? t("agents.whitelist")
+                        {agent.access_mode === "subscription" ? <Lock className="size-3" /> : <Globe className="size-3" />}
+                        {agent.access_mode === "subscription"
+                          ? t("agents.subscription")
                           : agent.access_mode === "approval"
                             ? t("agents.approval")
                             : t("agents.open")}

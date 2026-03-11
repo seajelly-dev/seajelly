@@ -17,6 +17,7 @@ import { AGENT_LIMITS } from "@/lib/agent/limits";
 import { TelegramAdapter } from "@/lib/platform/adapters/telegram";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText, getBotCommands } from "@/lib/i18n/bot";
+import { checkSubscription } from "@/lib/subscription/check";
 import type { Locale } from "@/lib/i18n/types";
 import type { ChatMessage, Channel } from "@/types/database";
 
@@ -57,7 +58,6 @@ async function resolveChannel(
     .single();
 
   if (existing) return { channel: existing as Channel, isNew: false };
-  if (accessMode === "whitelist") return { channel: null, isNew: false };
 
   const { count: existingCount } = await supabase
     .from("channels")
@@ -236,6 +236,29 @@ async function startBotForAgent(agent: AgentRow) {
       }
 
       const platformChatId = String(chatId);
+
+      if (agent.access_mode === "subscription") {
+        const pollingSenderForSub = new TelegramAdapter(agent.id);
+        const subResult = await checkSubscription({
+          supabase,
+          agentId: agent.id,
+          channel: channel as Channel,
+          sender: pollingSenderForSub,
+          platformChatId,
+          agentLocale: agent.bot_locale,
+        });
+        if (!subResult.allowed) {
+          if (subResult.message === "[pending_approval]") {
+            await supabase.from("channels").update({ is_allowed: false }).eq("id", channel.id);
+            notifyOwner(bot, agent.id, channel as Channel, true, locale).catch(() => {});
+            await ctx.reply(t("pendingApproval"));
+          }
+          return;
+        }
+        if (subResult.message) {
+          ctx.reply(subResult.message).catch(() => {});
+        }
+      }
 
       let { data: session } = await supabase
         .from("sessions")
