@@ -60,9 +60,11 @@ async function feishuAPI(
   agentId: string,
   path: string,
   body: Record<string, unknown>,
+  query?: Record<string, string>,
 ): Promise<Record<string, unknown>> {
   const token = await getTenantAccessToken(agentId);
-  const resp = await fetch(`https://open.feishu.cn/open-apis${path}`, {
+  const qs = query ? "?" + new URLSearchParams(query).toString() : "";
+  const resp = await fetch(`https://open.feishu.cn/open-apis${path}${qs}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -70,7 +72,28 @@ async function feishuAPI(
     },
     body: JSON.stringify(body),
   });
-  return resp.json();
+  const data = await resp.json() as Record<string, unknown>;
+  if (data.code && data.code !== 0) {
+    console.error("Feishu API error:", path, data.code, data.msg);
+  }
+  return data;
+}
+
+export async function getFeishuUserName(agentId: string, openId: string): Promise<string | null> {
+  try {
+    const token = await getTenantAccessToken(agentId);
+    const resp = await fetch(
+      `https://open.feishu.cn/open-apis/contact/v3/users/${openId}?user_id_type=open_id`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const data = await resp.json();
+    if (data.code === 0 && data.data?.user?.name) {
+      return data.data.user.name;
+    }
+  } catch (e) {
+    console.warn("Feishu fetch user name failed:", e);
+  }
+  return null;
 }
 
 function mdToFeishuPost(md: string): Record<string, unknown>[][] {
@@ -85,12 +108,16 @@ export class FeishuAdapter implements PlatformSender {
     this.agentId = agentId;
   }
 
+  private ridType(chatId: string): string {
+    return chatId.startsWith("oc_") ? "chat_id" : "open_id";
+  }
+
   async sendText(chatId: string, text: string, _options?: SendOptions): Promise<void> {
     await feishuAPI(this.agentId, "/im/v1/messages", {
       receive_id: chatId,
       msg_type: "text",
       content: JSON.stringify({ text }),
-    });
+    }, { receive_id_type: this.ridType(chatId) });
   }
 
   async sendMarkdown(chatId: string, md: string): Promise<void> {
@@ -104,7 +131,7 @@ export class FeishuAdapter implements PlatformSender {
       receive_id: chatId,
       msg_type: "post",
       content: JSON.stringify(content),
-    });
+    }, { receive_id_type: this.ridType(chatId) });
   }
 
   async sendTyping(_chatId: string): Promise<void> {
@@ -132,7 +159,7 @@ export class FeishuAdapter implements PlatformSender {
       receive_id: chatId,
       msg_type: "audio",
       content: JSON.stringify({ file_key: fileKey }),
-    });
+    }, { receive_id_type: this.ridType(chatId) });
   }
 
   async sendInteractiveButtons(
@@ -158,6 +185,6 @@ export class FeishuAdapter implements PlatformSender {
       receive_id: chatId,
       msg_type: "interactive",
       content: JSON.stringify(card),
-    });
+    }, { receive_id_type: this.ridType(chatId) });
   }
 }

@@ -5,6 +5,7 @@ import { decrypt } from "@/lib/crypto/encrypt";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
 import { processChannelApproval } from "@/lib/platform/approval-core";
 import { getSenderForAgent } from "@/lib/platform/sender";
+import { getFeishuUserName } from "@/lib/platform/adapters/feishu";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -114,8 +115,12 @@ export async function POST(
 
     const chatId = msg.chat_id;
     const senderId = event.sender?.sender_id?.open_id || null;
-    const senderName = event.sender?.sender_id?.name || null;
     const msgType = msg.message_type;
+
+    let senderName: string | null = null;
+    if (senderId) {
+      senderName = await getFeishuUserName(agentId, senderId);
+    }
     const messageId = msg.message_id;
 
     let text = "";

@@ -111,12 +111,15 @@ export class TelegramAdapter implements PlatformSender {
     const inlineKeyboard = buttons.map((row) =>
       row.map((btn) => ({ text: btn.label, callback_data: btn.callbackData })),
     );
-    const opts: Record<string, unknown> = {
-      reply_markup: { inline_keyboard: inlineKeyboard },
-    };
+    const markup = { reply_markup: { inline_keyboard: inlineKeyboard } };
     if (options?.parseMode && options.parseMode !== "plain") {
-      opts.parse_mode = options.parseMode;
+      try {
+        await bot.api.sendMessage(this.tgId(chatId), text, { ...markup, parse_mode: options.parseMode });
+        return;
+      } catch {
+        // fallback to plain text if markdown parsing fails
+      }
     }
-    await bot.api.sendMessage(this.tgId(chatId), text, opts);
+    await bot.api.sendMessage(this.tgId(chatId), text.replace(/[*_`\[\]]/g, ""), markup);
   }
 }
