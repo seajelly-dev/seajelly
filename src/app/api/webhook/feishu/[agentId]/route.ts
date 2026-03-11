@@ -134,6 +134,30 @@ export async function POST(
       } catch {
         text = msg.content || "";
       }
+    } else if (msgType === "post") {
+      try {
+        const parsed = JSON.parse(msg.content);
+        const lang = parsed.zh_cn || parsed.en_us || Object.values(parsed)[0] as Record<string, unknown> | undefined;
+        const rows = (lang as Record<string, unknown>)?.content as Array<Array<Record<string, string>>> | undefined;
+        if (rows) {
+          const texts: string[] = [];
+          let firstImageKey: string | null = null;
+          for (const row of rows) {
+            for (const el of row) {
+              if (el.tag === "text") texts.push(el.text || "");
+              else if (el.tag === "a") texts.push(el.text || el.href || "");
+              else if (el.tag === "img" && !firstImageKey) firstImageKey = el.image_key;
+            }
+          }
+          text = texts.join("").trim();
+          if (firstImageKey) {
+            fileRef = `${messageId}|${firstImageKey}|image`;
+            fileMime = "image/jpeg";
+          }
+        }
+      } catch {
+        /* skip */
+      }
     } else if (msgType === "audio" || msgType === "file" || msgType === "image") {
       try {
         const parsed = JSON.parse(msg.content);
@@ -142,11 +166,21 @@ export async function POST(
           const resType = msgType === "image" ? "image" : "file";
           fileRef = `${messageId}|${key}|${resType}`;
         }
+        if (msgType === "file" && parsed.file_name) {
+          const fn = (parsed.file_name as string).toLowerCase();
+          if (fn.endsWith(".pdf")) fileMime = "application/pdf";
+          else if (fn.endsWith(".doc") || fn.endsWith(".docx")) fileMime = "application/msword";
+          else if (fn.endsWith(".xls") || fn.endsWith(".xlsx")) fileMime = "application/vnd.ms-excel";
+          else if (fn.endsWith(".png")) fileMime = "image/png";
+          else if (fn.endsWith(".jpg") || fn.endsWith(".jpeg")) fileMime = "image/jpeg";
+        }
       } catch {
         /* skip */
       }
-      if (msgType === "audio") fileMime = "audio/opus";
-      else if (msgType === "image") fileMime = "image/jpeg";
+      if (!fileMime) {
+        if (msgType === "audio") fileMime = "audio/opus";
+        else if (msgType === "image") fileMime = "image/jpeg";
+      }
     } else {
       return NextResponse.json({ ok: true });
     }
