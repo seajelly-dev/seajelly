@@ -130,16 +130,21 @@ async function handleNoSubscription(
 
     if (plans && plans.length > 0) {
       let msg = botT(locale, "trialExhausted") + "\n" + botT(locale, "subscriptionRequired") + "\n\n";
+      let hasAnyLink = false;
       for (const plan of plans) {
         const priceStr = formatPrice(plan.price_cents, plan.currency);
         const desc = plan.type === "time"
-          ? `${plan.duration_days} days`
-          : `${plan.quota_amount} messages`;
+          ? botT(locale, "planDescDays", { n: plan.duration_days ?? 0 })
+          : botT(locale, "planDescMessages", { n: plan.quota_amount ?? 0 });
         msg += botT(locale, "subscriptionPlanItem", { name: plan.name, price: priceStr, desc }) + "\n";
         if (plan.stripe_payment_link) {
+          hasAnyLink = true;
           const linkWithRef = appendClientRef(plan.stripe_payment_link, channel.id);
           msg += botT(locale, "subscriptionPayHere", { url: linkWithRef }) + "\n\n";
         }
+      }
+      if (!hasAnyLink) {
+        msg += "\n" + botT(locale, "subscriptionContactAdmin") + "\n";
       }
       await sender.sendMarkdown(platformChatId, msg);
       return { allowed: false, message: "[subscription_required]" };
