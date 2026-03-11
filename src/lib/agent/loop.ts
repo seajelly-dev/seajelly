@@ -140,7 +140,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         channel = newChannel as Channel | null;
 
         if (channel && !isFirstChannel) {
-          notifyOwnerOfNewChannel(
+          await notifyOwnerOfNewChannel(
             typedAgent.id,
             channel,
             typedAgent.access_mode === "approval"
