@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -29,6 +29,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TablePagination } from "@/components/table-pagination";
 import { toast } from "sonner";
 import { MessageSquare, Bot, User, RefreshCw, Loader2 } from "lucide-react";
+import {
+  TelegramIcon,
+  FeishuIcon,
+  WeComIcon,
+  SlackIcon,
+  QQBotIcon,
+} from "@/components/icons/platform-icons";
 import { useT } from "@/lib/i18n";
 
 const PAGE_SIZE = 20;
@@ -43,12 +50,22 @@ interface SessionRow {
   id: string;
   platform_chat_id: string;
   agent_id: string;
+  channel_id: string | null;
   version: number;
   is_active: boolean;
   updated_at: string;
   messages: ChatMessage[];
   agents: { name: string } | null;
+  channels: { platform: string; display_name: string | null } | null;
 }
+
+const PLATFORM_ICON: Record<string, React.FC<{ className?: string }>> = {
+  telegram: TelegramIcon,
+  feishu: FeishuIcon,
+  wecom: WeComIcon,
+  slack: SlackIcon,
+  qqbot: QQBotIcon,
+};
 
 export default function SessionsPage() {
   const t = useT();
@@ -172,8 +189,8 @@ export default function SessionsPage() {
                       className="cursor-pointer transition-colors hover:bg-muted/50"
                       onClick={() => setSelectedId(s.id)}
                     >
-                      <TableCell className="font-mono text-sm">
-                        {s.platform_chat_id}
+                      <TableCell>
+                        <ChatIdCell session={s} />
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">
@@ -267,6 +284,32 @@ export default function SessionsPage() {
       </Sheet>
     </div>
   );
+}
+
+function ChatIdCell({ session }: { session: SessionRow }) {
+  const platform = session.channels?.platform;
+  const displayName = session.channels?.display_name;
+  const Icon = platform ? PLATFORM_ICON[platform] : null;
+
+  if (Icon && displayName) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Icon className="size-4 shrink-0" />
+        <span className="text-sm">{displayName}</span>
+      </span>
+    );
+  }
+
+  if (Icon) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Icon className="size-4 shrink-0" />
+        <span className="font-mono text-sm">{session.platform_chat_id}</span>
+      </span>
+    );
+  }
+
+  return <span className="font-mono text-sm">{session.platform_chat_id}</span>;
 }
 
 function MessageBubble({ message }: { message: ChatMessage }) {

@@ -12,12 +12,13 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 
+  const selectFields =
+    "id, platform_chat_id, agent_id, channel_id, version, is_active, updated_at, messages, agents(name), channels:channel_id(platform, display_name)";
+
   if (id) {
     const { data, error } = await db
       .from("sessions")
-      .select(
-        "id, platform_chat_id, agent_id, version, is_active, updated_at, messages, agents(name)"
-      )
+      .select(selectFields)
       .eq("id", id)
       .single();
 
@@ -41,9 +42,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await db
     .from("sessions")
-    .select(
-      "id, platform_chat_id, agent_id, version, is_active, updated_at, messages, agents(name)"
-    )
+    .select(selectFields)
     .order("updated_at", { ascending: false })
     .range(from, to);
 

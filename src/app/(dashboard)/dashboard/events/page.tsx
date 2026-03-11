@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -28,7 +28,14 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { TablePagination } from "@/components/table-pagination";
 import { toast } from "sonner";
-import { RefreshCw, RotateCcw, Radio, Copy } from "lucide-react";
+import { RefreshCw, RotateCcw, Radio, Copy, Clock, Webhook, Hand } from "lucide-react";
+import {
+  TelegramIcon,
+  FeishuIcon,
+  WeComIcon,
+  SlackIcon,
+  QQBotIcon,
+} from "@/components/icons/platform-icons";
 import { createClient } from "@/lib/supabase/client";
 import { useT } from "@/lib/i18n";
 import type { AgentEvent } from "@/types/database";
@@ -48,6 +55,28 @@ const STATUS_OPTIONS = [
   "failed",
   "dead",
 ];
+
+const SOURCE_ICON: Record<string, React.FC<{ className?: string }>> = {
+  telegram: TelegramIcon,
+  feishu: FeishuIcon,
+  wecom: WeComIcon,
+  slack: SlackIcon,
+  qqbot: QQBotIcon,
+  cron: Clock,
+  webhook: Webhook,
+  manual: Hand,
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  telegram: "Telegram",
+  feishu: "Feishu",
+  wecom: "WeCom",
+  slack: "Slack",
+  qqbot: "QQBot",
+  cron: "Cron",
+  webhook: "Webhook",
+  manual: "Manual",
+};
 
 const PAGE_SIZE = 20;
 
@@ -221,7 +250,7 @@ export default function EventsPage() {
                           {e.trace_id.slice(0, 8)}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">{e.source}</Badge>
+                          <SourceCell source={e.source} />
                         </TableCell>
                         <TableCell>
                           <Badge variant={statusVariant(e.status)}>
@@ -301,5 +330,17 @@ export default function EventsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function SourceCell({ source }: { source: string }) {
+  const Icon = SOURCE_ICON[source];
+  const label = SOURCE_LABEL[source] ?? source;
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {Icon ? <Icon className="size-4 shrink-0" /> : null}
+      <span className="text-xs">{label}</span>
+    </span>
   );
 }

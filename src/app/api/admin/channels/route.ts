@@ -12,6 +12,8 @@ export async function GET(request: NextRequest) {
   const db = await createAdminClient();
   const { searchParams } = new URL(request.url);
   const agentId = searchParams.get("agent_id");
+  const platform = searchParams.get("platform");
+  const search = searchParams.get("search")?.trim();
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
   const pageSize = Math.min(
     100,
@@ -20,10 +22,17 @@ export async function GET(request: NextRequest) {
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
+  function applyFilters<T extends { eq: (col: string, val: string) => T; or: (filter: string) => T; ilike: (col: string, pat: string) => T }>(q: T) {
+    if (agentId) q = q.eq("agent_id", agentId);
+    if (platform) q = q.eq("platform", platform);
+    if (search) q = q.or(`display_name.ilike.%${search}%,platform_uid.ilike.%${search}%`);
+    return q;
+  }
+
   let countQuery = db
     .from("channels")
     .select("id", { count: "exact", head: true });
-  if (agentId) countQuery = countQuery.eq("agent_id", agentId);
+  countQuery = applyFilters(countQuery);
   const { count } = await countQuery;
 
   let query = db
@@ -31,8 +40,7 @@ export async function GET(request: NextRequest) {
     .select("*, agents:agent_id(name)")
     .order("created_at", { ascending: false })
     .range(from, to);
-
-  if (agentId) query = query.eq("agent_id", agentId);
+  query = applyFilters(query);
 
   const { data, error } = await query;
 
