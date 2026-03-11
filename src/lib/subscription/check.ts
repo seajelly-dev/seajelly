@@ -149,7 +149,7 @@ async function handleNoSubscription(
   }
 
   if (channel.is_allowed) {
-    return { allowed: false, message: "[pending_approval_first]" };
+    return { allowed: true };
   }
   return { allowed: false, message: "[pending_approval]" };
 }

@@ -171,13 +171,21 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           agentLocale: typedAgent.bot_locale,
         });
         if (!subResult.allowed) {
-          const bl = getBotLocaleOrDefault(typedAgent.bot_locale);
-          if (subResult.message === "[pending_approval_first]") {
-            await supabase.from("channels").update({ is_allowed: false }).eq("id", channel.id);
-            await notifyOwnerOfNewChannel(typedAgent.id, channel as Channel, true).catch(() => {});
-            await sender.sendText(platformChatId, botT(bl, "trialExhaustedApproval"));
-          } else if (subResult.message === "[pending_approval]") {
-            await sender.sendText(platformChatId, botT(bl, "pendingApproval"));
+          if (subResult.message === "[pending_approval]") {
+            const bl = getBotLocaleOrDefault(typedAgent.bot_locale);
+            const { data: freshCh } = await supabase
+              .from("channels")
+              .select("is_allowed")
+              .eq("id", channel.id)
+              .single();
+            const alreadyLocked = freshCh && !freshCh.is_allowed;
+            if (!alreadyLocked) {
+              await supabase.from("channels").update({ is_allowed: false }).eq("id", channel.id);
+              await notifyOwnerOfNewChannel(typedAgent.id, channel as Channel, true).catch(() => {});
+              await sender.sendText(platformChatId, botT(bl, "trialExhaustedApproval"));
+            } else {
+              await sender.sendText(platformChatId, botT(bl, "pendingApproval"));
+            }
           }
           return { success: true, reply: subResult.message, traceId };
         }

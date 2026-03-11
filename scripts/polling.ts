@@ -248,12 +248,20 @@ async function startBotForAgent(agent: AgentRow) {
           agentLocale: agent.bot_locale,
         });
         if (!subResult.allowed) {
-          if (subResult.message === "[pending_approval_first]") {
-            await supabase.from("channels").update({ is_allowed: false }).eq("id", channel.id);
-            notifyOwner(bot, agent.id, channel as Channel, true, locale).catch(() => {});
-            await ctx.reply(t("trialExhaustedApproval"));
-          } else if (subResult.message === "[pending_approval]") {
-            await ctx.reply(t("pendingApproval"));
+          if (subResult.message === "[pending_approval]") {
+            const { data: freshCh } = await supabase
+              .from("channels")
+              .select("is_allowed")
+              .eq("id", channel.id)
+              .single();
+            const alreadyLocked = freshCh && !freshCh.is_allowed;
+            if (!alreadyLocked) {
+              await supabase.from("channels").update({ is_allowed: false }).eq("id", channel.id);
+              notifyOwner(bot, agent.id, channel as Channel, true, locale).catch(() => {});
+              await ctx.reply(t("trialExhaustedApproval"));
+            } else {
+              await ctx.reply(t("pendingApproval"));
+            }
           }
           return;
         }
