@@ -79,21 +79,51 @@ async function feishuAPI(
   return data;
 }
 
-export async function getFeishuUserName(agentId: string, openId: string): Promise<string | null> {
+export async function getFeishuUserName(agentId: string, openId: string, chatId?: string): Promise<string | null> {
+  const token = await getTenantAccessToken(agentId);
+
+  // Strategy 1: contact API (requires contact:user.base:readonly scope)
   try {
-    const token = await getTenantAccessToken(agentId);
     const resp = await fetch(
       `https://open.feishu.cn/open-apis/contact/v3/users/${openId}?user_id_type=open_id`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
     const data = await resp.json();
-    console.log("Feishu getUser:", openId, "code:", data.code, "name:", data.data?.user?.name, "msg:", data.msg);
-    if (data.code === 0 && data.data?.user?.name) {
-      return data.data.user.name;
-    }
-  } catch (e) {
-    console.warn("Feishu fetch user name failed:", e);
+    const user = data.data?.user;
+    if (user?.name) return user.name;
+    if (user?.en_name) return user.en_name;
+  } catch { /* continue to fallback */ }
+
+  // Strategy 2: chat members API (works when bot is in the chat)
+  if (chatId) {
+    try {
+      const resp = await fetch(
+        `https://open.feishu.cn/open-apis/im/v1/chats/${chatId}/members?member_id_type=open_id&page_size=50`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const data = await resp.json();
+      const members = data.data?.items as Array<{ member_id: string; name?: string }> | undefined;
+      if (members) {
+        const match = members.find((m) => m.member_id === openId);
+        if (match?.name) return match.name;
+      }
+    } catch { /* continue to fallback */ }
   }
+
+  // Strategy 3: bot chat info (for p2p chats)
+  try {
+    const resp = await fetch(
+      `https://open.feishu.cn/open-apis/im/v1/chats?user_id_type=open_id&page_size=100`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const data = await resp.json();
+    const chats = data.data?.items as Array<{ chat_id: string; name?: string; chat_type?: string }> | undefined;
+    if (chats) {
+      const match = chats.find((c) => c.chat_id === chatId && c.chat_type === "p2p");
+      if (match?.name) return match.name;
+    }
+  } catch { /* give up */ }
+
   return null;
 }
 

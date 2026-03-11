@@ -119,7 +119,7 @@ export async function POST(
 
     let senderName: string | null = null;
     if (senderId) {
-      senderName = await getFeishuUserName(agentId, senderId);
+      senderName = await getFeishuUserName(agentId, senderId, chatId);
     }
     const messageId = msg.message_id;
 
