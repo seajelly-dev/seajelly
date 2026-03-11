@@ -186,6 +186,13 @@ export class WeComAdapter implements PlatformSender {
   }
 
   async sendVoice(chatId: string, audio: Buffer, filename?: string): Promise<void> {
+    const name = filename || "voice.amr";
+    const isAmr = name.endsWith(".amr");
+    if (!isAmr) {
+      await this.sendText(chatId, "[语音消息：企微仅支持 AMR 格式，已转为文字回复]");
+      return;
+    }
+
     const token = await getAccessToken(this.agentId);
     const uploadUrl = `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=voice`;
     const gw = await getGatewayConfig();
@@ -197,14 +204,14 @@ export class WeComAdapter implements PlatformSender {
         headers: { "Content-Type": "application/json", "X-Gateway-Secret": gw.secret },
         body: JSON.stringify({
           url: uploadUrl,
-          file_name: filename || "voice.amr",
+          file_name: name,
           file_data: audio.toString("base64"),
         }),
       });
       uploadData = await resp.json();
     } else {
       const form = new FormData();
-      form.append("media", new Blob([new Uint8Array(audio)]), filename || "voice.amr");
+      form.append("media", new Blob([new Uint8Array(audio)]), name);
       const resp = await fetch(uploadUrl, { method: "POST", body: form });
       uploadData = await resp.json();
     }

@@ -44,3 +44,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# edge-gateway compiled binaries
+tools/edge-gateway/dist/

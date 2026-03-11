@@ -1137,7 +1137,11 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           const result = await generateTTS({ text, voice });
           const audioBuffer = Buffer.from(result.audioBase64, "base64");
           if (platformChatId) {
-            await sender.sendVoice(platformChatId, audioBuffer, "voice.wav");
+            if (sender.platform === "wecom") {
+              await sender.sendText(platformChatId, `🔊 ${text}`);
+            } else {
+              await sender.sendVoice(platformChatId, audioBuffer, "voice.wav");
+            }
           }
           await logTTSUsage({
             agentId,
