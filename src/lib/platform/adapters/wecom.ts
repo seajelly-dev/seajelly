@@ -234,16 +234,19 @@ export class WeComAdapter implements PlatformSender {
     _options?: SendOptions,
   ): Promise<void> {
     const btnList = buttons.flat().map((btn) => ({
-      type: 1,
+      type: 0,
       text: btn.label,
-      style: 1,
+      style: btn.callbackData.startsWith("reject") ? 4 : 1,
       key: btn.callbackData,
     }));
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     await wecomSendMsg(this.agentId, chatId, {
       msgtype: "template_card",
       template_card: {
         card_type: "button_interaction",
-        main_title: { title: text },
+        task_id: taskId,
+        main_title: { title: "🔔 New Access Request" },
+        sub_title_text: text.replace(/\*/g, ""),
         button_list: btnList,
       },
     });
