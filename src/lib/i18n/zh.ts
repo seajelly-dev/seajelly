@@ -240,7 +240,7 @@ const zh: TranslationKeys = {
     qqbotWebhookHint: "根据社区反馈，测试正常仍然无法正常通信，是由于 QQBot 目前对 Webhook URL 的回调测试存在校验问题。",
     hintTelegram: "前往 Telegram 搜索 @BotFather → 发送 /newbot 创建机器人 → 获取 Bot Token → 粘贴到下方。",
     hintFeishu: "前往飞书开放平台 → 创建企业自建应用 → 获取 App ID 和 App Secret → 开启机器人能力 → 配置事件订阅（填入下方 Webhook URL）。",
-    hintWecom: "前往企业微信管理后台 → 应用管理 → 创建自建应用 → 获取 Corp ID、Corp Secret 和 Agent ID → 在接收消息设置中填入下方 Webhook URL。",
+    hintWecom: "第一步：前往企业微信管理后台 → 应用管理 → 创建自建应用 → 获取 Corp ID、Corp Secret 和 Agent ID → 填入下方并点击「测试」确认连接正常。第二步：在应用详情页 → 接收消息 → 设置 API 接收 → 填入下方 Webhook URL（域名必须与企微主体备案号一致）→ 随机生成 Token 和 EncodingAESKey → 保存成功后，将 Token 和 EncodingAESKey 填回下方并保存。",
     hintSlack: "前往 api.slack.com/apps → Create New App (From scratch) → OAuth & Permissions 添加 Bot Scope：chat:write、im:history、files:read → Install to Workspace → 复制 Bot User OAuth Token (xoxb- 开头) → Basic Information 获取 Signing Secret → Event Subscriptions 启用并填入下方 Webhook URL，订阅 message.im 事件 → App Home 开启 Messages Tab 并允许用户发消息 → Interactivity & Shortcuts 填入同一 Webhook URL。",
     hintQqbot: "前往 q.qq.com → 创建机器人 → 获取 AppID 和 AppSecret → 在开发设置中配置事件回调地址（填入下方 Webhook URL）。",
     credentialKeepHint: "留空则保持现有值",

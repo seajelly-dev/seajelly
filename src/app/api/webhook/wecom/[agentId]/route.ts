@@ -64,23 +64,32 @@ export async function POST(
     const nonce = url.searchParams.get("nonce") || "";
 
     const rawBody = await request.text();
+    console.log("WeCom POST:", agentId, "body_len:", rawBody.length, "body_prefix:", rawBody.slice(0, 200));
+
     const outerXml = parseXml(rawBody);
     const encryptedMsg = outerXml.Encrypt;
     if (!encryptedMsg) {
+      console.log("WeCom POST: no Encrypt field, keys:", Object.keys(outerXml));
       return NextResponse.json({ ok: true });
     }
 
     const creds = await resolveWeComCredentials(agentId);
     const expectedSig = verifyWeComSignature(creds.token, timestamp, nonce, encryptedMsg);
     if (expectedSig !== msgSignature) {
+      console.log("WeCom POST: sig mismatch, expected:", expectedSig, "got:", msgSignature);
       return new Response("Signature mismatch", { status: 403 });
     }
 
     const decryptedXml = decryptWeComMsg(encryptedMsg, creds.encodingAesKey);
+    console.log("WeCom POST: decrypted_len:", decryptedXml.length, "decrypted_prefix:", decryptedXml.slice(0, 300));
     const msg = parseXml(decryptedXml);
+    console.log("WeCom POST: parsed msg keys:", Object.keys(msg), "MsgType:", msg.MsgType, "Content:", msg.Content?.slice(0, 100));
 
     const msgType = msg.MsgType;
-    if (!msgType) return NextResponse.json({ ok: true });
+    if (!msgType) {
+      console.log("WeCom POST: no MsgType in decrypted xml");
+      return NextResponse.json({ ok: true });
+    }
 
     // Template card button callback (approval)
     if (msgType === "event" && msg.Event === "template_card_event") {
