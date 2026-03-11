@@ -13,12 +13,13 @@ export const maxDuration = 300;
 
 function parseXml(xml: string): Record<string, string> {
   const result: Record<string, string> = {};
+  const inner = xml.replace(/^<xml>|<\/xml>$/g, "").trim();
   const regex = new RegExp(
     "<(\\w+)><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/\\1>|<(\\w+)>([\\s\\S]*?)<\\/\\3>",
     "g",
   );
   let match;
-  while ((match = regex.exec(xml)) !== null) {
+  while ((match = regex.exec(inner)) !== null) {
     const key = match[1] || match[3];
     const value = match[2] ?? match[4] ?? "";
     result[key] = value;
