@@ -87,6 +87,7 @@ export async function getFeishuUserName(agentId: string, openId: string): Promis
       { headers: { Authorization: `Bearer ${token}` } },
     );
     const data = await resp.json();
+    console.log("Feishu getUser:", openId, "code:", data.code, "name:", data.data?.user?.name, "msg:", data.msg);
     if (data.code === 0 && data.data?.user?.name) {
       return data.data.user.name;
     }

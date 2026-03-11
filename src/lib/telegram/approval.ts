@@ -1,16 +1,30 @@
-import { createClient } from "@supabase/supabase-js";
 import { getBotForAgent } from "./bot";
 import { getSenderForAgent } from "@/lib/platform/sender";
 import {
   processChannelApproval,
   processPushApproval,
 } from "@/lib/platform/approval-core";
+import type { Bot } from "grammy";
 
 interface CallbackQuery {
   id: string;
   from: { id: number };
   message?: { chat: { id: number }; message_id: number };
   data?: string;
+}
+
+async function safeEditMessage(
+  bot: Bot,
+  chatId: number,
+  messageId: number,
+  text: string,
+) {
+  const noButtons = { reply_markup: { inline_keyboard: [] as never[] } };
+  try {
+    await bot.api.editMessageText(chatId, messageId, text, { parse_mode: "Markdown", ...noButtons });
+  } catch {
+    await bot.api.editMessageText(chatId, messageId, text.replace(/[*_`\[\]]/g, ""), noButtons).catch(() => {});
+  }
 }
 
 export async function handleApprovalCallback(
@@ -52,10 +66,7 @@ export async function handleApprovalCallback(
     if (action === "approve") {
       await bot.api.answerCallbackQuery(callbackQuery.id, { text: `✅ ${result.name} approved` });
       if (chatId && messageId) {
-        await bot.api.editMessageText(chatId, messageId, `✅ *Approved:* ${result.name}`, {
-          parse_mode: "Markdown",
-          reply_markup: { inline_keyboard: [] },
-        });
+        await safeEditMessage(bot, chatId, messageId, `✅ *Approved:* ${result.name}`);
       }
       if (result.targetUid) {
         try {
@@ -66,10 +77,7 @@ export async function handleApprovalCallback(
     } else {
       await bot.api.answerCallbackQuery(callbackQuery.id, { text: `❌ ${result.name} rejected` });
       if (chatId && messageId) {
-        await bot.api.editMessageText(chatId, messageId, `❌ *Rejected:* ${result.name}`, {
-          parse_mode: "Markdown",
-          reply_markup: { inline_keyboard: [] },
-        });
+        await safeEditMessage(bot, chatId, messageId, `❌ *Rejected:* ${result.name}`);
       }
       if (result.targetUid) {
         try {
@@ -99,10 +107,7 @@ export async function handleApprovalCallback(
     if (result.status === "expired") {
       await bot.api.answerCallbackQuery(callbackQuery.id, { text: "⏱️ Approval expired" });
       if (chatId && messageId) {
-        await bot.api.editMessageText(chatId, messageId, "⏱️ *Push approval expired*", {
-          parse_mode: "Markdown",
-          reply_markup: { inline_keyboard: [] },
-        });
+        await safeEditMessage(bot, chatId, messageId, "⏱️ *Push approval expired*");
       }
       return;
     }
@@ -115,18 +120,12 @@ export async function handleApprovalCallback(
     if (action === "approve") {
       await bot.api.answerCallbackQuery(callbackQuery.id, { text: "✅ Push approved" });
       if (chatId && messageId) {
-        await bot.api.editMessageText(chatId, messageId, `✅ *Push Approved*\n\n${result.summary}`, {
-          parse_mode: "Markdown",
-          reply_markup: { inline_keyboard: [] },
-        });
+        await safeEditMessage(bot, chatId, messageId, `✅ *Push Approved*\n\n${result.summary}`);
       }
     } else {
       await bot.api.answerCallbackQuery(callbackQuery.id, { text: "❌ Push rejected" });
       if (chatId && messageId) {
-        await bot.api.editMessageText(chatId, messageId, `❌ *Push Rejected*\n\n${result.summary}`, {
-          parse_mode: "Markdown",
-          reply_markup: { inline_keyboard: [] },
-        });
+        await safeEditMessage(bot, chatId, messageId, `❌ *Push Rejected*\n\n${result.summary}`);
       }
     }
 

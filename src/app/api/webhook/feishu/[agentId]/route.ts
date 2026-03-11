@@ -137,7 +137,11 @@ export async function POST(
     } else if (msgType === "audio" || msgType === "file" || msgType === "image") {
       try {
         const parsed = JSON.parse(msg.content);
-        fileRef = parsed.file_key || parsed.image_key || null;
+        const key = parsed.file_key || parsed.image_key || null;
+        if (key) {
+          const resType = msgType === "image" ? "image" : "file";
+          fileRef = `${messageId}|${key}|${resType}`;
+        }
       } catch {
         /* skip */
       }

@@ -55,18 +55,28 @@ export class FeishuFileDownloader implements PlatformFileDownloader {
     try {
       const token = await getTenantAccessToken(agentId);
 
-      const url = `https://open.feishu.cn/open-apis/im/v1/images/${fileRef}`;
+      // fileRef format: "message_id|file_key|type" (from webhook) or legacy "image_key"
+      const parts = fileRef.split("|");
+      let url: string;
+      if (parts.length >= 3) {
+        const [messageId, fileKey, resType] = parts;
+        url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=${resType}`;
+      } else {
+        url = `https://open.feishu.cn/open-apis/im/v1/images/${fileRef}`;
+      }
+
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
-        console.warn("Feishu file download failed:", res.status, res.statusText);
+        console.warn("Feishu file download failed:", res.status, res.statusText, url);
         return null;
       }
 
       const contentType = res.headers.get("content-type") || "";
       if (contentType.includes("application/json")) {
-        console.warn("Feishu file download returned JSON (likely error)");
+        const errBody = await res.text();
+        console.warn("Feishu file download returned JSON (likely error):", errBody);
         return null;
       }
 
@@ -77,9 +87,10 @@ export class FeishuFileDownloader implements PlatformFileDownloader {
       if (buffer.length > MAX_FILE_SIZE) return null;
 
       const resolvedMime = hintMime?.split(";")[0].trim() || null;
+      const fileKey = parts.length >= 3 ? parts[1] : fileRef;
       return {
         base64: buffer.toString("base64"),
-        mimeType: guessMime(hintName || fileRef, resolvedMime),
+        mimeType: guessMime(hintName || fileKey, resolvedMime),
         fileName: hintName || null,
         sizeBytes: buffer.length,
       };
