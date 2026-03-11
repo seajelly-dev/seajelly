@@ -18,11 +18,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OpenCrab -- Cloud-Native AI Agent",
+  title: "SEAJelly -- Self Evolution Agent",
   description:
     "Let everyone have a cloud AI Agent in 5 minutes -- no server, no Docker, no SSH.",
   icons: {
-    icon: { url: "/crab.svg", type: "image/svg+xml" },
+    icon: { url: "/logo.svg", type: "image/svg+xml" },
   },
 };
 
@@ -44,7 +44,7 @@ export default async function RootLayout({
   const cookieStore = await cookies();
   const headerStore = await headers();
 
-  const localeCookie = cookieStore.get("opencrab-locale")?.value;
+  const localeCookie = cookieStore.get("seajelly-locale")?.value;
   const acceptLanguage = headerStore.get("accept-language") ?? undefined;
   const initialLocale = detectServerLocale(localeCookie, acceptLanguage);
 

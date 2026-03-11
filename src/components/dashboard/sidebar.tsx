@@ -72,14 +72,14 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
   useEffect(() => {
     const key = searchParams.get(LOGIN_GATE_QUERY_PARAM);
     if (key) {
-      sessionStorage.setItem("opencrab_login_gate_key", key);
+      sessionStorage.setItem("seajelly_login_gate_key", key);
     }
   }, [searchParams]);
 
   const handleSignOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    const savedKey = sessionStorage.getItem("opencrab_login_gate_key");
+    const savedKey = sessionStorage.getItem("seajelly_login_gate_key");
     const loginPath = savedKey
       ? `/login?${LOGIN_GATE_QUERY_PARAM}=${encodeURIComponent(savedKey)}`
       : "/login";
@@ -92,9 +92,9 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
       <SidebarHeader className="border-b px-4 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Image src="/logo.svg" alt="OpenCrab Logo" width={32} height={32} />
+            <Image src="/logo.svg" alt="SEAJelly Logo" width={32} height={32} />
             <span className="text-xl font-semibold tracking-tight">
-              OpenCrab
+              SEAJelly
             </span>
           </div>
           <LanguageSwitcher variant="ghost" size="icon-sm" />

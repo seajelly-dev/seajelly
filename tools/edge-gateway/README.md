@@ -1,4 +1,4 @@
-# OpenCrab Edge Gateway
+# SEAJelly Edge Gateway
 
 A single-binary gateway service that solves two Serverless (Vercel) pain points:
 
@@ -10,7 +10,7 @@ A single-binary gateway service that solves two Serverless (Vercel) pain points:
 ## One-Line Install (Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-username/opencrab/main/tools/edge-gateway/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/your-username/seajelly/main/tools/edge-gateway/install.sh | bash
 ```
 
 The script will:
@@ -25,12 +25,12 @@ The script will:
 
 ```bash
 # Download (choose your arch)
-wget https://github.com/your-username/opencrab/releases/latest/download/opencrab-gateway-linux-amd64
-chmod +x opencrab-gateway-linux-amd64
-mv opencrab-gateway-linux-amd64 /usr/local/bin/opencrab-gateway
+wget https://github.com/your-username/seajelly/releases/latest/download/seajelly-gateway-linux-amd64
+chmod +x seajelly-gateway-linux-amd64
+mv seajelly-gateway-linux-amd64 /usr/local/bin/seajelly-gateway
 
 # Run
-opencrab-gateway --port 9100 --secret "your-secret"
+seajelly-gateway --port 9100 --secret "your-secret"
 ```
 
 ---
@@ -39,10 +39,10 @@ opencrab-gateway --port 9100 --secret "your-secret"
 
 ```bash
 # HTTP proxy only (WeCom)
-opencrab-gateway --port 9100 --secret "your-secret"
+seajelly-gateway --port 9100 --secret "your-secret"
 
 # Full mode (HTTP proxy + Doubao ASR WebSocket relay)
-opencrab-gateway \
+seajelly-gateway \
   --port 9100 \
   --secret "your-secret" \
   --supabase-url "https://xxx.supabase.co" \
@@ -52,7 +52,7 @@ opencrab-gateway \
 Startup output:
 
 ```
-OpenCrab Edge Gateway v1.0.0
+SEAJelly Edge Gateway v1.0.0
 Public IP:      1.2.3.4
 Listen:         :9100
 Gateway Secret: your-secret
@@ -100,12 +100,12 @@ WebSocket relay to Doubao ASR. Credentials are fetched from Supabase on each con
 
 ```ini
 [Unit]
-Description=OpenCrab Edge Gateway
+Description=SEAJelly Edge Gateway
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/opencrab-gateway --port 9100 --secret "xxx"
+ExecStart=/usr/local/bin/seajelly-gateway --port 9100 --secret "xxx"
 Restart=always
 RestartSec=5
 
@@ -114,9 +114,9 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable opencrab-gateway
-sudo systemctl start opencrab-gateway
-journalctl -u opencrab-gateway -f
+sudo systemctl enable seajelly-gateway
+sudo systemctl start seajelly-gateway
+journalctl -u seajelly-gateway -f
 ```
 
 ### Nginx Reverse Proxy (SSL)
@@ -151,10 +151,10 @@ Requires Go 1.22+.
 cd tools/edge-gateway
 
 # Linux AMD64
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/opencrab-gateway-linux-amd64
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/seajelly-gateway-linux-amd64
 
 # Linux ARM64
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/opencrab-gateway-linux-arm64
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/seajelly-gateway-linux-arm64
 ```
 
 ## Security
@@ -166,7 +166,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/opencrab
 
 ---
 
-# OpenCrab Edge Gateway（中文文档）
+# SEAJelly Edge Gateway（中文文档）
 
 解决 Serverless (Vercel) 架构的两个核心痛点：
 
@@ -176,7 +176,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/opencrab
 ## 一行命令安装（Linux）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-username/opencrab/main/tools/edge-gateway/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/your-username/seajelly/main/tools/edge-gateway/install.sh | bash
 ```
 
 安装脚本会自动：
@@ -191,22 +191,22 @@ curl -fsSL https://raw.githubusercontent.com/your-username/opencrab/main/tools/e
 
 ```bash
 # 下载（选择你的架构）
-wget https://github.com/your-username/opencrab/releases/latest/download/opencrab-gateway-linux-amd64
-chmod +x opencrab-gateway-linux-amd64
-mv opencrab-gateway-linux-amd64 /usr/local/bin/opencrab-gateway
+wget https://github.com/your-username/seajelly/releases/latest/download/seajelly-gateway-linux-amd64
+chmod +x seajelly-gateway-linux-amd64
+mv seajelly-gateway-linux-amd64 /usr/local/bin/seajelly-gateway
 
 # 运行
-opencrab-gateway --port 9100 --secret "你的密钥"
+seajelly-gateway --port 9100 --secret "你的密钥"
 ```
 
 ## 快速开始
 
 ```bash
 # 仅 HTTP 代理（企微）
-opencrab-gateway --port 9100 --secret "你的密钥"
+seajelly-gateway --port 9100 --secret "你的密钥"
 
 # 完整模式（HTTP 代理 + 豆包 ASR WebSocket 中继）
-opencrab-gateway \
+seajelly-gateway \
   --port 9100 \
   --secret "你的密钥" \
   --supabase-url "https://xxx.supabase.co" \
@@ -216,7 +216,7 @@ opencrab-gateway \
 启动后输出：
 
 ```
-OpenCrab Edge Gateway v1.0.0
+SEAJelly Edge Gateway v1.0.0
 Public IP:      1.2.3.4
 Listen:         :9100
 Gateway Secret: your-secret
@@ -265,16 +265,16 @@ WebSocket 中继到豆包 ASR。每次连接时从 Supabase `voice_settings` 表
 
 ```bash
 # 查看状态
-sudo systemctl status opencrab-gateway
+sudo systemctl status seajelly-gateway
 
 # 查看日志
-journalctl -u opencrab-gateway -f
+journalctl -u seajelly-gateway -f
 
 # 重启
-sudo systemctl restart opencrab-gateway
+sudo systemctl restart seajelly-gateway
 
 # 停止
-sudo systemctl stop opencrab-gateway
+sudo systemctl stop seajelly-gateway
 ```
 
 ### Nginx 反向代理（SSL）
@@ -309,7 +309,7 @@ server {
 
 ### 宝塔面板
 
-1. 将二进制文件上传到 `/www/wwwroot/opencrab-gateway/`
+1. 将二进制文件上传到 `/www/wwwroot/seajelly-gateway/`
 2. 通过 SSH 执行上面的 systemd 配置即可
 3. 在宝塔的「网站」中配置 Nginx 反向代理
 
@@ -318,13 +318,13 @@ server {
 1. 在固定 IP 主机上安装网关（一行命令）
 2. 记下启动输出中的 **Public IP**
 3. 企微管理后台 → 应用详情 → **IP 白名单** → 添加该 IP
-4. OpenCrab Dashboard → **设置 → Edge Gateway** → 填入网关地址和密钥
+4. SEAJelly Dashboard → **设置 → Edge Gateway** → 填入网关地址和密钥
 5. 点击「测试连接」验证
 
 ## 豆包 ASR 配置
 
 1. 安装网关时带上 `--supabase-url` 和 `--supabase-key` 参数
-2. OpenCrab Dashboard → **语音模型 → ASR** → 填入豆包的 App Key 和 Access Key
+2. SEAJelly Dashboard → **语音模型 → ASR** → 填入豆包的 App Key 和 Access Key
 3. 网关会在每次 WebSocket 连接时从 Supabase 动态拉取凭据
 4. **网关主机上无需配置任何 API 密钥**
 
@@ -343,10 +343,10 @@ server {
 cd tools/edge-gateway
 
 # Linux AMD64
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/opencrab-gateway-linux-amd64
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/seajelly-gateway-linux-amd64
 
 # Linux ARM64
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/opencrab-gateway-linux-arm64
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/seajelly-gateway-linux-arm64
 ```
 
 ## 常见问题
@@ -362,4 +362,4 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/opencrab
 **Q: 豆包 ASR 连接失败？**
 - 确认启动时带了 `--supabase-url` 和 `--supabase-key`
 - 确认 Dashboard → 语音模型 → ASR 中的 App Key 和 Access Key 已保存
-- 查看日志：`journalctl -u opencrab-gateway -f`
+- 查看日志：`journalctl -u seajelly-gateway -f`

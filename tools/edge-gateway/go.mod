@@ -1,4 +1,4 @@
-module github.com/opencrab/edge-gateway
+module github.com/seajelly/edge-gateway
 
 go 1.22
 

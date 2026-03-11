@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { toast } from "sonner";
-import { CrabLogo } from "@/components/crab-logo";
+import { SeajellyLogo } from "@/components/seajelly-logo";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useT } from "@/lib/i18n";
 
@@ -45,7 +45,7 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || t("login.loginFailed"));
       if (gateKey) {
-        sessionStorage.setItem("opencrab_login_gate_key", gateKey);
+        sessionStorage.setItem("seajelly_login_gate_key", gateKey);
       }
       router.push("/dashboard");
       router.refresh();
@@ -63,7 +63,7 @@ export default function LoginPage() {
       </div>
       <Card className="w-full max-w-sm">
         <CardHeader className="flex flex-col items-center gap-2 text-center">
-          <CrabLogo size={40} className="text-primary" />
+          <SeajellyLogo size={40} className="text-primary" />
           <CardTitle className="text-2xl">{t("login.title")}</CardTitle>
           <CardDescription>{t("login.subtitle")}</CardDescription>
         </CardHeader>

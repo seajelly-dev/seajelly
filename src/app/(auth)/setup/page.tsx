@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { CrabLogo } from "@/components/crab-logo";
+import { SeajellyLogo } from "@/components/seajelly-logo";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useT } from "@/lib/i18n";
 import type { ModelDef } from "@/lib/models";
@@ -115,9 +115,9 @@ export default function SetupPage() {
   const [selectedPlatform, setSelectedPlatform] = useState<SetupPlatform>("telegram");
   const [platformCreds, setPlatformCreds] = useState<Record<string, string>>({});
 
-  const [agentName, setAgentName] = useState("Crab");
+  const [agentName, setAgentName] = useState("Jelly");
   const [systemPrompt, setSystemPrompt] = useState(
-    `You are a personal AI assistant running on the OpenCrab framework.
+    `You are Jelly, a personal AI assistant powered by SEAJelly (Self Evolution Agent Jelly) — a serverless, self-evolving AI agent framework at seaJelly.ai.
 
 ## Core Behavior
 - Respond in the same language the user writes in. Default to Chinese if ambiguous.
@@ -148,9 +148,9 @@ You have persistent memory across conversations. Use it wisely:
 - If a tool call fails, explain the error to the user and suggest alternatives.
 
 ## Personality
-- Warm but efficient. Think of yourself as a capable personal secretary.
+- Your name is Jelly. You are warm but efficient, like a capable personal secretary who genuinely cares.
 - Use humor sparingly and appropriately.
-- Proactively offer help when you notice patterns (e.g. "You seem to ask about X often -- want me to set a reminder?").`
+- Proactively offer help when you notice patterns (e.g. "You seem to ask about X often — want me to set a reminder?").`
   );
   const [model, setModel] = useState("");
   const [availableModels, setAvailableModels] = useState<ModelDef[]>([]);
@@ -373,7 +373,7 @@ You have persistent memory across conversations. Use it wisely:
       </div>
 
       <div className="flex flex-col items-center gap-3">
-        <CrabLogo size={48} className="text-primary" />
+        <SeajellyLogo size={48} className="text-primary" />
         <h1 className="text-3xl font-semibold tracking-tight">
           {t("setup.title")}
         </h1>

@@ -2,8 +2,8 @@
 set -e
 
 INSTALL_DIR="/usr/local/bin"
-SERVICE_NAME="opencrab-gateway"
-REPO="your-username/opencrab"
+SERVICE_NAME="seajelly-gateway"
+REPO="your-username/seajelly"
 VERSION="latest"
 
 # Colors
@@ -29,7 +29,7 @@ if [ "$OS" != "linux" ]; then
   error "This installer is for Linux only. Detected: $OS"
 fi
 
-BINARY_NAME="opencrab-gateway-linux-${ARCH_SUFFIX}"
+BINARY_NAME="seajelly-gateway-linux-${ARCH_SUFFIX}"
 
 info "Detected: Linux ${ARCH_SUFFIX}"
 
@@ -50,25 +50,25 @@ else
 fi
 
 # Install binary
-info "Installing to ${INSTALL_DIR}/opencrab-gateway..."
+info "Installing to ${INSTALL_DIR}/seajelly-gateway..."
 chmod +x /tmp/${BINARY_NAME}
 if [ -w "$INSTALL_DIR" ]; then
-  mv /tmp/${BINARY_NAME} ${INSTALL_DIR}/opencrab-gateway
+  mv /tmp/${BINARY_NAME} ${INSTALL_DIR}/seajelly-gateway
 else
-  sudo mv /tmp/${BINARY_NAME} ${INSTALL_DIR}/opencrab-gateway
+  sudo mv /tmp/${BINARY_NAME} ${INSTALL_DIR}/seajelly-gateway
 fi
 
 # Verify installation
-if opencrab-gateway --help &>/dev/null 2>&1 || ${INSTALL_DIR}/opencrab-gateway --help &>/dev/null 2>&1; then
+if seajelly-gateway --help &>/dev/null 2>&1 || ${INSTALL_DIR}/seajelly-gateway --help &>/dev/null 2>&1; then
   info "Binary installed successfully."
 else
-  warn "Binary installed but could not verify. Check: ${INSTALL_DIR}/opencrab-gateway"
+  warn "Binary installed but could not verify. Check: ${INSTALL_DIR}/seajelly-gateway"
 fi
 
 # Interactive setup
 echo ""
 echo "============================================"
-echo "  OpenCrab Edge Gateway - Quick Setup"
+echo "  SEAJelly Edge Gateway - Quick Setup"
 echo "============================================"
 echo ""
 
@@ -88,14 +88,14 @@ read -p "Supabase Service Role Key (optional): " SUPA_KEY
 if [ -d /etc/systemd/system ]; then
   info "Creating systemd service..."
 
-  EXEC_CMD="${INSTALL_DIR}/opencrab-gateway --port ${PORT_INPUT} --secret \"${SECRET_INPUT}\""
+  EXEC_CMD="${INSTALL_DIR}/seajelly-gateway --port ${PORT_INPUT} --secret \"${SECRET_INPUT}\""
   if [ -n "$SUPA_URL" ] && [ -n "$SUPA_KEY" ]; then
     EXEC_CMD="${EXEC_CMD} --supabase-url \"${SUPA_URL}\" --supabase-key \"${SUPA_KEY}\""
   fi
 
-  cat > /tmp/opencrab-gateway.service <<SERVICEEOF
+  cat > /tmp/seajelly-gateway.service <<SERVICEEOF
 [Unit]
-Description=OpenCrab Edge Gateway
+Description=SEAJelly Edge Gateway
 After=network.target
 
 [Service]
@@ -111,24 +111,24 @@ WantedBy=multi-user.target
 SERVICEEOF
 
   if [ -w /etc/systemd/system ]; then
-    mv /tmp/opencrab-gateway.service /etc/systemd/system/
+    mv /tmp/seajelly-gateway.service /etc/systemd/system/
   else
-    sudo mv /tmp/opencrab-gateway.service /etc/systemd/system/
+    sudo mv /tmp/seajelly-gateway.service /etc/systemd/system/
   fi
 
   sudo systemctl daemon-reload
-  sudo systemctl enable opencrab-gateway
-  sudo systemctl start opencrab-gateway
+  sudo systemctl enable seajelly-gateway
+  sudo systemctl start seajelly-gateway
 
   sleep 2
-  if systemctl is-active --quiet opencrab-gateway; then
+  if systemctl is-active --quiet seajelly-gateway; then
     info "Service started successfully!"
   else
-    warn "Service may have failed to start. Check: journalctl -u opencrab-gateway -f"
+    warn "Service may have failed to start. Check: journalctl -u seajelly-gateway -f"
   fi
 else
   warn "systemd not found. Run manually:"
-  echo "  opencrab-gateway --port ${PORT_INPUT} --secret \"${SECRET_INPUT}\""
+  echo "  seajelly-gateway --port ${PORT_INPUT} --secret \"${SECRET_INPUT}\""
 fi
 
 echo ""
@@ -142,9 +142,9 @@ echo ""
 echo "  Test:    curl -H 'X-Gateway-Secret: ${SECRET_INPUT}' http://localhost:${PORT_INPUT}/health"
 echo ""
 echo "  Copy the Secret and your server's public IP to"
-echo "  OpenCrab Dashboard → Settings → Edge Gateway"
+echo "  SEAJelly Dashboard → Settings → Edge Gateway"
 echo ""
-echo "  Logs:    journalctl -u opencrab-gateway -f"
-echo "  Restart: sudo systemctl restart opencrab-gateway"
-echo "  Stop:    sudo systemctl stop opencrab-gateway"
+echo "  Logs:    journalctl -u seajelly-gateway -f"
+echo "  Restart: sudo systemctl restart seajelly-gateway"
+echo "  Stop:    sudo systemctl stop seajelly-gateway"
 echo "============================================"

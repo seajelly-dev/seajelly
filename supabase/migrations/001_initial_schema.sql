@@ -1,4 +1,4 @@
--- OpenCrab Complete Schema (merged from 001 + 002)
+-- SEAJelly Complete Schema (merged from 001 + 002)
 -- This file is the single source of truth, kept in sync with SCHEMA_SQL in route.ts
 
 -- Extensions

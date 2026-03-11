@@ -35,7 +35,7 @@ function buildDoubaoHeader(msgType: number, flags: number, ser = 1, comp = 1) {
 function buildDoubaoFullRequest(seq: number) {
   const header = buildDoubaoHeader(DOUBAO_MSG_TYPE.CLIENT_FULL, 0b0001);
   const payload = pako.gzip(new TextEncoder().encode(JSON.stringify({
-    user: { uid: "opencrab_user" },
+    user: { uid: "seajelly_user" },
     audio: { format: "pcm", codec: "raw", rate: 16000, bits: 16, channel: 1 },
     request: { model_name: "bigmodel", enable_itn: true, enable_punc: true, enable_ddc: true, show_utterances: true, enable_nonstream: false },
   })));

@@ -25,7 +25,7 @@ const en = {
   },
 
   setup: {
-    title: "OpenCrab Setup",
+    title: "SEAJelly Setup",
     stepOf: "Step {current} of {total}",
     steps: {
       connect: {
@@ -106,7 +106,7 @@ const en = {
   },
 
   login: {
-    title: "OpenCrab",
+    title: "SEAJelly",
     subtitle: "Sign in to Admin Dashboard",
     email: "Email",
     emailPlaceholder: "admin@example.com",
@@ -136,7 +136,7 @@ const en = {
 
   overview: {
     title: "Overview",
-    subtitle: "OpenCrab system overview",
+    subtitle: "SEAJelly system overview",
     agents: "Agents",
     agentsDesc: "Configured AI agents",
     sessions: "Sessions",
@@ -549,7 +549,7 @@ const en = {
     gatewayTest: "Test Connection",
     gatewayTesting: "Testing...",
     gatewayInstallGuide: "Installation Guide",
-    gatewayInstallSteps: "1. Download the binary for your platform from the project's tools/edge-gateway/ directory\n2. Upload to your static-IP host: scp opencrab-gateway-linux-amd64 user@host:~/\n3. Run: chmod +x opencrab-gateway-linux-amd64 && ./opencrab-gateway-linux-amd64 --port 9100 --secret YOUR_SECRET\n4. (Optional) Add --supabase-url and --supabase-key to enable Doubao ASR WebSocket proxy\n5. Copy the Public IP and Secret from the output, paste them here\n6. For WeCom: Add the Public IP to WeCom Admin Console → App Details → IP Whitelist\n7. For production: Use systemd + Nginx for SSL. See tools/edge-gateway/README.md for details.",
+    gatewayInstallSteps: "1. Download the binary for your platform from the project's tools/edge-gateway/ directory\n2. Upload to your static-IP host: scp seajelly-gateway-linux-amd64 user@host:~/\n3. Run: chmod +x seajelly-gateway-linux-amd64 && ./seajelly-gateway-linux-amd64 --port 9100 --secret YOUR_SECRET\n4. (Optional) Add --supabase-url and --supabase-key to enable Doubao ASR WebSocket proxy\n5. Copy the Public IP and Secret from the output, paste them here\n6. For WeCom: Add the Public IP to WeCom Admin Console → App Details → IP Whitelist\n7. For production: Use systemd + Nginx for SSL. See tools/edge-gateway/README.md for details.",
     loadFailed: "Failed to load settings",
     saveFailed: "Failed to save settings",
     invalidMemoryLimit: "Memory limits must be non-negative numbers",
@@ -571,7 +571,7 @@ const en = {
     githubTokenHint: "Needs 'repo' scope. Go to GitHub > Settings > Developer settings > Personal access tokens.",
     githubRepoLabel: "Repository",
     githubRepoPlaceholder: "owner/repo",
-    githubRepoHint: "The repository this project is deployed from, e.g. your-username/opencrab.",
+    githubRepoHint: "The repository this project is deployed from, e.g. your-username/seajelly.",
     githubSaveConfig: "Save Configuration",
     githubConfigSaved: "GitHub configuration saved",
     githubConfigSaveFailed: "Failed to save GitHub configuration",

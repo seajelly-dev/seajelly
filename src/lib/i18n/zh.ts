@@ -27,7 +27,7 @@ const zh: TranslationKeys = {
   },
 
   setup: {
-    title: "OpenCrab 初始化",
+    title: "SEAJelly 初始化",
     stepOf: "第 {current} 步，共 {total} 步",
     steps: {
       connect: {
@@ -108,7 +108,7 @@ const zh: TranslationKeys = {
   },
 
   login: {
-    title: "OpenCrab",
+    title: "SEAJelly",
     subtitle: "登录管理控制台",
     email: "邮箱",
     emailPlaceholder: "admin@example.com",
@@ -138,7 +138,7 @@ const zh: TranslationKeys = {
 
   overview: {
     title: "概览",
-    subtitle: "OpenCrab 系统概览",
+    subtitle: "SEAJelly 系统概览",
     agents: "Agents",
     agentsDesc: "已配置的 AI 助手",
     sessions: "会话",
@@ -551,7 +551,7 @@ const zh: TranslationKeys = {
     gatewayTest: "测试连接",
     gatewayTesting: "测试中...",
     gatewayInstallGuide: "安装指南",
-    gatewayInstallSteps: "1. 从项目 tools/edge-gateway/ 目录下载对应平台的二进制文件\n2. 上传到固定 IP 主机：scp opencrab-gateway-linux-amd64 user@host:~/\n3. 运行：chmod +x opencrab-gateway-linux-amd64 && ./opencrab-gateway-linux-amd64 --port 9100 --secret 你的密钥\n4.（可选）添加 --supabase-url 和 --supabase-key 以启用豆包 ASR WebSocket 代理\n5. 复制输出中的 Public IP 和 Secret，粘贴到此处\n6. 企微：将 Public IP 添加到企微管理后台 → 应用详情 → IP 白名单\n7. 生产环境建议使用 systemd + Nginx 配置 SSL。详见 tools/edge-gateway/README.md。",
+    gatewayInstallSteps: "1. 从项目 tools/edge-gateway/ 目录下载对应平台的二进制文件\n2. 上传到固定 IP 主机：scp seajelly-gateway-linux-amd64 user@host:~/\n3. 运行：chmod +x seajelly-gateway-linux-amd64 && ./seajelly-gateway-linux-amd64 --port 9100 --secret 你的密钥\n4.（可选）添加 --supabase-url 和 --supabase-key 以启用豆包 ASR WebSocket 代理\n5. 复制输出中的 Public IP 和 Secret，粘贴到此处\n6. 企微：将 Public IP 添加到企微管理后台 → 应用详情 → IP 白名单\n7. 生产环境建议使用 systemd + Nginx 配置 SSL。详见 tools/edge-gateway/README.md。",
     loadFailed: "加载设置失败",
     saveFailed: "保存设置失败",
     invalidMemoryLimit: "记忆上限必须是非负数字",
@@ -573,7 +573,7 @@ const zh: TranslationKeys = {
     githubTokenHint: "需要 'repo' 权限。前往 GitHub > Settings > Developer settings > Personal access tokens 生成。",
     githubRepoLabel: "仓库地址",
     githubRepoPlaceholder: "owner/repo",
-    githubRepoHint: "本项目部署所在的仓库，例如 your-username/opencrab。",
+    githubRepoHint: "本项目部署所在的仓库，例如 your-username/seajelly。",
     githubSaveConfig: "保存配置",
     githubConfigSaved: "GitHub 配置已保存",
     githubConfigSaveFailed: "保存 GitHub 配置失败",

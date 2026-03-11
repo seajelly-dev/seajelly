@@ -14,7 +14,7 @@ import zh from "./zh";
 
 const dictionaries: Record<Locale, TranslationKeys> = { en, zh };
 
-const STORAGE_KEY = "opencrab-locale";
+const STORAGE_KEY = "seajelly-locale";
 
 type NestedKeyOf<T> = T extends string
   ? ""

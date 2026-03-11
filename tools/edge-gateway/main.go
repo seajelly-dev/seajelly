@@ -82,7 +82,7 @@ func main() {
 
 	publicIP = detectPublicIP()
 
-	fmt.Printf("\nOpenCrab Edge Gateway v%s\n", version)
+	fmt.Printf("\nSEAJelly Edge Gateway v%s\n", version)
 	fmt.Printf("Public IP:      %s\n", publicIP)
 	fmt.Printf("Listen:         :%d\n", *flagPort)
 	fmt.Printf("Gateway Secret: %s\n", gatewaySecret)

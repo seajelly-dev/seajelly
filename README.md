@@ -1,6 +1,6 @@
-# OpenCrab 🦀
+# SEAJelly 🪼
 
-**Cloud-Native Personal AI Agent** — Get your own cloud AI Agent in 5 minutes.
+**Self Evolution Agent** — Get your own cloud AI Agent in 5 minutes. Powered by [seaJelly.ai](https://seajelly.ai).
 
 No server. No Docker. No SSH. Just Supabase + Vercel free tier.
 
@@ -64,7 +64,7 @@ You'll need the following (all free):
 
 ### 1.3 LLM API Key (at least one)
 
-OpenCrab supports multiple LLM providers. You need **at least one** API Key:
+SEAJelly supports multiple LLM providers. You need **at least one** API Key:
 
 | Provider | Sign Up | Key Location | Why |
 |---|---|---|---|
@@ -98,7 +98,7 @@ OpenCrab supports multiple LLM providers. You need **at least one** API Key:
 ### 2.2 Import in Vercel
 
 1. Go to https://vercel.com/new
-2. Select the forked `opencrab` repo
+2. Select the forked `seajelly` repo
 3. Add these **Environment Variables**:
 
 | Variable | Value | Description |
@@ -232,8 +232,8 @@ On Dashboard → Agents page, each Agent card with a Bot Token shows Webhook sta
 ## Local Development
 
 ```bash
-git clone https://github.com/your-username/opencrab.git
-cd opencrab
+git clone https://github.com/your-username/seajelly.git
+cd seajelly
 pnpm install
 
 cp .env.example .env.local
