@@ -4,6 +4,8 @@ import {
   processChannelApproval,
   processPushApproval,
 } from "@/lib/platform/approval-core";
+import { getAgentLocale } from "@/lib/platform/approval-core";
+import { botT, getBotLocaleOrDefault, buildWelcomeText } from "@/lib/i18n/bot";
 import type { Bot } from "grammy";
 
 interface CallbackQuery {
@@ -52,37 +54,48 @@ export async function handleApprovalCallback(
       try {
         const agentId = fallbackAgentId;
         if (agentId) {
+          const rawLocale = await getAgentLocale(agentId);
+          const locale = getBotLocaleOrDefault(rawLocale);
           const bot = await getBotForAgent(agentId);
-          await bot.api.answerCallbackQuery(callbackQuery.id, { text: "⚠️ Already processed" });
+          await bot.api.answerCallbackQuery(callbackQuery.id, { text: botT(locale, "alreadyProcessed") });
         }
       } catch { /* ignore */ }
       return;
     }
+
+    const rawLocale = await getAgentLocale(result.agentId);
+    const locale = getBotLocaleOrDefault(rawLocale);
 
     const bot = await getBotForAgent(result.agentId);
     const chatId = callbackQuery.message?.chat.id;
     const messageId = callbackQuery.message?.message_id;
 
     if (action === "approve") {
-      await bot.api.answerCallbackQuery(callbackQuery.id, { text: `✅ ${result.name} approved` });
+      await bot.api.answerCallbackQuery(callbackQuery.id, { text: botT(locale, "approvedShort", { name: result.name }) });
       if (chatId && messageId) {
-        await safeEditMessage(bot, chatId, messageId, `✅ *Approved:* ${result.name}`);
+        await safeEditMessage(bot, chatId, messageId, botT(locale, "approved", { name: result.name }));
       }
       if (result.targetUid) {
         try {
           const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
-          await targetSender.sendText(result.targetUid, "✅ Your access has been approved! You can start chatting now.");
+          await targetSender.sendText(result.targetUid, botT(locale, "accessApproved"));
+          const { data: agentRow } = await (await import("@supabase/supabase-js")).createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+          ).from("agents").select("name").eq("id", result.agentId).single();
+          const agentName = (agentRow as { name?: string } | null)?.name || "Agent";
+          const welcomeText = buildWelcomeText(locale, agentName, result.targetPlatform);
+          await targetSender.sendMarkdown(result.targetUid, welcomeText);
         } catch { /* user may have blocked bot or platform unavailable */ }
       }
     } else {
-      await bot.api.answerCallbackQuery(callbackQuery.id, { text: `❌ ${result.name} rejected` });
+      await bot.api.answerCallbackQuery(callbackQuery.id, { text: botT(locale, "rejectedShort", { name: result.name }) });
       if (chatId && messageId) {
-        await safeEditMessage(bot, chatId, messageId, `❌ *Rejected:* ${result.name}`);
+        await safeEditMessage(bot, chatId, messageId, botT(locale, "rejected", { name: result.name }));
       }
       if (result.targetUid) {
         try {
           const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
-          await targetSender.sendText(result.targetUid, "❌ Your access request has been rejected.");
+          await targetSender.sendText(result.targetUid, botT(locale, "accessRejected"));
         } catch { /* user may have blocked bot or platform unavailable */ }
       }
     }
@@ -100,32 +113,35 @@ export async function handleApprovalCallback(
 
     if (!result) return;
 
+    const rawLocale = await getAgentLocale(result.agentId);
+    const locale = getBotLocaleOrDefault(rawLocale);
+
     const bot = await getBotForAgent(result.agentId);
     const chatId = callbackQuery.message?.chat.id;
     const messageId = callbackQuery.message?.message_id;
 
     if (result.status === "expired") {
-      await bot.api.answerCallbackQuery(callbackQuery.id, { text: "⏱️ Approval expired" });
+      await bot.api.answerCallbackQuery(callbackQuery.id, { text: botT(locale, "pushExpired") });
       if (chatId && messageId) {
-        await safeEditMessage(bot, chatId, messageId, "⏱️ *Push approval expired*");
+        await safeEditMessage(bot, chatId, messageId, botT(locale, "pushExpiredTitle"));
       }
       return;
     }
 
     if (result.status === "already_processed") {
-      await bot.api.answerCallbackQuery(callbackQuery.id, { text: "Already processed" });
+      await bot.api.answerCallbackQuery(callbackQuery.id, { text: botT(locale, "pushAlreadyProcessed") });
       return;
     }
 
     if (action === "approve") {
-      await bot.api.answerCallbackQuery(callbackQuery.id, { text: "✅ Push approved" });
+      await bot.api.answerCallbackQuery(callbackQuery.id, { text: botT(locale, "pushApproved") });
       if (chatId && messageId) {
-        await safeEditMessage(bot, chatId, messageId, `✅ *Push Approved*\n\n${result.summary}`);
+        await safeEditMessage(bot, chatId, messageId, botT(locale, "pushApprovedTitle", { summary: result.summary }));
       }
     } else {
-      await bot.api.answerCallbackQuery(callbackQuery.id, { text: "❌ Push rejected" });
+      await bot.api.answerCallbackQuery(callbackQuery.id, { text: botT(locale, "pushRejected") });
       if (chatId && messageId) {
-        await safeEditMessage(bot, chatId, messageId, `❌ *Push Rejected*\n\n${result.summary}`);
+        await safeEditMessage(bot, chatId, messageId, botT(locale, "pushRejectedTitle", { summary: result.summary }));
       }
     }
 
@@ -135,8 +151,8 @@ export async function handleApprovalCallback(
         await sender.sendText(
           result.requesterUid,
           action === "approve"
-            ? "✅ Push approved. Please send a message from the owner account to tell the agent to proceed with pushing."
-            : "❌ Push rejected by owner."
+            ? botT(locale, "pushApprovedNotify")
+            : botT(locale, "pushRejectedNotify"),
         );
       } catch { /* user may have blocked bot */ }
     }

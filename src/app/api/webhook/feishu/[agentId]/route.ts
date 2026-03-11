@@ -3,9 +3,10 @@ import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto/encrypt";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
-import { processChannelApproval } from "@/lib/platform/approval-core";
+import { processChannelApproval, getAgentLocale } from "@/lib/platform/approval-core";
 import { getSenderForAgent } from "@/lib/platform/sender";
 import { getFeishuUserName } from "@/lib/platform/adapters/feishu";
+import { botT, getBotLocaleOrDefault, buildWelcomeText } from "@/lib/i18n/bot";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -76,10 +77,13 @@ export async function POST(
           fallbackAgentId: agentId,
         });
 
+        const rawLocale = await getAgentLocale(agentId);
+        const locale = getBotLocaleOrDefault(rawLocale);
+
         if (!result) {
           return NextResponse.json({
             config: { wide_screen_mode: true },
-            elements: [{ tag: "div", text: { tag: "plain_text", content: "⚠️ Already processed." } }],
+            elements: [{ tag: "div", text: { tag: "plain_text", content: botT(locale, "alreadyProcessedDot") } }],
           });
         }
 
@@ -89,13 +93,21 @@ export async function POST(
             await targetSender.sendText(
               result.targetUid,
               act === "approve"
-                ? "✅ Your access has been approved! You can start chatting now."
-                : "❌ Your access request has been rejected.",
+                ? botT(locale, "accessApproved")
+                : botT(locale, "accessRejected"),
             );
+            if (act === "approve") {
+              const { data: aRow } = await getSupabase().from("agents").select("name").eq("id", result.agentId).single();
+              const agentName = (aRow as { name?: string } | null)?.name || "Agent";
+              const welcomeText = buildWelcomeText(locale, agentName, result.targetPlatform);
+              await targetSender.sendMarkdown(result.targetUid, welcomeText);
+            }
           } catch { /* target unreachable */ }
         }
 
-        const label = act === "approve" ? `✅ Approved: ${result.name}` : `❌ Rejected: ${result.name}`;
+        const label = act === "approve"
+          ? botT(locale, "approved", { name: result.name })
+          : botT(locale, "rejected", { name: result.name });
         return NextResponse.json({
           config: { wide_screen_mode: true },
           elements: [{ tag: "div", text: { tag: "plain_text", content: label } }],

@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { getBotForAgent, resetBotForAgent } from "@/lib/telegram/bot";
-import { BOT_COMMANDS } from "@/lib/telegram/commands";
+import { getBotCommands, getBotLocaleOrDefault } from "@/lib/i18n/bot";
+
+async function getAgentBotCommands(agentId: string) {
+  const db = await createAdminClient();
+  const { data } = await db.from("agents").select("bot_locale").eq("id", agentId).single();
+  return getBotCommands(getBotLocaleOrDefault(data?.bot_locale));
+}
 
 export async function POST(request: Request) {
   try {
@@ -33,7 +39,8 @@ export async function POST(request: Request) {
         : `${webhook_url}/${agent_id}`;
       const secret = randomBytes(32).toString("hex");
       await bot.api.setWebhook(webhookWithAgent, { secret_token: secret });
-      await bot.api.setMyCommands(BOT_COMMANDS);
+      const cmds = await getAgentBotCommands(agent_id);
+      await bot.api.setMyCommands(cmds);
       const db = await createAdminClient();
       await db.from("agents").update({ webhook_secret: secret }).eq("id", agent_id);
       return NextResponse.json({ success: true, webhook_url: webhookWithAgent });
@@ -49,8 +56,9 @@ export async function POST(request: Request) {
     try {
       resetBotForAgent(agent_id);
       const bot = await getBotForAgent(agent_id);
-      await bot.api.setMyCommands(BOT_COMMANDS);
-      return NextResponse.json({ success: true, commands: BOT_COMMANDS });
+      const cmds = await getAgentBotCommands(agent_id);
+      await bot.api.setMyCommands(cmds);
+      return NextResponse.json({ success: true, commands: cmds });
     } catch (err) {
       return NextResponse.json(
         { error: err instanceof Error ? err.message : "Failed" },

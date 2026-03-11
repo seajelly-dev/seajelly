@@ -8,6 +8,8 @@ import { isImageMime, isTextMime } from "@/lib/platform/file-utils";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import type { PlatformSender } from "@/lib/platform/types";
 import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
+import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText } from "@/lib/i18n/bot";
+import type { Locale } from "@/lib/i18n/types";
 
 interface LoopResult {
   success: boolean;
@@ -148,14 +150,15 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             console.error("notifyOwnerOfNewChannel failed:", err);
           });
         }
+
+        if (channel && autoAllow) {
+          sendWelcomeMessage(typedAgent.id, platform, platformChatId, typedAgent.name, typedAgent.bot_locale).catch(() => {});
+        }
       }
 
       if (channel && !channel.is_allowed) {
-        await sender.sendText(
-          platformChatId,
-          "⏳ This agent is in approval mode. Your access request has been sent to the owner. " +
-          "You will be notified once approved or rejected. Please wait."
-        );
+        const bl = getBotLocaleOrDefault(typedAgent.bot_locale);
+        await sender.sendText(platformChatId, botT(bl, "pendingApproval"));
         return { success: true, reply: "[pending_approval]", traceId };
       }
     }
@@ -197,6 +200,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const sessionVersion = session.version as number;
 
     // ── Handle bot commands (no AI needed) ──
+    const locale: Locale = getBotLocaleOrDefault(typedAgent.bot_locale);
+    const t = (k: Parameters<typeof botT>[1], p?: Parameters<typeof botT>[2]) => botT(locale, k, p);
+    const prefix = platform === "telegram" ? "/" : "!";
+
     if (command) {
       if (command === "/new") {
         await supabase
@@ -213,22 +220,13 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             version: 1,
             is_active: true,
           });
-        await sender.sendText(platformChatId, "✨ New session started.");
-        return { success: true, reply: "✨ New session started.", traceId };
+        const msg = t("newSession");
+        await sender.sendText(platformChatId, msg);
+        return { success: true, reply: msg, traceId };
       }
 
       if (command === "/help") {
-        const prefix = platform === "telegram" ? "/" : "!";
-        const helpText =
-          `📋 *${typedAgent.name} — Commands*\n\n` +
-          `${prefix}new — Start a new session\n` +
-          `${prefix}whoami — Show your identity profile\n` +
-          `${prefix}status — Show session status\n` +
-          `${prefix}tts — Toggle TTS (owner only)\n` +
-          `${prefix}live — Get a live voice chat link\n` +
-          `${prefix}asr — Get an ASR transcription link\n` +
-          `${prefix}help — Show this message\n\n` +
-          "Send any text to chat.";
+        const helpText = buildHelpText(locale, typedAgent.name, platform);
         await sender.sendMarkdown(platformChatId, helpText);
         return { success: true, reply: helpText, traceId };
       }
@@ -238,38 +236,35 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           ? (session.messages as unknown[]).length
           : 0;
         const statusText =
-          `📊 *Status*\n\n` +
-          `*Agent:* ${typedAgent.name}\n` +
-          `*Model:* \`${typedAgent.model}\`\n` +
-          `*Access Mode:* ${typedAgent.access_mode}\n` +
-          `*Session Messages:* ${msgCount}`;
+          t("statusTitle") + "\n\n" +
+          t("statusAgent", { agentName: typedAgent.name }) + "\n" +
+          t("statusModel", { model: typedAgent.model }) + "\n" +
+          t("statusAccessMode", { accessMode: typedAgent.access_mode }) + "\n" +
+          t("statusMessages", { count: msgCount });
         await sender.sendMarkdown(platformChatId, statusText);
         return { success: true, reply: statusText, traceId };
       }
 
       if (command === "/whoami") {
         const whoamiText = channel
-          ? `👤 *Who Am I*\n\n` +
-            `*Platform UID:* \`${channel.platform_uid}\`\n` +
-            `*Display Name:* ${channel.display_name || "N/A"}\n` +
-            `*Allowed:* ${channel.is_allowed ? "✅" : "⛔"}\n\n` +
-            `*User Soul:*\n${channel.user_soul || "(empty)"}`
-          : "No channel record found.";
+          ? t("whoamiTitle") + "\n\n" +
+            t("whoamiUid", { uid: channel.platform_uid }) + "\n" +
+            t("whoamiName", { name: channel.display_name || "N/A" }) + "\n" +
+            t("whoamiAllowed", { status: channel.is_allowed ? "✅" : "⛔" }) + "\n\n" +
+            t("whoamiSoul", { soul: channel.user_soul || "(empty)" })
+          : t("noChannelRecord");
         await sender.sendMarkdown(platformChatId, whoamiText);
         return { success: true, reply: whoamiText, traceId };
       }
 
       if (command === "/start") {
-        await sender.sendMarkdown(
-          platformChatId,
-          `👋 Hi! I'm *${typedAgent.name}*. Send me a message or type /help for commands.`
-        );
+        await sender.sendMarkdown(platformChatId, t("startGreeting", { agentName: typedAgent.name, prefix }));
         return { success: true, reply: "start", traceId };
       }
 
       if (command === "/tts") {
         if (!channel?.is_owner) {
-          await sender.sendText(platformChatId, "⛔ Only the agent owner can toggle TTS.");
+          await sender.sendText(platformChatId, t("ttsOwnerOnly"));
           return { success: true, reply: "tts_denied", traceId };
         }
         const currentConfig = (typedAgent.tools_config ?? {}) as Record<string, boolean>;
@@ -279,13 +274,11 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           .from("agents")
           .update({ tools_config: newConfig })
           .eq("id", typedAgent.id);
-        const statusEmoji = !isEnabled ? "🔊" : "🔇";
-        const statusText = !isEnabled ? "enabled" : "disabled";
-        await sender.sendMarkdown(
-          platformChatId,
-          `${statusEmoji} TTS has been *${statusText}* for agent *${typedAgent.name}*.`
-        );
-        return { success: true, reply: `tts_${statusText}`, traceId };
+        const ttsMsg = !isEnabled
+          ? t("ttsEnabled", { agentName: typedAgent.name })
+          : t("ttsDisabled", { agentName: typedAgent.name });
+        await sender.sendMarkdown(platformChatId, ttsMsg);
+        return { success: true, reply: `tts_${!isEnabled ? "enabled" : "disabled"}`, traceId };
       }
 
       if (command === "/live") {
@@ -301,17 +294,16 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           .select("id, expires_at")
           .single();
         if (linkErr || !link) {
-          await sender.sendText(platformChatId, "❌ Failed to create live voice link.");
+          await sender.sendText(platformChatId, t("liveCreateFailed"));
           return { success: false, error: "Failed to create live link", traceId };
         }
         const liveUrl = `${appUrl}/voice/live/${link.id}`;
-        await sender.sendMarkdown(
-          platformChatId,
-          `🎙 *Live Voice Chat*\n\n` +
-          `[Open Live Voice](${liveUrl})\n\n` +
-          `⏰ Expires: ${new Date(link.expires_at).toLocaleString()}\n\n` +
-          `⚠️ *Security Warning:* This link contains your API key access. Do NOT share it with anyone.`
-        );
+        const liveText =
+          t("liveTitle") + "\n\n" +
+          t("liveLink", { url: liveUrl }) + "\n\n" +
+          t("liveExpires", { time: new Date(link.expires_at).toLocaleString() }) + "\n\n" +
+          t("liveSecurity");
+        await sender.sendMarkdown(platformChatId, liveText);
         return { success: true, reply: liveUrl, traceId };
       }
 
@@ -328,17 +320,16 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           .select("id, expires_at")
           .single();
         if (linkErr || !link) {
-          await sender.sendText(platformChatId, "❌ Failed to create ASR link.");
+          await sender.sendText(platformChatId, t("asrCreateFailed"));
           return { success: false, error: "Failed to create ASR link", traceId };
         }
         const asrUrl = `${appUrl}/voice/asr/${link.id}`;
-        await sender.sendMarkdown(
-          platformChatId,
-          `🎤 *ASR Transcription*\n\n` +
-          `[Open ASR Recorder](${asrUrl})\n\n` +
-          `⏰ Expires: ${new Date(link.expires_at).toLocaleString()}\n\n` +
-          `⚠️ *Security Warning:* This link contains your API key access. Do NOT share it with anyone.`
-        );
+        const asrText =
+          t("asrTitle") + "\n\n" +
+          t("asrLink", { url: asrUrl }) + "\n\n" +
+          t("asrExpires", { time: new Date(link.expires_at).toLocaleString() }) + "\n\n" +
+          t("asrSecurity");
+        await sender.sendMarkdown(platformChatId, asrText);
         return { success: true, reply: asrUrl, traceId };
       }
     }
@@ -604,7 +595,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       clearTimeout(timer);
     }
 
-    const reply = result.text || "[No response generated]";
+    const reply = result.text || t("noResponseGenerated");
 
     const usageDurationMs = Date.now() - startTime;
     supabase
@@ -667,8 +658,11 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     if (event.platform_chat_id && sender) {
       try {
+        const errLocale = getBotLocaleOrDefault(
+          ((await supabase.from("agents").select("bot_locale").eq("id", event.agent_id!).single()).data as { bot_locale?: string } | null)?.bot_locale
+        );
         const humanError = getHumanReadableError(err);
-        await sender.sendText(event.platform_chat_id, `⚠️ Error: ${humanError}`);
+        await sender.sendText(event.platform_chat_id, botT(errLocale, "errorPrefix", { error: humanError }));
       } catch {
         // ignore send failure
       }
@@ -689,12 +683,12 @@ async function notifyOwnerOfNewChannel(
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
-  const { data: ownerChannel } = await supa
-    .from("channels")
-    .select("platform, platform_uid")
-    .eq("agent_id", agentId)
-    .eq("is_owner", true)
-    .single();
+  const [{ data: ownerChannel }, { data: agentRow }] = await Promise.all([
+    supa.from("channels").select("platform, platform_uid").eq("agent_id", agentId).eq("is_owner", true).single(),
+    supa.from("agents").select("bot_locale").eq("id", agentId).single(),
+  ]);
+
+  const locale = getBotLocaleOrDefault((agentRow as { bot_locale?: string } | null)?.bot_locale);
 
   if (!ownerChannel) {
     console.warn("notifyOwner: no owner channel found for agent", agentId);
@@ -711,17 +705,11 @@ async function notifyOwnerOfNewChannel(
   }
 
   const name = newChannel.display_name || newChannel.platform_uid;
+  const params = { name, platform: newChannel.platform, uid: newChannel.platform_uid };
 
   const text = needsApproval
-    ? `🔔 *Access request*\n\n` +
-      `*Name:* ${name}\n` +
-      `*Platform:* ${newChannel.platform}\n` +
-      `*ID:* \`${newChannel.platform_uid}\`\n\n` +
-      `This user wants to chat. Approve or reject?`
-    : `🔔 *New user joined*\n\n` +
-      `*Name:* ${name}\n` +
-      `*Platform:* ${newChannel.platform}\n` +
-      `*ID:* \`${newChannel.platform_uid}\``;
+    ? botT(locale, "notifyApprovalRequest", params)
+    : botT(locale, "notifyNewUser", params);
 
   try {
     console.log(
@@ -733,8 +721,8 @@ async function notifyOwnerOfNewChannel(
         ownerChannel.platform_uid,
         text,
         [[
-          { label: "✅ Approve", callbackData: `approve:${newChannel.id}` },
-          { label: "❌ Reject", callbackData: `reject:${newChannel.id}` },
+          { label: botT(locale, "approveButton"), callbackData: `approve:${newChannel.id}` },
+          { label: botT(locale, "rejectButton"), callbackData: `reject:${newChannel.id}` },
         ]],
         { parseMode: "Markdown" },
       );
@@ -744,5 +732,22 @@ async function notifyOwnerOfNewChannel(
     console.log("notifyOwner: sent successfully to", ownerChannel.platform);
   } catch (err) {
     console.error("notifyOwner: send failed:", ownerChannel.platform, ownerChannel.platform_uid, err);
+  }
+}
+
+async function sendWelcomeMessage(
+  agentId: string,
+  platform: string,
+  platformChatId: string,
+  agentName: string,
+  agentLocale?: string | null,
+) {
+  try {
+    const locale = getBotLocaleOrDefault(agentLocale);
+    const welcomeText = buildWelcomeText(locale, agentName, platform);
+    const sender = await getSenderForAgent(agentId, platform);
+    await sender.sendMarkdown(platformChatId, welcomeText);
+  } catch (err) {
+    console.warn("sendWelcomeMessage failed (non-blocking):", err);
   }
 }

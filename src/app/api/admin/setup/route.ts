@@ -578,6 +578,7 @@ CREATE TABLE IF NOT EXISTS public.agents (
   ai_soul           text NOT NULL DEFAULT '',
   telegram_bot_token text,
   webhook_secret    text,
+  bot_locale        text NOT NULL DEFAULT 'en' CHECK (bot_locale IN ('en','zh')),
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE public.agents ENABLE ROW LEVEL SECURITY;

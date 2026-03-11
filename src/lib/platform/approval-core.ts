@@ -7,6 +7,12 @@ function getSupabase() {
   );
 }
 
+export async function getAgentLocale(agentId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  const { data } = await supabase.from("agents").select("bot_locale").eq("id", agentId).single();
+  return (data as { bot_locale?: string } | null)?.bot_locale ?? null;
+}
+
 interface ChannelApprovalParams {
   action: "approve" | "reject";
   channelId: string;

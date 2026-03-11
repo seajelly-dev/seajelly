@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { getSenderForAgent } from "@/lib/platform/sender";
+import { getAgentLocale } from "@/lib/platform/approval-core";
+import { botT, getBotLocaleOrDefault, buildWelcomeText } from "@/lib/i18n/bot";
 
 export async function GET(request: NextRequest) {
   try {
@@ -113,13 +115,22 @@ async function notifyApprovalResult(
   approved: boolean,
 ) {
   try {
+    const rawLocale = await getAgentLocale(agentId);
+    const locale = getBotLocaleOrDefault(rawLocale);
     const sender = await getSenderForAgent(agentId, platform);
     await sender.sendText(
       platformUid,
       approved
-        ? "✅ Your access has been approved! You can start chatting now."
-        : "❌ Your access has been revoked.",
+        ? botT(locale, "accessApproved")
+        : botT(locale, "accessRevoked"),
     );
+    if (approved) {
+      const db = (await import("@/lib/supabase/server")).createAdminClient;
+      const supabase = await db();
+      const { data: aRow } = await supabase.from("agents").select("name").eq("id", agentId).single();
+      const agentName = (aRow as { name?: string } | null)?.name || "Agent";
+      await sender.sendMarkdown(platformUid, buildWelcomeText(locale, agentName, platform));
+    }
   } catch (err) {
     console.error("notifyApprovalResult failed:", platform, platformUid, err);
   }

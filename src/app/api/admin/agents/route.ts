@@ -3,12 +3,15 @@ import { randomBytes } from "crypto";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/crypto/encrypt";
 import { getBotForAgent, resetBotForAgent } from "@/lib/telegram/bot";
-import { BOT_COMMANDS } from "@/lib/telegram/commands";
+import { getBotCommands, getBotLocaleOrDefault } from "@/lib/i18n/bot";
 
 async function syncBotCommands(agentId: string) {
   try {
+    const db = await createAdminClient();
+    const { data: agentRow } = await db.from("agents").select("bot_locale").eq("id", agentId).single();
+    const locale = getBotLocaleOrDefault(agentRow?.bot_locale);
     const bot = await getBotForAgent(agentId);
-    await bot.api.setMyCommands(BOT_COMMANDS);
+    await bot.api.setMyCommands(getBotCommands(locale));
   } catch (err) {
     console.warn("Sync bot commands failed (non-blocking):", err);
   }
@@ -24,7 +27,9 @@ async function autoSetWebhook(agentId: string) {
     await bot.api.setWebhook(`${appUrl}/api/webhook/telegram/${agentId}`, {
       secret_token: secret,
     });
-    await bot.api.setMyCommands(BOT_COMMANDS);
+    const dbInner = await createAdminClient();
+    const { data: agentForLocale } = await dbInner.from("agents").select("bot_locale").eq("id", agentId).single();
+    await bot.api.setMyCommands(getBotCommands(getBotLocaleOrDefault(agentForLocale?.bot_locale)));
     const db = await createAdminClient();
     await db.from("agents").update({ webhook_secret: secret }).eq("id", agentId);
   } catch (err) {
@@ -121,7 +126,7 @@ export async function POST(request: Request) {
 
   const db = await createAdminClient();
   const body = await request.json();
-  const { name, system_prompt, model, provider_id, tools_config, access_mode, ai_soul, telegram_bot_token, platform_credentials } = body;
+  const { name, system_prompt, model, provider_id, tools_config, access_mode, ai_soul, bot_locale, telegram_bot_token, platform_credentials } = body;
 
   if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -134,6 +139,7 @@ export async function POST(request: Request) {
     provider_id: provider_id || null,
     tools_config: tools_config || {},
     access_mode: access_mode || "open",
+    bot_locale: bot_locale || "en",
     ai_soul: ai_soul || "",
   };
 

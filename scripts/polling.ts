@@ -14,9 +14,10 @@ import { decrypt } from "@/lib/crypto/encrypt";
 import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown, getHumanReadableError } from "@/lib/agent/provider";
 import { createAgentTools } from "@/lib/agent/tools";
 import { AGENT_LIMITS } from "@/lib/agent/limits";
-import { BOT_COMMANDS } from "@/lib/telegram/commands";
 import { TelegramAdapter } from "@/lib/platform/adapters/telegram";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
+import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText, getBotCommands } from "@/lib/i18n/bot";
+import type { Locale } from "@/lib/i18n/types";
 import type { ChatMessage, Channel } from "@/types/database";
 
 config({ path: resolve(process.cwd(), ".env.local") });
@@ -91,6 +92,7 @@ interface AgentRow {
   ai_soul: string;
   telegram_bot_token: string;
   tools_config: Record<string, unknown> | null;
+  bot_locale: string | null;
 }
 
 async function startBotForAgent(agent: AgentRow) {
@@ -100,20 +102,15 @@ async function startBotForAgent(agent: AgentRow) {
 
   console.log(`  🤖 ${agent.name} → @${me.username} (${me.first_name})`);
 
+  const locale: Locale = getBotLocaleOrDefault(agent.bot_locale);
+  const t = (k: Parameters<typeof botT>[1], p?: Parameters<typeof botT>[2]) => botT(locale, k, p);
+
   await bot.api.deleteWebhook();
-  await bot.api.setMyCommands(BOT_COMMANDS);
+  await bot.api.setMyCommands(getBotCommands(locale));
 
   // ── /help ──
   bot.command("help", async (ctx) => {
-    await ctx.reply(
-      `📋 *${agent.name} — Commands*\n\n` +
-        "/new — Start a new session\n" +
-        "/whoami — Show your identity profile\n" +
-        "/status — Show session status\n" +
-        "/help — Show this message\n\n" +
-        "Send any text to chat.",
-      { parse_mode: "Markdown" }
-    );
+    await ctx.reply(buildHelpText(locale, agent.name, "telegram"), { parse_mode: "Markdown" });
   });
 
   // ── /whoami ──
@@ -128,16 +125,16 @@ async function startBotForAgent(agent: AgentRow) {
       .single();
 
     if (!channel) {
-      await ctx.reply("No channel record found.");
+      await ctx.reply(t("noChannelRecord"));
       return;
     }
 
     await ctx.reply(
-      `👤 *Who Am I*\n\n` +
-        `*Platform UID:* \`${channel.platform_uid}\`\n` +
-        `*Display Name:* ${channel.display_name || "N/A"}\n` +
-        `*Allowed:* ${channel.is_allowed ? "✅" : "⛔"}\n\n` +
-        `*User Soul:*\n${channel.user_soul || "(empty)"}`,
+      t("whoamiTitle") + "\n\n" +
+        t("whoamiUid", { uid: channel.platform_uid }) + "\n" +
+        t("whoamiName", { name: channel.display_name || "N/A" }) + "\n" +
+        t("whoamiAllowed", { status: channel.is_allowed ? "✅" : "⛔" }) + "\n\n" +
+        t("whoamiSoul", { soul: channel.user_soul || "(empty)" }),
       { parse_mode: "Markdown" }
     );
   });
@@ -159,11 +156,11 @@ async function startBotForAgent(agent: AgentRow) {
         : 0;
 
     await ctx.reply(
-      `📊 *Status*\n\n` +
-        `*Agent:* ${agent.name}\n` +
-        `*Model:* \`${agent.model}\`\n` +
-        `*Access Mode:* ${agent.access_mode}\n` +
-        `*Session Messages:* ${msgCount}`,
+      t("statusTitle") + "\n\n" +
+        t("statusAgent", { agentName: agent.name }) + "\n" +
+        t("statusModel", { model: agent.model }) + "\n" +
+        t("statusAccessMode", { accessMode: agent.access_mode }) + "\n" +
+        t("statusMessages", { count: msgCount }),
       { parse_mode: "Markdown" }
     );
   });
@@ -189,13 +186,13 @@ async function startBotForAgent(agent: AgentRow) {
     console.log(
       `[${new Date().toISOString()}] [${agent.name}] /new from ${ctx.from?.first_name}`
     );
-    await ctx.reply("✨ New session started.");
+    await ctx.reply(t("newSession"));
   });
 
   type ChatAction = "typing" | "upload_photo" | "record_video" | "upload_video" | "record_voice" | "upload_voice" | "upload_document" | "choose_sticker" | "find_location" | "record_video_note" | "upload_video_note";
 
   async function handleMessage(
-    ctx: { chat: { id: number }; from: { id: number; first_name: string }; reply: (text: string) => Promise<unknown>; replyWithChatAction: (action: ChatAction) => Promise<unknown> },
+    ctx: { chat: { id: number }; from: { id: number; first_name: string }; reply: (text: string, options?: Record<string, unknown>) => Promise<unknown>; replyWithChatAction: (action: ChatAction) => Promise<unknown> },
     text: string,
     fileId: string | null,
     fileMime: string | null = null,
@@ -218,20 +215,24 @@ async function startBotForAgent(agent: AgentRow) {
       );
 
       if (!channel) {
-        await ctx.reply("⛔ Access denied. Contact the admin.");
+        await ctx.reply(t("accessDenied"));
         return;
       }
       if (!channel.is_allowed) {
         if (isNew) {
-          await ctx.reply("⏳ Your access request has been sent to the owner for approval. Please wait.");
+          await ctx.reply(t("pendingApproval"));
         } else {
-          await ctx.reply("⛔ Your access has been revoked.");
+          await ctx.reply(t("accessRevoked"));
         }
         return;
       }
 
+      if (isNew && channel.is_allowed) {
+        ctx.reply(buildWelcomeText(locale, agent.name, "telegram"), { parse_mode: "Markdown" }).catch(() => {});
+      }
+
       if (isNew && !channel.is_owner) {
-        notifyOwner(bot, agent.id, channel, agent.access_mode === "approval").catch(() => {});
+        notifyOwner(bot, agent.id, channel, agent.access_mode === "approval", locale).catch(() => {});
       }
 
       const platformChatId = String(chatId);
@@ -266,7 +267,7 @@ async function startBotForAgent(agent: AgentRow) {
       }
 
       if (!session) {
-        await ctx.reply("Failed to create session.");
+        await ctx.reply(t("sessionCreateFailed"));
         return;
       }
 
@@ -523,7 +524,7 @@ async function startBotForAgent(agent: AgentRow) {
         if (mcpResult) await mcpResult.cleanup().catch(() => {});
       }
 
-      const reply = result.text || "[No response]";
+      const reply = result.text || t("noResponse");
       console.log(
         `  Reply: ${reply.slice(0, 120)}${reply.length > 120 ? "..." : ""}\n`
       );
@@ -563,7 +564,7 @@ async function startBotForAgent(agent: AgentRow) {
     } catch (err) {
       console.error(`[${agent.name}] Error:`, err);
       const humanError = getHumanReadableError(err);
-      await ctx.reply(`⚠️ Error: ${humanError}`);
+      await ctx.reply(t("errorPrefix", { error: humanError }));
     }
   }
 
@@ -602,7 +603,7 @@ async function startBotForAgent(agent: AgentRow) {
     const data = ctx.callbackQuery.data;
     const match = data.match(/^(approve|reject):(.+)$/);
     if (!match) {
-      await ctx.answerCallbackQuery({ text: "Unknown action" });
+      await ctx.answerCallbackQuery({ text: t("unknownAction") });
       return;
     }
 
@@ -616,7 +617,7 @@ async function startBotForAgent(agent: AgentRow) {
       .single();
 
     if (!ch) {
-      await ctx.answerCallbackQuery({ text: "Channel not found" });
+      await ctx.answerCallbackQuery({ text: t("unknownAction") });
       return;
     }
 
@@ -628,7 +629,7 @@ async function startBotForAgent(agent: AgentRow) {
       .single();
 
     if (!ownerCh || ownerCh.platform_uid !== callerUid) {
-      await ctx.answerCallbackQuery({ text: "Only the owner can do this" });
+      await ctx.answerCallbackQuery({ text: t("onlyOwnerAction") });
       return;
     }
 
@@ -636,25 +637,21 @@ async function startBotForAgent(agent: AgentRow) {
 
     if (action === "approve") {
       await supabase.from("channels").update({ is_allowed: true }).eq("id", channelId);
-      await ctx.answerCallbackQuery({ text: `✅ ${name} approved` });
-      await ctx.editMessageText(`✅ *Approved:* ${name}`, { parse_mode: "Markdown" });
+      await ctx.answerCallbackQuery({ text: botT(locale, "approvedShort", { name }) });
+      await ctx.editMessageText(botT(locale, "approved", { name }), { parse_mode: "Markdown" });
 
       try {
-        await bot.api.sendMessage(
-          Number(ch.platform_uid),
-          "✅ Your access has been approved! You can start chatting now."
-        );
+        await bot.api.sendMessage(Number(ch.platform_uid), t("accessApproved"));
+        const welcomeText = buildWelcomeText(locale, agent.name, "telegram");
+        await bot.api.sendMessage(Number(ch.platform_uid), welcomeText, { parse_mode: "Markdown" });
       } catch { /* user may have blocked bot */ }
     } else {
       await supabase.from("channels").delete().eq("id", channelId);
-      await ctx.answerCallbackQuery({ text: `❌ ${name} rejected` });
-      await ctx.editMessageText(`❌ *Rejected:* ${name}`, { parse_mode: "Markdown" });
+      await ctx.answerCallbackQuery({ text: botT(locale, "rejectedShort", { name }) });
+      await ctx.editMessageText(botT(locale, "rejected", { name }), { parse_mode: "Markdown" });
 
       try {
-        await bot.api.sendMessage(
-          Number(ch.platform_uid),
-          "❌ Your access request has been rejected."
-        );
+        await bot.api.sendMessage(Number(ch.platform_uid), t("accessRejected"));
       } catch { /* user may have blocked bot */ }
     }
   });
@@ -671,7 +668,7 @@ async function main() {
 
   const { data: agents, error } = await supabase
     .from("agents")
-    .select("id, name, model, provider_id, system_prompt, access_mode, ai_soul, telegram_bot_token, tools_config")
+    .select("id, name, model, provider_id, system_prompt, access_mode, ai_soul, telegram_bot_token, tools_config, bot_locale")
     .not("telegram_bot_token", "is", null);
 
   if (error) {
@@ -711,7 +708,7 @@ async function main() {
   });
 }
 
-async function notifyOwner(bot: Bot, agentId: string, newChannel: Channel, needsApproval = false) {
+async function notifyOwner(bot: Bot, agentId: string, newChannel: Channel, needsApproval = false, locale: Locale = "en") {
   const { data: ownerChannel } = await supabase
     .from("channels")
     .select("platform, platform_uid")
@@ -722,25 +719,19 @@ async function notifyOwner(bot: Bot, agentId: string, newChannel: Channel, needs
   if (!ownerChannel || ownerChannel.platform !== "telegram") return;
 
   const name = newChannel.display_name || newChannel.platform_uid;
+  const params = { name, platform: newChannel.platform, uid: newChannel.platform_uid };
 
   const text = needsApproval
-    ? `🔔 *Access request*\n\n` +
-      `*Name:* ${name}\n` +
-      `*Platform:* ${newChannel.platform}\n` +
-      `*ID:* \`${newChannel.platform_uid}\`\n\n` +
-      `This user wants to chat. Approve or reject?`
-    : `🔔 *New user joined*\n\n` +
-      `*Name:* ${name}\n` +
-      `*Platform:* ${newChannel.platform}\n` +
-      `*ID:* \`${newChannel.platform_uid}\``;
+    ? botT(locale, "notifyApprovalRequest", params)
+    : botT(locale, "notifyNewUser", params);
 
   const options: Record<string, unknown> = { parse_mode: "Markdown" };
   if (needsApproval) {
     options.reply_markup = {
       inline_keyboard: [
         [
-          { text: "✅ Approve", callback_data: `approve:${newChannel.id}` },
-          { text: "❌ Reject", callback_data: `reject:${newChannel.id}` },
+          { text: botT(locale, "approveButton"), callback_data: `approve:${newChannel.id}` },
+          { text: botT(locale, "rejectButton"), callback_data: `reject:${newChannel.id}` },
         ],
       ],
     };

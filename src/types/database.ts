@@ -28,6 +28,7 @@ export interface Agent {
   access_mode: AccessMode;
   ai_soul: string;
   telegram_bot_token: string | null;
+  bot_locale: "en" | "zh";
   created_at: string;
 }
 

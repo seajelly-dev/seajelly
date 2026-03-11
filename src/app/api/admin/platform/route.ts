@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { getBotForAgent, resetBotForAgent } from "@/lib/telegram/bot";
-import { BOT_COMMANDS } from "@/lib/telegram/commands";
+import { getBotCommands, getBotLocaleOrDefault } from "@/lib/i18n/bot";
+
+async function getAgentBotCommands(agentId: string) {
+  const db = await createAdminClient();
+  const { data } = await db.from("agents").select("bot_locale").eq("id", agentId).single();
+  return getBotCommands(getBotLocaleOrDefault(data?.bot_locale));
+}
 
 async function handleTelegram(action: string, agentId: string, body: Record<string, unknown>) {
   if (action === "set-webhook") {
@@ -17,7 +23,8 @@ async function handleTelegram(action: string, agentId: string, body: Record<stri
       : `${webhookUrl}/${agentId}`;
     const secret = randomBytes(32).toString("hex");
     await bot.api.setWebhook(webhookWithAgent, { secret_token: secret });
-    await bot.api.setMyCommands(BOT_COMMANDS);
+    const cmds = await getAgentBotCommands(agentId);
+    await bot.api.setMyCommands(cmds);
     const db = await createAdminClient();
     await db.from("agents").update({ webhook_secret: secret }).eq("id", agentId);
     return NextResponse.json({ success: true, webhook_url: webhookWithAgent });
@@ -26,8 +33,9 @@ async function handleTelegram(action: string, agentId: string, body: Record<stri
   if (action === "register-commands") {
     resetBotForAgent(agentId);
     const bot = await getBotForAgent(agentId);
-    await bot.api.setMyCommands(BOT_COMMANDS);
-    return NextResponse.json({ success: true, commands: BOT_COMMANDS });
+    const cmds = await getAgentBotCommands(agentId);
+    await bot.api.setMyCommands(cmds);
+    return NextResponse.json({ success: true, commands: cmds });
   }
 
   if (action === "get-info") {

@@ -3,8 +3,9 @@ import crypto from "crypto";
 import { WebClient } from "@slack/web-api";
 import { resolveSlackCredentials } from "@/lib/platform/adapters/slack";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
-import { processChannelApproval } from "@/lib/platform/approval-core";
+import { processChannelApproval, getAgentLocale } from "@/lib/platform/approval-core";
 import { getSenderForAgent } from "@/lib/platform/sender";
+import { botT, getBotLocaleOrDefault, buildWelcomeText } from "@/lib/i18n/bot";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -50,16 +51,20 @@ async function handleInteraction(
   const channelIdSlack = channel?.id;
   const ts = msg?.ts as string | undefined;
 
+  const rawLocale = await getAgentLocale(agentId);
+  const locale = getBotLocaleOrDefault(rawLocale);
+
   if (!result) {
     if (channelIdSlack && ts) {
       try {
         const creds = await resolveSlackCredentials(agentId);
         const client = new WebClient(creds.botToken);
+        const alreadyText = botT(locale, "alreadyProcessedDot");
         await client.chat.update({
           channel: channelIdSlack,
           ts,
-          text: "⚠️ Already processed or invalid.",
-          blocks: [{ type: "section", text: { type: "mrkdwn", text: "⚠️ Already processed." } }],
+          text: alreadyText,
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: alreadyText } }],
         });
       } catch { /* best effort */ }
     }
@@ -70,7 +75,9 @@ async function handleInteraction(
     try {
       const creds = await resolveSlackCredentials(agentId);
       const client = new WebClient(creds.botToken);
-      const label = act === "approve" ? `✅ *Approved:* ${result.name}` : `❌ *Rejected:* ${result.name}`;
+      const label = act === "approve"
+        ? botT(locale, "approved", { name: result.name })
+        : botT(locale, "rejected", { name: result.name });
       await client.chat.update({
         channel: channelIdSlack,
         ts,
@@ -86,9 +93,16 @@ async function handleInteraction(
       await targetSender.sendText(
         result.targetUid,
         act === "approve"
-          ? "✅ Your access has been approved! You can start chatting now."
-          : "❌ Your access request has been rejected.",
+          ? botT(locale, "accessApproved")
+          : botT(locale, "accessRejected"),
       );
+      if (act === "approve") {
+        const { createClient } = await import("@supabase/supabase-js");
+        const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+        const { data: aRow } = await supa.from("agents").select("name").eq("id", result.agentId).single();
+        const agentName = (aRow as { name?: string } | null)?.name || "Agent";
+        await targetSender.sendMarkdown(result.targetUid, buildWelcomeText(locale, agentName, result.targetPlatform));
+      }
     } catch { /* target user unreachable */ }
   }
 }

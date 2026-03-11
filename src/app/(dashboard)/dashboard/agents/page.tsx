@@ -198,6 +198,7 @@ export default function AgentsPage() {
     provider_id: "",
     model: "",
     access_mode: "open" as "open" | "approval" | "whitelist",
+    bot_locale: "en" as "en" | "zh",
     ai_soul: "",
     telegram_bot_token: "",
     tools_config: {} as Record<string, boolean>,
@@ -315,6 +316,7 @@ export default function AgentsPage() {
       provider_id: firstProvider?.id ?? "",
       model: firstModel?.model_id ?? "",
       access_mode: "open" as const,
+      bot_locale: "en" as const,
       ai_soul: "",
       telegram_bot_token: "",
       tools_config: defaultToolsConfig,
@@ -339,6 +341,7 @@ export default function AgentsPage() {
       provider_id: agent.provider_id || "",
       model: agent.model,
       access_mode: agent.access_mode || "open",
+      bot_locale: (agent as Agent & { bot_locale?: string }).bot_locale === "zh" ? "zh" : "en",
       ai_soul: agent.ai_soul || "",
       telegram_bot_token: "",
       tools_config: tc,
@@ -851,39 +854,59 @@ export default function AgentsPage() {
                 </div>
               </div>
 
-              {/* Access mode */}
-              <div className="flex flex-col gap-1.5">
-                <Label>{t("agents.accessMode")}</Label>
-                <Select
-                  value={form.access_mode}
-                  onValueChange={(v) =>
-                    setForm((f) => ({ ...f, access_mode: (v ?? f.access_mode) as "open" | "approval" | "whitelist" }))
-                  }
-                >
-                  <SelectTrigger>
-                    {form.access_mode === "whitelist" ? t("agents.whitelist") : form.access_mode === "approval" ? t("agents.approval") : t("agents.open")}
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="open">
-                      <div>
-                        <div>{t("agents.open")}</div>
-                        <div className="text-xs text-muted-foreground">{t("agents.accessModeOpenDesc")}</div>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="approval">
-                      <div>
-                        <div>{t("agents.approval")}</div>
-                        <div className="text-xs text-muted-foreground">{t("agents.accessModeApprovalDesc")}</div>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="whitelist">
-                      <div>
-                        <div>{t("agents.whitelist")}</div>
-                        <div className="text-xs text-muted-foreground">{t("agents.accessModeWhitelistDesc")}</div>
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+              {/* Access mode + Bot locale */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t("agents.accessMode")}</Label>
+                  <Select
+                    value={form.access_mode}
+                    onValueChange={(v) =>
+                      setForm((f) => ({ ...f, access_mode: (v ?? f.access_mode) as "open" | "approval" | "whitelist" }))
+                    }
+                  >
+                    <SelectTrigger>
+                      {form.access_mode === "whitelist" ? t("agents.whitelist") : form.access_mode === "approval" ? t("agents.approval") : t("agents.open")}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open">
+                        <div>
+                          <div>{t("agents.open")}</div>
+                          <div className="text-xs text-muted-foreground">{t("agents.accessModeOpenDesc")}</div>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="approval">
+                        <div>
+                          <div>{t("agents.approval")}</div>
+                          <div className="text-xs text-muted-foreground">{t("agents.accessModeApprovalDesc")}</div>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="whitelist">
+                        <div>
+                          <div>{t("agents.whitelist")}</div>
+                          <div className="text-xs text-muted-foreground">{t("agents.accessModeWhitelistDesc")}</div>
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t("agents.botLocale")}</Label>
+                  <Select
+                    value={form.bot_locale}
+                    onValueChange={(v) =>
+                      setForm((f) => ({ ...f, bot_locale: (v ?? f.bot_locale) as "en" | "zh" }))
+                    }
+                  >
+                    <SelectTrigger>
+                      {form.bot_locale === "zh" ? t("agents.botLocaleZh") : t("agents.botLocaleEn")}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="en">{t("agents.botLocaleEn")}</SelectItem>
+                      <SelectItem value="zh">{t("agents.botLocaleZh")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{t("agents.botLocaleHint")}</p>
+                </div>
               </div>
 
               {/* System prompt */}
