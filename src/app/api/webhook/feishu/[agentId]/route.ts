@@ -127,9 +127,6 @@ export async function POST(
     let fileRef: string | null = null;
     let fileMime: string | null = null;
 
-    console.log("Feishu msg:", "type:", msgType, "content_len:", msg.content?.length,
-      "content_prefix:", msg.content?.substring(0, 200));
-
     if (msgType === "text") {
       try {
         const parsed = JSON.parse(msg.content);
@@ -140,11 +137,16 @@ export async function POST(
     } else if (msgType === "post") {
       try {
         const parsed = JSON.parse(msg.content);
-        console.log("Feishu post content keys:", JSON.stringify(Object.keys(parsed)),
-          "raw:", msg.content.substring(0, 500));
-        const lang = parsed.zh_cn || parsed.en_us || Object.values(parsed)[0] as Record<string, unknown> | undefined;
-        const rows = (lang as Record<string, unknown>)?.content as Array<Array<Record<string, string>>> | undefined;
-        console.log("Feishu post lang:", !!lang, "rows:", rows?.length);
+        // Received post: direct { content: [[...]] } or nested { zh_cn: { content: [[...]] } }
+        let rows: Array<Array<Record<string, string>>> | undefined;
+        if (Array.isArray(parsed.content)) {
+          rows = parsed.content;
+        } else {
+          const lang = parsed.zh_cn || parsed.en_us;
+          if (lang && Array.isArray(lang.content)) {
+            rows = lang.content;
+          }
+        }
         if (rows) {
           const texts: string[] = [];
           let firstImageKey: string | null = null;
