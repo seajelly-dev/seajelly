@@ -463,7 +463,7 @@ export default function ChannelsPage() {
           </div>
 
           <div className="space-y-1.5 lg:space-y-0 lg:divide-y lg:rounded-lg lg:border">
-            <TooltipProvider delayDuration={300}>
+            <TooltipProvider delay={300}>
               {channels.map((ch) => (
                 <div
                   key={ch.id}
