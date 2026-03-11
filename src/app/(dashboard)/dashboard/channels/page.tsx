@@ -360,7 +360,7 @@ export default function ChannelsPage() {
           <div className="flex items-center gap-2">
             <Select value={filterAgent} onValueChange={(v) => setFilterAgent(v ?? "all")}>
               <SelectTrigger className="w-full sm:w-[160px]">
-                <SelectValue />
+                {filterAgent === "all" ? t("channels.allAgents") : agents.find((a) => a.id === filterAgent)?.name || filterAgent}
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">
@@ -375,7 +375,17 @@ export default function ChannelsPage() {
             </Select>
             <Select value={filterPlatform} onValueChange={(v) => setFilterPlatform(v ?? "all")}>
               <SelectTrigger className="w-full sm:w-[140px]">
-                <SelectValue />
+                {filterPlatform === "all" ? t("channels.allPlatforms") : (
+                  (() => {
+                    const p = PLATFORMS.find((p) => p.key === filterPlatform);
+                    return p ? (
+                      <span className="flex items-center gap-2">
+                        <p.icon className="size-4" />
+                        {p.label}
+                      </span>
+                    ) : filterPlatform;
+                  })()
+                )}
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">

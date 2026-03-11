@@ -10,7 +10,14 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Bot, MessageSquare, Radio, Zap, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { Bot, MessageSquare, Radio, Zap, ArrowUpRight, ArrowDownRight, Clock, Webhook, Hand } from "lucide-react";
+import {
+  TelegramIcon,
+  FeishuIcon,
+  WeComIcon,
+  SlackIcon,
+  QQBotIcon,
+} from "@/components/icons/platform-icons";
 import { useT } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -36,6 +43,28 @@ interface HourlyRow {
   total_input_tokens: number;
   total_output_tokens: number;
 }
+
+const SOURCE_ICON: Record<string, React.FC<{ className?: string }>> = {
+  telegram: TelegramIcon,
+  feishu: FeishuIcon,
+  wecom: WeComIcon,
+  slack: SlackIcon,
+  qqbot: QQBotIcon,
+  cron: Clock,
+  webhook: Webhook,
+  manual: Hand,
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  telegram: "Telegram",
+  feishu: "Feishu",
+  wecom: "WeCom",
+  slack: "Slack",
+  qqbot: "QQBot",
+  cron: "Cron",
+  webhook: "Webhook",
+  manual: "Manual",
+};
 
 // 高区分度颜色调色板，色相均匀分散
 const MODEL_COLORS = [
@@ -358,13 +387,22 @@ export default function DashboardPage() {
                   className="group flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-transparent bg-muted/30 px-5 py-4 text-sm transition-all hover:border-border hover:bg-muted/50 hover:shadow-sm"
                 >
                   <div className="flex items-center gap-4">
-                    <Badge variant="secondary" className="px-2.5 py-0.5 font-medium">{event.source}</Badge>
+                    {(() => {
+                      const Icon = SOURCE_ICON[event.source] || null;
+                      const label = SOURCE_LABEL[event.source] ?? event.source;
+                      return (
+                        <Badge variant="secondary" className="gap-1.5 px-2.5 py-0.5 font-medium">
+                          {Icon && <Icon className="size-3.5" />}
+                          {label}
+                        </Badge>
+                      );
+                    })()}
                     <span className="font-mono text-xs text-muted-foreground group-hover:text-foreground transition-colors">
                       {event.trace_id.slice(0, 8)}
                     </span>
                   </div>
                   <div className="flex items-center gap-4">
-                    <StatusBadge status={event.status} />
+                    <StatusBadge status={event.status} t={t} />
                     <span className="text-xs text-muted-foreground font-medium">
                       {new Date(event.created_at).toLocaleString()}
                     </span>
@@ -418,12 +456,12 @@ function StatCard({
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, t }: { status: string; t: any }) {
   const variant =
     status === "processed"
       ? "default"
       : status === "failed" || status === "dead"
         ? "destructive"
         : "secondary";
-  return <Badge variant={variant}>{status}</Badge>;
+  return <Badge variant={variant}>{t(`events.status_${status}`) || status}</Badge>;
 }

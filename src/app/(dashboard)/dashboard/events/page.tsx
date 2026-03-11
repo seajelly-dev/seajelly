@@ -184,12 +184,12 @@ export default function EventsPage() {
               id="events-status-filter-trigger"
               className="w-36"
             >
-              <SelectValue />
+              {statusFilter === "all" ? t("events.allStatus") : (t(`events.status_${statusFilter}` as never) || statusFilter)}
             </SelectTrigger>
             <SelectContent>
               {STATUS_OPTIONS.map((s) => (
                 <SelectItem key={s} value={s}>
-                  {s === "all" ? t("events.allStatus") : s}
+                  {s === "all" ? t("events.allStatus") : (t(`events.status_${s}` as never) || s)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -254,7 +254,7 @@ export default function EventsPage() {
                         </TableCell>
                         <TableCell>
                           <Badge variant={statusVariant(e.status)}>
-                            {e.status}
+                            {t(`events.status_${e.status}` as never) || e.status}
                           </Badge>
                         </TableCell>
                         <TableCell className="tabular-nums text-sm">

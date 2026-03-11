@@ -747,24 +747,18 @@ export default function AgentsPage() {
     );
   }
 
-  // ── Agent card: platform status row ──
   function renderPlatformStatus(agent: AgentExt) {
     const platforms = agent.platforms || {};
     const connected = PLATFORMS.filter((p) => platforms[p.key]);
     if (connected.length === 0) {
-      return (
-        <div className="flex items-center gap-2 rounded-md border border-dashed p-2">
-          <XCircle className="size-3.5 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">{t("agents.noPlatformsConnected")}</span>
-        </div>
-      );
+      return null;
     }
     return (
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5 mt-1">
         {connected.map((plat) => (
-          <div key={plat.key} className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5">
-            <plat.icon className="size-3.5" />
-            <span className="text-xs font-medium">{plat.label}</span>
+          <div key={plat.key} className="flex items-center gap-1.5 rounded-full border border-border/60 bg-background/50 hover:bg-muted transition-colors px-2.5 py-1 text-muted-foreground">
+            <plat.icon className="size-3.5 opacity-70" />
+            <span className="text-[11px] font-medium leading-none">{plat.label}</span>
           </div>
         ))}
       </div>
@@ -1058,54 +1052,51 @@ export default function AgentsPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {agents.map((agent) => (
-            <Card key={agent.id} className="transition-shadow hover:shadow-md">
-              <CardHeader>
+            <Card key={agent.id} className="transition-all hover:shadow-md hover:-translate-y-0.5 border-border/50 hover:border-border">
+              <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="min-w-0 flex-1">
-                    <CardTitle className="flex items-center gap-2">
-                      {agent.name}
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <span className="truncate">{agent.name}</span>
                       {agent.is_default && (
-                        <Badge variant="secondary" className="text-xs">{t("agents.default")}</Badge>
+                        <Badge variant="secondary" className="text-[10px] h-5 px-1.5 shrink-0 bg-muted/60 hover:bg-muted font-medium">{t("agents.default")}</Badge>
                       )}
                     </CardTitle>
-                    <CardDescription className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <span className="font-mono text-xs">{agent.model}</span>
-                      <Badge
-                        variant={
-                          agent.access_mode === "whitelist" ? "destructive"
-                            : agent.access_mode === "approval" ? "secondary"
-                              : "outline"
-                        }
-                        className="gap-1 text-xs"
-                      >
+                    <CardDescription className="mt-2 flex items-center gap-2 text-xs">
+                      <span className="font-mono text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded-md border border-border/30 truncate max-w-[120px] sm:max-w-[200px]" title={agent.model}>{agent.model}</span>
+                      <span className="text-muted-foreground/30">•</span>
+                      <span className="flex items-center gap-1 text-muted-foreground">
                         {agent.access_mode === "whitelist" ? <Lock className="size-3" /> : <Globe className="size-3" />}
                         {agent.access_mode === "whitelist"
                           ? t("agents.whitelist")
                           : agent.access_mode === "approval"
                             ? t("agents.approval")
                             : t("agents.open")}
-                      </Badge>
+                      </span>
                     </CardDescription>
                   </div>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon-sm" onClick={() => openEdit(agent)}>
+                  <div className="flex gap-1 opacity-60 transition-opacity hover:opacity-100 focus-within:opacity-100">
+                    <Button variant="ghost" size="icon-sm" onClick={() => openEdit(agent)} className="h-7 w-7">
                       <Pencil className="size-3.5" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => setDeleteTarget(agent)}
-                      className="text-muted-foreground hover:text-destructive"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                     >
                       <Trash2 className="size-3.5" />
                     </Button>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <p className="line-clamp-2 text-sm text-muted-foreground">
-                  {agent.system_prompt || t("agents.noSystemPrompt")}
-                </p>
+              <CardContent className="flex flex-col gap-4 pt-0">
+                <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground border border-border/40 relative">
+                  <div className="absolute top-2 left-2 text-muted-foreground/20 font-serif text-2xl leading-none">"</div>
+                  <p className="line-clamp-2 relative z-10 pl-4 italic text-xs/relaxed">
+                    {agent.system_prompt || t("agents.noSystemPrompt")}
+                  </p>
+                </div>
                 {renderPlatformStatus(agent)}
               </CardContent>
             </Card>
