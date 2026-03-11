@@ -164,7 +164,7 @@ export default function SubscriptionsPage() {
     setStripeSaving(keyName);
     try {
       const res = await fetch("/api/admin/secrets", {
-        method: "POST",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key_name: keyName, value }),
       });
