@@ -56,10 +56,11 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
-import type { Agent, McpServer, Skill, Provider } from "@/types/database";
+import type { Agent, McpServer, Skill, Provider, KnowledgeBase } from "@/types/database";
 import type { ModelDef } from "@/lib/models";
 
 const PRIVILEGED_TOOLS = [
+  { key: "knowledge_search", label: "knowledge_search", desc: "agents.toolKnowledgeSearch", defaultOn: false },
   { key: "run_sql", label: "run_sql", desc: "agents.toolRunSql", defaultOn: false },
   { key: "schedule_task", label: "schedule_task", desc: "agents.toolScheduleTask", defaultOn: true },
   { key: "cancel_scheduled_job", label: "cancel_scheduled_job", desc: "agents.toolCancelJob", defaultOn: true },
@@ -216,6 +217,9 @@ export default function AgentsPage() {
 
   const [boundMcpNames, setBoundMcpNames] = useState<string[]>([]);
   const [boundSkillNames, setBoundSkillNames] = useState<string[]>([]);
+  const [allKnowledgeBases, setAllKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [boundKbIds, setBoundKbIds] = useState<Set<string>>(new Set());
+  const [boundKbNames, setBoundKbNames] = useState<string[]>([]);
 
   // Sub-dialogs
   const [channelsOpen, setChannelsOpen] = useState(false);
@@ -261,18 +265,27 @@ export default function AgentsPage() {
   const fetchBoundResources = useCallback(async (agentId: string) => {
     setBoundMcpNames([]);
     setBoundSkillNames([]);
-    const [mcpRes, skillRes, mcpListRes, skillListRes] = await Promise.all([
+    setBoundKbIds(new Set());
+    setBoundKbNames([]);
+    const [mcpRes, skillRes, kbRes, mcpListRes, skillListRes, kbListRes] = await Promise.all([
       fetch(`/api/admin/agents/mcps?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
       fetch(`/api/admin/agents/skills?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
+      fetch(`/api/admin/agents/knowledge?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/mcp").then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/skills").then((r) => r.json()).catch(() => ({})),
+      fetch("/api/admin/knowledge/bases").then((r) => r.json()).catch(() => ({})),
     ]);
     const mcpIds = new Set<string>(mcpRes.mcp_server_ids ?? []);
     const skillIds = new Set<string>(skillRes.skill_ids ?? []);
+    const kbIdSet = new Set<string>(kbRes.knowledge_base_ids ?? []);
     const allMcps: McpServer[] = mcpListRes.servers ?? [];
     const allSkills: Skill[] = skillListRes.skills ?? [];
+    const allKbs: KnowledgeBase[] = kbListRes.bases ?? [];
     setBoundMcpNames(allMcps.filter((m) => mcpIds.has(m.id)).map((m) => m.name));
     setBoundSkillNames(allSkills.filter((s) => skillIds.has(s.id)).map((s) => s.name));
+    setAllKnowledgeBases(allKbs);
+    setBoundKbIds(kbIdSet);
+    setBoundKbNames(allKbs.filter((kb) => kbIdSet.has(kb.id)).map((kb) => kb.name));
   }, []);
 
   useEffect(() => {
@@ -1055,7 +1068,7 @@ export default function AgentsPage() {
               </div>
 
               {/* Bindings (edit only) */}
-              {editingAgent && (boundMcpNames.length > 0 || boundSkillNames.length > 0) && (
+              {editingAgent && (
                 <div className="flex flex-col gap-2 rounded-md border p-3">
                   {boundMcpNames.length > 0 && (
                     <div>
@@ -1077,6 +1090,37 @@ export default function AgentsPage() {
                       </div>
                     </div>
                   )}
+                  {/* Knowledge base multi-select */}
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-1.5">{t("agents.knowledgeBases")}</p>
+                    {allKnowledgeBases.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">{t("agents.noKnowledgeBases")}</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {allKnowledgeBases.filter((kb) => !kb.parent_id).map((kb) => (
+                          <Badge
+                            key={kb.id}
+                            variant={boundKbIds.has(kb.id) ? "default" : "outline"}
+                            className="cursor-pointer select-none"
+                            onClick={async () => {
+                              const next = new Set(boundKbIds);
+                              if (next.has(kb.id)) next.delete(kb.id); else next.add(kb.id);
+                              setBoundKbIds(next);
+                              setBoundKbNames(allKnowledgeBases.filter((k) => next.has(k.id)).map((k) => k.name));
+                              await fetch("/api/admin/agents/knowledge", {
+                                method: "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ agent_id: editingAgent.id, knowledge_base_ids: [...next] }),
+                              });
+                            }}
+                          >
+                            {kb.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-1">{t("agents.kbBindHint")}</p>
+                  </div>
                   <p className="text-xs text-muted-foreground">{t("agents.bindFromResourcePage")}</p>
                 </div>
               )}

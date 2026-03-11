@@ -452,6 +452,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     // ── Filter tools by tools_config (least-privilege enforcement) ──
     const TOOL_DEFAULTS: Record<string, boolean> = {
+      knowledge_search: false,
       run_sql: false,
       schedule_task: true,
       cancel_scheduled_job: true,

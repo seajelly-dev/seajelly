@@ -189,19 +189,48 @@ export interface Memory {
   created_at: string;
 }
 
-export type ChunkStatus = "pending_embedded" | "embedded" | "embed_failed";
-
-export interface MemoryChunk {
+export interface KnowledgeBase {
   id: string;
-  memory_id: string;
+  name: string;
+  description: string;
+  parent_id: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export type ArticleChunkStatus = "pending" | "chunking" | "chunked" | "chunk_failed";
+
+export interface KnowledgeArticle {
+  id: string;
+  knowledge_base_id: string;
+  title: string;
+  content: string;
+  source_url: string | null;
+  chunk_status: ArticleChunkStatus;
+  chunks_count: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ChunkEmbedStatus = "pending" | "embedded" | "failed";
+
+export interface KnowledgeChunk {
+  id: string;
+  article_id: string;
   chunk_text: string;
   embedding: number[] | null;
   content_hash: string;
   embed_model: string | null;
-  status: ChunkStatus;
-  start_line: number | null;
-  end_line: number | null;
+  embed_status: ChunkEmbedStatus;
+  chunk_index: number;
+  metadata: Record<string, unknown>;
   created_at: string;
+}
+
+export interface AgentKnowledgeBase {
+  agent_id: string;
+  knowledge_base_id: string;
 }
 
 export interface CronJob {

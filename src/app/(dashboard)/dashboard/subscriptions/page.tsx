@@ -97,6 +97,7 @@ interface ChannelOption {
   platform_uid: string;
   platform: string;
   agent_id: string;
+  agent_name: string;
 }
 
 export default function SubscriptionsPage() {
@@ -292,8 +293,13 @@ export default function SubscriptionsPage() {
       if (filterAgent !== "all") params.set("agent_id", filterAgent);
       const res = await fetch(`/api/admin/channels?${params.toString()}`);
       const data = await res.json();
-      setGrantChannels((data.channels ?? []).map((c: ChannelOption & Record<string, unknown>) => ({
-        id: c.id, display_name: c.display_name, platform_uid: c.platform_uid, platform: c.platform, agent_id: c.agent_id,
+      setGrantChannels((data.channels ?? []).map((c: Record<string, unknown>) => ({
+        id: c.id as string,
+        display_name: c.display_name as string | null,
+        platform_uid: c.platform_uid as string,
+        platform: c.platform as string,
+        agent_id: c.agent_id as string,
+        agent_name: ((c.agents as { name?: string } | null)?.name) ?? "—",
       })));
     } catch { setGrantChannels([]); }
     setGrantForm({ channel_id: "", plan_id: "", type: "time", duration_days: 30, quota_total: 100 });
@@ -357,7 +363,8 @@ export default function SubscriptionsPage() {
       (c) =>
         (c.display_name ?? "").toLowerCase().includes(q) ||
         c.platform_uid.toLowerCase().includes(q) ||
-        c.platform.toLowerCase().includes(q)
+        c.platform.toLowerCase().includes(q) ||
+        c.agent_name.toLowerCase().includes(q)
     );
   }, [grantChannels, grantChannelSearch]);
 
@@ -767,6 +774,7 @@ export default function SubscriptionsPage() {
                   <span className="text-sm font-medium truncate flex-1">
                     {selectedChannel.display_name || selectedChannel.platform_uid}
                   </span>
+                  <Badge variant="secondary" className="text-xs shrink-0">{selectedChannel.agent_name}</Badge>
                   <Badge variant="outline" className="text-xs shrink-0">{selectedChannel.platform}</Badge>
                   <button
                     type="button"
@@ -801,6 +809,7 @@ export default function SubscriptionsPage() {
                     >
                       <Check className={`size-3.5 shrink-0 ${grantForm.channel_id === c.id ? "text-foreground" : "text-transparent"}`} />
                       <span className="truncate flex-1">{c.display_name || c.platform_uid}</span>
+                      <Badge variant="secondary" className="text-xs shrink-0">{c.agent_name}</Badge>
                       <Badge variant="outline" className="text-xs shrink-0">{c.platform}</Badge>
                     </button>
                   ))

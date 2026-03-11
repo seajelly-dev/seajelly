@@ -721,26 +721,75 @@ DROP POLICY IF EXISTS "memories_service_all" ON public.memories;
 CREATE POLICY "memories_service_all" ON public.memories FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
-CREATE TABLE IF NOT EXISTS public.memory_chunks (
+CREATE TABLE IF NOT EXISTS public.knowledge_bases (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        text NOT NULL,
+  description text NOT NULL DEFAULT '',
+  parent_id   uuid REFERENCES public.knowledge_bases(id) ON DELETE CASCADE,
+  sort_order  int NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS knowledge_bases_parent ON public.knowledge_bases(parent_id);
+ALTER TABLE public.knowledge_bases ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "knowledge_bases_admin_all" ON public.knowledge_bases;
+CREATE POLICY "knowledge_bases_admin_all" ON public.knowledge_bases FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "knowledge_bases_service_select" ON public.knowledge_bases;
+CREATE POLICY "knowledge_bases_service_select" ON public.knowledge_bases FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+CREATE TABLE IF NOT EXISTS public.knowledge_articles (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  knowledge_base_id   uuid NOT NULL REFERENCES public.knowledge_bases(id) ON DELETE CASCADE,
+  title               text NOT NULL,
+  content             text NOT NULL DEFAULT '',
+  source_url          text,
+  chunk_status        text NOT NULL DEFAULT 'pending' CHECK (chunk_status IN ('pending','chunking','chunked','chunk_failed')),
+  chunks_count        int NOT NULL DEFAULT 0,
+  metadata            jsonb NOT NULL DEFAULT '{}',
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS knowledge_articles_kb ON public.knowledge_articles(knowledge_base_id);
+CREATE INDEX IF NOT EXISTS knowledge_articles_status ON public.knowledge_articles(chunk_status);
+ALTER TABLE public.knowledge_articles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "knowledge_articles_admin_all" ON public.knowledge_articles;
+CREATE POLICY "knowledge_articles_admin_all" ON public.knowledge_articles FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "knowledge_articles_service_all" ON public.knowledge_articles;
+CREATE POLICY "knowledge_articles_service_all" ON public.knowledge_articles FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+CREATE TABLE IF NOT EXISTS public.knowledge_chunks (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  memory_id     uuid NOT NULL REFERENCES public.memories(id) ON DELETE CASCADE,
+  article_id    uuid NOT NULL REFERENCES public.knowledge_articles(id) ON DELETE CASCADE,
   chunk_text    text NOT NULL,
-  embedding     vector(768),
+  embedding     vector(1536),
   content_hash  text NOT NULL,
   embed_model   text,
-  status        text NOT NULL DEFAULT 'pending_embedded' CHECK (status IN ('pending_embedded','embedded','embed_failed')),
-  start_line    int,
-  end_line      int,
+  embed_status  text NOT NULL DEFAULT 'pending' CHECK (embed_status IN ('pending','embedded','failed')),
+  chunk_index   int NOT NULL DEFAULT 0,
+  metadata      jsonb NOT NULL DEFAULT '{}',
   created_at    timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS memory_chunks_memory ON public.memory_chunks(memory_id);
-CREATE INDEX IF NOT EXISTS memory_chunks_hash ON public.memory_chunks(content_hash);
-ALTER TABLE public.memory_chunks ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "memory_chunks_admin_all" ON public.memory_chunks;
-CREATE POLICY "memory_chunks_admin_all" ON public.memory_chunks FOR ALL USING (public.is_admin());
-DROP POLICY IF EXISTS "memory_chunks_public_rw" ON public.memory_chunks;
-DROP POLICY IF EXISTS "memory_chunks_service_all" ON public.memory_chunks;
-CREATE POLICY "memory_chunks_service_all" ON public.memory_chunks FOR ALL
+CREATE INDEX IF NOT EXISTS knowledge_chunks_article ON public.knowledge_chunks(article_id);
+CREATE INDEX IF NOT EXISTS knowledge_chunks_hash ON public.knowledge_chunks(content_hash);
+CREATE INDEX IF NOT EXISTS knowledge_chunks_status ON public.knowledge_chunks(embed_status);
+ALTER TABLE public.knowledge_chunks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "knowledge_chunks_admin_all" ON public.knowledge_chunks;
+CREATE POLICY "knowledge_chunks_admin_all" ON public.knowledge_chunks FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "knowledge_chunks_service_all" ON public.knowledge_chunks;
+CREATE POLICY "knowledge_chunks_service_all" ON public.knowledge_chunks FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+CREATE TABLE IF NOT EXISTS public.agent_knowledge_bases (
+  agent_id          uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  knowledge_base_id uuid NOT NULL REFERENCES public.knowledge_bases(id) ON DELETE CASCADE,
+  PRIMARY KEY (agent_id, knowledge_base_id)
+);
+ALTER TABLE public.agent_knowledge_bases ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "agent_knowledge_bases_admin_all" ON public.agent_knowledge_bases;
+CREATE POLICY "agent_knowledge_bases_admin_all" ON public.agent_knowledge_bases FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "agent_knowledge_bases_service_select" ON public.agent_knowledge_bases;
+CREATE POLICY "agent_knowledge_bases_service_select" ON public.agent_knowledge_bases FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
 CREATE TABLE IF NOT EXISTS public.cron_jobs (
@@ -1282,6 +1331,10 @@ CREATE POLICY "channel_subscriptions_service_all" ON public.channel_subscription
 GRANT ALL ON public.subscription_plans TO service_role, authenticated;
 GRANT ALL ON public.subscription_rules TO service_role, authenticated;
 GRANT ALL ON public.channel_subscriptions TO service_role, authenticated;
+GRANT ALL ON public.knowledge_bases TO service_role, authenticated;
+GRANT ALL ON public.knowledge_articles TO service_role, authenticated;
+GRANT ALL ON public.knowledge_chunks TO service_role, authenticated;
+GRANT ALL ON public.agent_knowledge_bases TO service_role, authenticated;
 
 CREATE OR REPLACE FUNCTION public.update_updated_at()
 RETURNS trigger AS $fn$
@@ -1298,4 +1351,43 @@ DROP TRIGGER IF EXISTS voice_settings_updated_at ON public.voice_settings;
 CREATE TRIGGER voice_settings_updated_at BEFORE UPDATE ON public.voice_settings FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 DROP TRIGGER IF EXISTS subscription_rules_updated_at ON public.subscription_rules;
 CREATE TRIGGER subscription_rules_updated_at BEFORE UPDATE ON public.subscription_rules FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+DROP TRIGGER IF EXISTS knowledge_articles_updated_at ON public.knowledge_articles;
+CREATE TRIGGER knowledge_articles_updated_at BEFORE UPDATE ON public.knowledge_articles FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+CREATE OR REPLACE FUNCTION public.match_knowledge_chunks(
+  query_embedding vector(1536),
+  match_threshold float DEFAULT 0.5,
+  match_count int DEFAULT 10,
+  kb_ids uuid[] DEFAULT NULL
+)
+RETURNS TABLE (
+  id uuid,
+  article_id uuid,
+  chunk_text text,
+  similarity float,
+  article_title text,
+  knowledge_base_name text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+  SELECT
+    kc.id,
+    kc.article_id,
+    kc.chunk_text,
+    1 - (kc.embedding <=> query_embedding) AS similarity,
+    ka.title AS article_title,
+    kb.name AS knowledge_base_name
+  FROM public.knowledge_chunks kc
+  JOIN public.knowledge_articles ka ON ka.id = kc.article_id
+  JOIN public.knowledge_bases kb ON kb.id = ka.knowledge_base_id
+  WHERE kc.embed_status = 'embedded'
+    AND kc.embedding IS NOT NULL
+    AND 1 - (kc.embedding <=> query_embedding) > match_threshold
+    AND (kb_ids IS NULL OR ka.knowledge_base_id = ANY(kb_ids))
+  ORDER BY kc.embedding <=> query_embedding ASC
+  LIMIT match_count;
+$fn$;
 `;

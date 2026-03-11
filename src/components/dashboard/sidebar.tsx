@@ -22,6 +22,7 @@ import {
   Cpu,
   AudioLines,
   CreditCard,
+  BookOpen,
 } from "lucide-react";
 import Image from "next/image";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -53,6 +54,7 @@ const NAV_ITEMS: { titleKey: string; href: string; icon: LucideIcon }[] = [
   { titleKey: "sidebar.channels", href: "/dashboard/channels", icon: Users },
   { titleKey: "sidebar.subscriptions", href: "/dashboard/subscriptions", icon: CreditCard },
   { titleKey: "sidebar.memories", href: "/dashboard/memories", icon: Brain },
+  { titleKey: "sidebar.knowledge", href: "/dashboard/knowledge", icon: BookOpen },
   { titleKey: "sidebar.models", href: "/dashboard/models", icon: Cpu },
   { titleKey: "sidebar.voice", href: "/dashboard/voice", icon: AudioLines },
   { titleKey: "sidebar.secrets", href: "/dashboard/secrets", icon: KeyRound },

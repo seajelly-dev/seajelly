@@ -28,6 +28,7 @@ import {
 import type { PlatformSender } from "@/lib/platform/types";
 import { generateTTS, logTTSUsage, getVoiceSettings } from "@/lib/voice/tts-engine";
 import { isTextTooLong } from "@/lib/voice/tts-config-data";
+import { searchKnowledgeForAgent } from "@/lib/knowledge/search";
 
 function bigrams(text: string): Set<string> {
   const clean = text.replace(/\s+/g, "");
@@ -578,6 +579,41 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : "Weather fetch failed" };
         }
+      },
+    }),
+
+    knowledge_search: tool({
+      description:
+        "Search the agent's mounted knowledge bases using semantic vector search. " +
+        "Retrieves the most relevant chunks, then fetches the full source articles as context. " +
+        "Use this when the user asks questions that may be answered by the knowledge base " +
+        "(e.g. policies, rules, documentation, FAQs). " +
+        "You MUST base your answer on the returned article content — do not fabricate information.",
+      inputSchema: z.object({
+        query: z.string().describe("The search query in natural language"),
+        top_k: z
+          .number()
+          .optional()
+          .describe("Number of chunk results for retrieval (default: 10, max: 20)"),
+      }),
+      execute: async ({ query, top_k }: { query: string; top_k?: number }) => {
+        const k = Math.min(top_k ?? 10, 20);
+        const result = await searchKnowledgeForAgent(agentId, query, k);
+        if (!result.success) {
+          return { success: false, error: result.error };
+        }
+        return {
+          success: true,
+          matched_chunks: result.chunks.length,
+          source_articles: result.articles.length,
+          articles: result.articles.map((a) => ({
+            title: a.title,
+            knowledge_base: a.knowledge_base_name,
+            relevance: Math.round(a.max_similarity * 1000) / 1000,
+            matched_chunks: a.matched_chunks,
+            content: a.content,
+          })),
+        };
       },
     }),
 
