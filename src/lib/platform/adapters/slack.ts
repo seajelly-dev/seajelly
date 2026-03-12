@@ -90,6 +90,20 @@ export class SlackAdapter implements PlatformSender {
     }
   }
 
+  async sendPhoto(chatId: string, photo: Buffer, caption?: string): Promise<void> {
+    const client = await getClient(this.agentId);
+    try {
+      await client.filesUploadV2({
+        channel_id: chatId,
+        file: photo,
+        filename: "chart.png",
+        title: caption || "Image",
+      });
+    } catch {
+      await this.sendText(chatId, caption || "[Image]");
+    }
+  }
+
   async sendInteractiveButtons(
     chatId: string,
     text: string,

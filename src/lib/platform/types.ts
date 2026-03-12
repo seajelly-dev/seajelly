@@ -13,6 +13,7 @@ export interface PlatformSender {
   sendMarkdown(chatId: string, md: string): Promise<void>;
   sendTyping(chatId: string): Promise<void>;
   sendVoice(chatId: string, audio: Buffer, filename?: string): Promise<void>;
+  sendPhoto(chatId: string, photo: Buffer, caption?: string): Promise<void>;
   sendInteractiveButtons(
     chatId: string,
     text: string,

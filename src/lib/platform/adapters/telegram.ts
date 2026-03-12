@@ -101,6 +101,16 @@ export class TelegramAdapter implements PlatformSender {
     await bot.api.sendVoice(this.tgId(chatId), new InputFile(audio, filename || "voice.wav"));
   }
 
+  async sendPhoto(chatId: string, photo: Buffer, caption?: string): Promise<void> {
+    const bot = await this.getBot();
+    const opts: Record<string, unknown> = {};
+    if (caption) {
+      opts.caption = caption;
+      opts.parse_mode = "Markdown";
+    }
+    await bot.api.sendPhoto(this.tgId(chatId), new InputFile(photo, "chart.png"), opts);
+  }
+
   async sendInteractiveButtons(
     chatId: string,
     text: string,

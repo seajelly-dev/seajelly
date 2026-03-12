@@ -170,6 +170,10 @@ export class QQBotAdapter implements PlatformSender {
     await this.sendText(chatId, "[语音消息暂不支持]");
   }
 
+  async sendPhoto(chatId: string, _photo: Buffer, caption?: string): Promise<void> {
+    await this.sendText(chatId, caption || "[Image]");
+  }
+
   async sendInteractiveButtons(
     chatId: string,
     text: string,

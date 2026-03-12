@@ -227,6 +227,40 @@ export class WeComAdapter implements PlatformSender {
     });
   }
 
+  async sendPhoto(chatId: string, photo: Buffer, caption?: string): Promise<void> {
+    const token = await getAccessToken(this.agentId);
+    const uploadUrl = `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=image`;
+    const gw = await getGatewayConfig();
+
+    let uploadData: { errcode?: number; media_id?: string };
+    if (gw) {
+      const resp = await fetch(`${gw.url.replace(/\/$/, "")}/upload`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Gateway-Secret": gw.secret },
+        body: JSON.stringify({
+          url: uploadUrl,
+          file_name: "chart.png",
+          file_data: photo.toString("base64"),
+        }),
+      });
+      uploadData = await resp.json();
+    } else {
+      const form = new FormData();
+      form.append("media", new Blob([new Uint8Array(photo)]), "chart.png");
+      const resp = await fetch(uploadUrl, { method: "POST", body: form });
+      uploadData = await resp.json();
+    }
+
+    if (uploadData.errcode) {
+      await this.sendText(chatId, caption || "[Image]");
+      return;
+    }
+    await wecomSendMsg(this.agentId, chatId, {
+      msgtype: "image",
+      image: { media_id: uploadData.media_id },
+    });
+  }
+
   async sendInteractiveButtons(
     chatId: string,
     text: string,

@@ -193,6 +193,29 @@ export class FeishuAdapter implements PlatformSender {
     }, { receive_id_type: this.ridType(chatId) });
   }
 
+  async sendPhoto(chatId: string, photo: Buffer, caption?: string): Promise<void> {
+    const token = await getTenantAccessToken(this.agentId);
+    const form = new FormData();
+    form.append("image_type", "message");
+    form.append("image", new Blob([new Uint8Array(photo)]), "chart.png");
+    const uploadResp = await fetch("https://open.feishu.cn/open-apis/im/v1/images", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const uploadData = await uploadResp.json();
+    if (uploadData.code !== 0) {
+      await this.sendText(chatId, caption || "[Image]");
+      return;
+    }
+    const imageKey = uploadData.data?.image_key;
+    await feishuAPI(this.agentId, "/im/v1/messages", {
+      receive_id: chatId,
+      msg_type: "image",
+      content: JSON.stringify({ image_key: imageKey }),
+    }, { receive_id_type: this.ridType(chatId) });
+  }
+
   async sendInteractiveButtons(
     chatId: string,
     text: string,
