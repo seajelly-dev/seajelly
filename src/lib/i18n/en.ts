@@ -162,6 +162,7 @@ const en = {
     recentEvents: "Recent Events",
     recentEventsDesc: "Last 10 events across all agents",
     noEvents: "No events yet. Send a message to your Telegram bot to get started.",
+    refresh: "Refresh",
   },
 
   agents: {
@@ -625,8 +626,8 @@ const en = {
     confirmDisableTitle: "Disable Login Gate",
     confirmDisableDesc:
       "This will allow direct access to /login and /dashboard without key URL. Type DISABLE to confirm.",
-    confirmDisableInputLabel: "Type DISABLE",
-    confirmDisableButton: "Disable Gate",
+    confirmEnableInputLabel: "Type DISABLE",
+    confirmEnableButton: "Disable Gate",
     resultDialogTitle: "Save Your Secure URLs",
     resultDialogDesc:
       "Store these URLs in a password manager. Losing them can lock you out of the login entry.",
@@ -861,7 +862,7 @@ const en = {
     previewPlaying: "Stop",
     previewLoading: "Generating...",
     previewGenerate: "Preview",
-    ttsToggleHint: "TTS on/off is per-agent, configured in Agent Settings → Privileged Tools → tts_speak. Owner can also toggle via /tts in Telegram.",
+    ttsToggleHint: "TTS on/off is per-agent, configured in Agent Settings → Privileged Tools → tts_speak. Owner can also toggle via /tts command.",
     male: "Male",
     female: "Female",
     neutral: "Neutral",

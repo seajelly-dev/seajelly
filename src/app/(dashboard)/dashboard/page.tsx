@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Bot, MessageSquare, Radio, Zap, ArrowUpRight, ArrowDownRight, Clock, Webhook, Hand } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Bot, MessageSquare, Radio, Zap, ArrowUpRight, ArrowDownRight, Clock, Webhook, Hand, RefreshCw } from "lucide-react";
 import {
   TelegramIcon,
   FeishuIcon,
@@ -105,6 +106,7 @@ const TOKEN_OUTPUT_COLORS = [
 export default function DashboardPage() {
   const t = useT();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({ agents: 0, sessions: 0, events: 0 });
   const [usage, setUsage] = useState({ total_calls: 0, total_input_tokens: 0, total_output_tokens: 0 });
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
@@ -113,28 +115,39 @@ export default function DashboardPage() {
   const [hiddenDurationModels, setHiddenDurationModels] = useState<Set<string>>(new Set());
   const [hiddenTokenModels, setHiddenTokenModels] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const supabase = createClient();
-      const { data, error } = await supabase.rpc("dashboard_stats");
-      if (error) { console.error("dashboard_stats error:", error.message); setLoading(false); return; }
-      const d = data as Record<string, unknown>;
-      setStats({
-        agents: Number(d.agents) || 0,
-        sessions: Number(d.sessions) || 0,
-        events: Number(d.events) || 0,
-      });
-      setUsage({
-        total_calls: Number(d.today_calls) || 0,
-        total_input_tokens: Number(d.today_input_tokens) || 0,
-        total_output_tokens: Number(d.today_output_tokens) || 0,
-      });
-      setRecentEvents((d.recent_events as RecentEvent[]) ?? []);
-      setHourlyData((d.hourly as HourlyRow[]) ?? []);
-      setLoading(false);
-    };
-    fetchData().catch(console.error);
+  const fetchData = useCallback(async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
+    else setRefreshing(true);
+
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("dashboard_stats");
+    if (error) {
+      console.error("dashboard_stats error:", error.message);
+      if (!isSilent) setLoading(false);
+      else setRefreshing(false);
+      return;
+    }
+    const d = data as Record<string, unknown>;
+    setStats({
+      agents: Number(d.agents) || 0,
+      sessions: Number(d.sessions) || 0,
+      events: Number(d.events) || 0,
+    });
+    setUsage({
+      total_calls: Number(d.today_calls) || 0,
+      total_input_tokens: Number(d.today_input_tokens) || 0,
+      total_output_tokens: Number(d.today_output_tokens) || 0,
+    });
+    setRecentEvents((d.recent_events as RecentEvent[]) ?? []);
+    setHourlyData((d.hourly as HourlyRow[]) ?? []);
+
+    if (!isSilent) setLoading(false);
+    else setRefreshing(false);
   }, []);
+
+  useEffect(() => {
+    fetchData().catch(console.error);
+  }, [fetchData]);
 
   const modelNames = useMemo(
     () => [...new Set(hourlyData.map((r) => r.model_id))].sort(),
@@ -219,11 +232,23 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">{t("overview.title")}</h1>
-        <p className="text-muted-foreground">
-          {t("overview.subtitle")}
-        </p>
+      <div className="flex flex-row items-center justify-between gap-2">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-3xl font-bold tracking-tight">{t("overview.title")}</h1>
+          <p className="text-muted-foreground">
+            {t("overview.subtitle")}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fetchData(true)}
+          disabled={refreshing}
+          className="gap-2"
+        >
+          <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
+          {t("overview.refresh")}
+        </Button>
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
