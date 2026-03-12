@@ -116,7 +116,7 @@ export async function POST(
 
         // Handle interactive button replies (approval callbacks)
         const messages = value.messages as Array<Record<string, unknown>> | undefined;
-        const contacts = value.contacts as Array<Record<string, string>> | undefined;
+        const contacts = value.contacts as Array<Record<string, unknown>> | undefined;
 
         if (!messages?.length) continue;
 
@@ -125,12 +125,13 @@ export async function POST(
           const msgType = msg.type as string;
           const msgId = msg.id as string || `${Date.now()}`;
 
-          // Get display name from contacts array
           let displayName: string | null = null;
           if (contacts?.length) {
-            const contact = contacts.find((c) => c.wa_id === from);
-            displayName = contact?.profile_name || contact?.name || null;
-            if (!displayName) displayName = contacts[0]?.profile_name || contacts[0]?.name || null;
+            const contact = contacts.find((c) => c.wa_id === from) || contacts[0];
+            if (contact) {
+              const profile = contact.profile as Record<string, string> | undefined;
+              displayName = profile?.name || (contact.name as string) || null;
+            }
           }
 
           // Handle interactive button reply (approval)
