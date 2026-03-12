@@ -2,7 +2,6 @@ import { getBotForAgent } from "./bot";
 import { getSenderForAgent } from "@/lib/platform/sender";
 import {
   processChannelApproval,
-  processPushApproval,
 } from "@/lib/platform/approval-core";
 import { getAgentLocale } from "@/lib/platform/approval-core";
 import { botT, getBotLocaleOrDefault, buildWelcomeText } from "@/lib/i18n/bot";
@@ -37,8 +36,7 @@ export async function handleApprovalCallback(
   if (!data) return;
 
   const channelMatch = data.match(/^(approve|reject):(.+)$/);
-  const pushMatch = data.match(/^push_(approve|reject):(.+)$/);
-  if (!channelMatch && !pushMatch) return;
+  if (!channelMatch) return;
 
   const callerUid = String(callbackQuery.from.id);
 
@@ -100,61 +98,5 @@ export async function handleApprovalCallback(
       }
     }
     return;
-  }
-
-  if (pushMatch) {
-    const [, action, approvalId] = pushMatch;
-    const result = await processPushApproval({
-      action: action as "approve" | "reject",
-      approvalId,
-      callerUid,
-      fallbackAgentId,
-    });
-
-    if (!result) return;
-
-    const rawLocale = await getAgentLocale(result.agentId);
-    const locale = getBotLocaleOrDefault(rawLocale);
-
-    const bot = await getBotForAgent(result.agentId);
-    const chatId = callbackQuery.message?.chat.id;
-    const messageId = callbackQuery.message?.message_id;
-
-    if (result.status === "expired") {
-      await bot.api.answerCallbackQuery(callbackQuery.id, { text: botT(locale, "pushExpired") });
-      if (chatId && messageId) {
-        await safeEditMessage(bot, chatId, messageId, botT(locale, "pushExpiredTitle"));
-      }
-      return;
-    }
-
-    if (result.status === "already_processed") {
-      await bot.api.answerCallbackQuery(callbackQuery.id, { text: botT(locale, "pushAlreadyProcessed") });
-      return;
-    }
-
-    if (action === "approve") {
-      await bot.api.answerCallbackQuery(callbackQuery.id, { text: botT(locale, "pushApproved") });
-      if (chatId && messageId) {
-        await safeEditMessage(bot, chatId, messageId, botT(locale, "pushApprovedTitle", { summary: result.summary }));
-      }
-    } else {
-      await bot.api.answerCallbackQuery(callbackQuery.id, { text: botT(locale, "pushRejected") });
-      if (chatId && messageId) {
-        await safeEditMessage(bot, chatId, messageId, botT(locale, "pushRejectedTitle", { summary: result.summary }));
-      }
-    }
-
-    if (result.requesterUid) {
-      const sender = await getSenderForAgent(result.agentId, "telegram");
-      try {
-        await sender.sendText(
-          result.requesterUid,
-          action === "approve"
-            ? botT(locale, "pushApprovedNotify")
-            : botT(locale, "pushRejectedNotify"),
-        );
-      } catch { /* user may have blocked bot */ }
-    }
   }
 }

@@ -1,33 +1,8 @@
 import { NextResponse } from "next/server";
 import { claimPendingEvents, markProcessed, markFailed } from "@/lib/events/queue";
 import { runAgentLoop } from "@/lib/agent/loop";
-import {
-  listActiveGithubBuildJobs,
-  syncGithubBuildJobStatus,
-  expireStaleGithubBuildJobs,
-  cleanupExpiredStepLogs,
-} from "@/lib/github/jobs";
 
 export const maxDuration = 300;
-
-async function pollBuildJobs(limit = 10): Promise<{
-  active: number;
-  synced: number;
-  expired: number;
-}> {
-  const expired = await expireStaleGithubBuildJobs();
-  const activeJobs = await listActiveGithubBuildJobs(limit);
-  let synced = 0;
-  for (const job of activeJobs) {
-    try {
-      await syncGithubBuildJobStatus(job.id);
-      synced += 1;
-    } catch {
-      // Keep polling best-effort; single job failure should not stop worker loop.
-    }
-  }
-  return { active: activeJobs.length, synced, expired };
-}
 
 export async function POST(request: Request) {
   const expectedSecret = process.env.CRON_SECRET;
@@ -40,12 +15,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const pollBefore = await pollBuildJobs();
     const events = await claimPendingEvents();
 
     if (events.length === 0) {
-      const cleanedSteps = await cleanupExpiredStepLogs();
-      return NextResponse.json({ processed: 0, buildJobs: pollBefore, cleanedStepLogs: cleanedSteps });
+      return NextResponse.json({ processed: 0 });
     }
 
     const results = [];
@@ -67,17 +40,9 @@ export async function POST(request: Request) {
       }
     }
 
-    const pollAfter = await pollBuildJobs();
-    const cleanedSteps = await cleanupExpiredStepLogs();
-
     return NextResponse.json({
       processed: results.filter((r) => r.status === "processed").length,
       failed: results.filter((r) => r.status === "failed").length,
-      buildJobs: {
-        before: pollBefore,
-        after: pollAfter,
-      },
-      cleanedStepLogs: cleanedSteps,
       results,
     });
   } catch (err) {

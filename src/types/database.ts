@@ -271,35 +271,6 @@ export interface AgentEvent {
   processed_at: string | null;
 }
 
-export type GithubBuildJobStatus =
-  | "pending"
-  | "building"
-  | "success"
-  | "failed"
-  | "expired";
-
-export interface GithubBuildJob {
-  id: string;
-  agent_id: string;
-  channel_id: string | null;
-  requester_uid: string | null;
-  trace_id: string | null;
-  sandbox_id: string | null;
-  status: GithubBuildJobStatus;
-  phase: string | null;
-  last_log: string | null;
-  preview_url: string | null;
-  files_hash: string;
-  port: number;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  expires_at: string | null;
-  error_code: string | null;
-}
-
 export type AgentStepPhase = "model" | "tool";
 export type AgentStepStatus = "success" | "failed";
 
@@ -387,6 +358,8 @@ export const SECRET_KEYS = [
   "EMBEDDING_API_KEY",
   "E2B_API_KEY",
   "GITHUB_TOKEN",
+  "VERCEL_TOKEN",
+  "VERCEL_PROJECT_ID",
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
 ] as const;

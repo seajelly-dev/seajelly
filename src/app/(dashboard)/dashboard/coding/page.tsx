@@ -87,6 +87,10 @@ export default function CodingPage() {
   const [ghRepoInput, setGhRepoInput] = useState("");
   const [ghSaving, setGhSaving] = useState(false);
   const [ghTesting, setGhTesting] = useState(false);
+  const [vercelTokenInput, setVercelTokenInput] = useState("");
+  const [vercelProjectIdInput, setVercelProjectIdInput] = useState("");
+  const [vercelConfigured, setVercelConfigured] = useState<boolean | null>(null);
+  const [vercelSaving, setVercelSaving] = useState(false);
 
   const checkConfig = useCallback(async () => {
     try {
@@ -109,10 +113,12 @@ export default function CodingPage() {
       setGhTokenConfigured(data.tokenConfigured ?? false);
       setGhRepo(data.repo || "");
       setGhRepoInput(data.repo || "");
+      setVercelConfigured(data.vercelConfigured ?? false);
     } catch (err) {
       setGhTokenConfigured(false);
       setGhRepo("");
       setGhRepoInput("");
+      setVercelConfigured(false);
       toast.error(err instanceof Error ? err.message : t("coding.githubLoadFailed"));
     }
   }, [t]);
@@ -215,6 +221,43 @@ export default function CodingPage() {
       toast.error(t("coding.githubTestFailed", { error: "Network error" }));
     } finally {
       setGhTesting(false);
+    }
+  };
+
+  const handleSaveVercel = async () => {
+    const token = vercelTokenInput.trim();
+    const projectId = vercelProjectIdInput.trim();
+    if (!token && !projectId) return;
+    setVercelSaving(true);
+    try {
+      const saves = [];
+      if (token) {
+        saves.push(
+          fetch("/api/admin/secrets", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key_name: "VERCEL_TOKEN", value: token }),
+          })
+        );
+      }
+      if (projectId) {
+        saves.push(
+          fetch("/api/admin/secrets", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key_name: "VERCEL_PROJECT_ID", value: projectId }),
+          })
+        );
+      }
+      await Promise.all(saves);
+      setVercelConfigured(true);
+      setVercelTokenInput("");
+      setVercelProjectIdInput("");
+      toast.success(t("coding.vercelConfigSaved"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("coding.vercelConfigSaveFailed"));
+    } finally {
+      setVercelSaving(false);
     }
   };
 
@@ -398,9 +441,55 @@ export default function CodingPage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Rocket className="size-5 text-muted-foreground" />
-                <div>
-                  <CardTitle>{t("coding.githubCapabilitiesTitle")}</CardTitle>
+                <CardTitle>{t("coding.vercelConfigTitle")}</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                {t("coding.vercelConfigDesc")}
+              </p>
+              {vercelConfigured && (
+                <Badge variant="secondary" className="gap-1 text-green-600 dark:text-green-400 mb-4">
+                  <CheckCircle2 className="size-3.5" />
+                  {t("coding.vercelConfigured")}
+                </Badge>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs">{t("coding.vercelTokenLabel")}</Label>
+                  <Input
+                    type="password"
+                    placeholder={t("coding.vercelTokenPlaceholder")}
+                    value={vercelTokenInput}
+                    onChange={(e) => setVercelTokenInput(e.target.value)}
+                  />
                 </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs">{t("coding.vercelProjectIdLabel")}</Label>
+                  <Input
+                    placeholder={t("coding.vercelProjectIdPlaceholder")}
+                    value={vercelProjectIdInput}
+                    onChange={(e) => setVercelProjectIdInput(e.target.value)}
+                  />
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3 w-fit"
+                onClick={handleSaveVercel}
+                disabled={vercelSaving || (!vercelTokenInput.trim() && !vercelProjectIdInput.trim())}
+              >
+                {vercelSaving ? t("common.saving") : t("coding.vercelSaveConfig")}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Boxes className="size-5 text-muted-foreground" />
+                <CardTitle>{t("coding.githubCapabilitiesTitle")}</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-3">
@@ -415,20 +504,20 @@ export default function CodingPage() {
               </div>
               <div className="rounded-lg border p-4 space-y-2">
                 <h4 className="font-medium text-sm flex items-center gap-1.5">
-                  <Boxes className="size-4 text-amber-500" />
-                  {t("coding.githubCapBuildVerify")}
-                </h4>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {t("coding.githubCapBuildVerifyDesc")}
-                </p>
-              </div>
-              <div className="rounded-lg border p-4 space-y-2">
-                <h4 className="font-medium text-sm flex items-center gap-1.5">
                   <Rocket className="size-4 text-green-500" />
                   {t("coding.githubCapCommitPush")}
                 </h4>
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   {t("coding.githubCapCommitPushDesc")}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4 space-y-2">
+                <h4 className="font-medium text-sm flex items-center gap-1.5">
+                  <GitBranch className="size-4 text-amber-500" />
+                  {t("coding.githubCapRevert")}
+                </h4>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {t("coding.githubCapRevertDesc")}
                 </p>
               </div>
             </CardContent>

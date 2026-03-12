@@ -71,11 +71,9 @@ const PRIVILEGED_TOOLS = [
   { key: "run_html_preview", label: "run_html_preview", desc: "coding.toolRunHTML", defaultOn: false },
   { key: "github_read_file", label: "github_read_file", desc: "coding.toolGitHubReadFile", defaultOn: false },
   { key: "github_list_files", label: "github_list_files", desc: "coding.toolGitHubListFiles", defaultOn: false },
-  { key: "github_build_verify", label: "github_build_verify", desc: "coding.toolGitHubBuildVerify", defaultOn: false },
-  { key: "github_build_status", label: "github_build_status", desc: "coding.toolGitHubBuildStatus", defaultOn: false },
-  { key: "github_request_push_approval", label: "github_request_push_approval", desc: "coding.toolGitHubRequestPushApproval", defaultOn: false },
-  { key: "github_push_approval_status", label: "github_push_approval_status", desc: "coding.toolGitHubPushApprovalStatus", defaultOn: false },
   { key: "github_commit_push", label: "github_commit_push", desc: "coding.toolGitHubCommitPush", defaultOn: false },
+  { key: "github_check_deploy", label: "github_check_deploy", desc: "coding.toolGitHubCheckDeploy", defaultOn: false },
+  { key: "github_revert_commit", label: "github_revert_commit", desc: "coding.toolGitHubRevertCommit", defaultOn: false },
   { key: "tts_speak", label: "tts_speak", desc: "coding.toolTtsSpeak", defaultOn: false },
   { key: "image_generate", label: "image_generate", desc: "coding.toolImageGenerate", defaultOn: false },
 ] as const;

@@ -10,14 +10,17 @@ export async function GET() {
 
   const supabase = await createAdminClient();
 
-  const [tokenRow, repoRow] = await Promise.all([
+  const [tokenRow, repoRow, vercelTokenRow, vercelProjectRow] = await Promise.all([
     supabase.from("secrets").select("encrypted_value").eq("key_name", "GITHUB_TOKEN").single(),
     supabase.from("system_settings").select("value").eq("key", "github_repo").single(),
+    supabase.from("secrets").select("encrypted_value").eq("key_name", "VERCEL_TOKEN").single(),
+    supabase.from("secrets").select("encrypted_value").eq("key_name", "VERCEL_PROJECT_ID").single(),
   ]);
 
   return NextResponse.json({
     tokenConfigured: !!tokenRow.data?.encrypted_value,
     repo: repoRow.data?.value || "",
+    vercelConfigured: !!vercelTokenRow.data?.encrypted_value && !!vercelProjectRow.data?.encrypted_value,
   });
 }
 

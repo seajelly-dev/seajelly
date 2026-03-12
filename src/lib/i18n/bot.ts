@@ -110,16 +110,6 @@ const botStrings = {
     onlyOwnerAction: "Only the owner can do this",
     unknownAction: "Unknown action",
 
-    pushApproved: "✅ Push approved",
-    pushRejected: "❌ Push rejected",
-    pushExpired: "⏱️ Approval expired",
-    pushExpiredTitle: "⏱️ *Push approval expired*",
-    pushAlreadyProcessed: "Already processed",
-    pushApprovedTitle: "✅ *Push Approved*\n\n{summary}",
-    pushRejectedTitle: "❌ *Push Rejected*\n\n{summary}",
-    pushApprovedNotify: "✅ Push approved. Please send a message from the owner account to tell the agent to proceed with pushing.",
-    pushRejectedNotify: "❌ Push rejected by owner.",
-
     welcomeTitle: "👋 *Welcome!*",
     welcomeBody: "Your access is now active. Here are the available commands to get started:",
 
@@ -264,16 +254,6 @@ const botStrings = {
     alreadyProcessedDot: "⚠️ 已处理过。",
     onlyOwnerAction: "只有实控人可以执行此操作",
     unknownAction: "未知操作",
-
-    pushApproved: "✅ 推送已批准",
-    pushRejected: "❌ 推送已拒绝",
-    pushExpired: "⏱️ 审批已过期",
-    pushExpiredTitle: "⏱️ *推送审批已过期*",
-    pushAlreadyProcessed: "已处理过",
-    pushApprovedTitle: "✅ *推送已批准*\n\n{summary}",
-    pushRejectedTitle: "❌ *推送已拒绝*\n\n{summary}",
-    pushApprovedNotify: "✅ 推送已批准。请从实控人账号发送消息，告知 Agent 继续推送。",
-    pushRejectedNotify: "❌ 推送已被实控人拒绝。",
 
     welcomeTitle: "👋 *欢迎！*",
     welcomeBody: "你的访问已激活。以下是可用的命令，帮助你快速上手：",

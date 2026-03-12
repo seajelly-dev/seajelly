@@ -197,3 +197,126 @@ export async function createCommitAndPush(
     commitUrl: `https://github.com/${owner}/${name}/commit/${newCommit.sha}`,
   };
 }
+
+export async function revertCommit(
+  token: string,
+  repo: string,
+  commitSha: string,
+  branch = "main"
+): Promise<{ commitSha: string; commitUrl: string }> {
+  const { owner, name } = parseRepo(repo);
+  const h = headers(token);
+
+  const commitRes = await fetch(
+    `${API}/repos/${owner}/${name}/git/commits/${commitSha}`,
+    { headers: h }
+  );
+  if (!commitRes.ok) throw new Error(`Failed to get commit ${commitSha}: ${commitRes.status}`);
+  const commitData = await commitRes.json();
+
+  if (!commitData.parents?.length) {
+    throw new Error("Cannot revert: commit has no parents (initial commit).");
+  }
+  const parentSha = commitData.parents[0].sha;
+
+  const parentCommitRes = await fetch(
+    `${API}/repos/${owner}/${name}/git/commits/${parentSha}`,
+    { headers: h }
+  );
+  if (!parentCommitRes.ok) throw new Error(`Failed to get parent commit: ${parentCommitRes.status}`);
+  const parentCommit = await parentCommitRes.json();
+  const parentTreeSha = parentCommit.tree.sha;
+
+  const refRes = await fetch(
+    `${API}/repos/${owner}/${name}/git/ref/heads/${branch}`,
+    { headers: h }
+  );
+  if (!refRes.ok) throw new Error(`Failed to get branch ref: ${refRes.status}`);
+  const refData = await refRes.json();
+  const currentHeadSha = refData.object.sha;
+
+  const newCommitRes = await fetch(
+    `${API}/repos/${owner}/${name}/git/commits`,
+    {
+      method: "POST",
+      headers: { ...h, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: `revert: undo commit ${commitSha.slice(0, 8)}`,
+        tree: parentTreeSha,
+        parents: [currentHeadSha],
+      }),
+    }
+  );
+  if (!newCommitRes.ok) throw new Error(`Failed to create revert commit: ${newCommitRes.status}`);
+  const newCommit = await newCommitRes.json();
+
+  const updateRefRes = await fetch(
+    `${API}/repos/${owner}/${name}/git/refs/heads/${branch}`,
+    {
+      method: "PATCH",
+      headers: { ...h, "Content-Type": "application/json" },
+      body: JSON.stringify({ sha: newCommit.sha, force: false }),
+    }
+  );
+  if (!updateRefRes.ok) {
+    const body = await updateRefRes.text();
+    throw new Error(`Failed to update ref: ${updateRefRes.status} ${body}`);
+  }
+
+  return {
+    commitSha: newCommit.sha,
+    commitUrl: `https://github.com/${owner}/${name}/commit/${newCommit.sha}`,
+  };
+}
+
+export async function checkVercelDeployment(
+  vercelToken: string,
+  projectId: string,
+  commitSha: string
+): Promise<{
+  state: "BUILDING" | "READY" | "ERROR" | "QUEUED" | "CANCELED" | "NOT_FOUND";
+  url?: string;
+  createdAt?: string;
+  errorMessage?: string;
+}> {
+  const res = await fetch(
+    `https://api.vercel.com/v6/deployments?projectId=${projectId}&limit=10`,
+    {
+      headers: {
+        Authorization: `Bearer ${vercelToken}`,
+      },
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Vercel API error (${res.status}): ${body}`);
+  }
+  const data = await res.json();
+  const deployments = data.deployments ?? [];
+
+  const match = deployments.find(
+    (d: Record<string, unknown>) =>
+      (d.meta as Record<string, unknown>)?.githubCommitSha === commitSha ||
+      (d.gitSource as Record<string, unknown>)?.sha === commitSha
+  );
+
+  if (!match) {
+    return { state: "NOT_FOUND" };
+  }
+
+  const stateMap: Record<string, string> = {
+    BUILDING: "BUILDING",
+    READY: "READY",
+    ERROR: "ERROR",
+    QUEUED: "QUEUED",
+    CANCELED: "CANCELED",
+    INITIALIZING: "QUEUED",
+  };
+
+  return {
+    state: (stateMap[match.state ?? match.readyState] ?? "BUILDING") as "BUILDING" | "READY" | "ERROR" | "QUEUED" | "CANCELED",
+    url: match.url ? `https://${match.url}` : undefined,
+    createdAt: match.createdAt ? new Date(match.createdAt).toISOString() : undefined,
+    errorMessage: match.state === "ERROR" ? (match.errorMessage ?? "Build failed") : undefined,
+  };
+}

@@ -94,11 +94,9 @@ function extractToolNamesFromResult(result: unknown): Set<string> {
 const GITHUB_WORKFLOW_TOOLS = [
   "github_read_file",
   "github_list_files",
-  "github_build_verify",
-  "github_build_status",
-  "github_request_push_approval",
-  "github_push_approval_status",
   "github_commit_push",
+  "github_check_deploy",
+  "github_revert_commit",
 ] as const;
 
 const STEP_PAYLOAD_MAX_CHARS = 64 * 1024;
@@ -112,18 +110,17 @@ function hasGithubWorkflowIntent(messageText: string): boolean {
     "repository",
     "commit",
     "push",
-    "pull request",
-    "pr",
-    "build",
     "deploy",
     "pipeline",
-    "构建",
+    "revert",
+    "rollback",
     "部署",
     "仓库",
     "代码修改",
     "提交",
     "自进化",
-    "验证构建",
+    "回退",
+    "回滚",
   ];
   return keywords.some((k) => t.includes(k));
 }
@@ -765,11 +762,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       run_html_preview: false,
       github_read_file: false,
       github_list_files: false,
-      github_build_verify: false,
-      github_build_status: false,
-      github_request_push_approval: false,
-      github_push_approval_status: false,
       github_commit_push: false,
+      github_check_deploy: false,
+      github_revert_commit: false,
       image_generate: false,
     };
     const toolsConfig = (typedAgent.tools_config ?? {}) as Record<string, boolean>;
@@ -965,38 +960,27 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const allGithubToolKeys = [
       "github_read_file",
       "github_list_files",
-      "github_build_verify",
-      "github_build_status",
-      "github_request_push_approval",
-      "github_push_approval_status",
       "github_commit_push",
+      "github_check_deploy",
+      "github_revert_commit",
     ];
     const githubToolNames = Object.keys(tools).filter((n) => allGithubToolKeys.includes(n));
     if (githubToolNames.length > 0) {
       systemPrompt +=
-        "\n\n## GitHub Tool Policy\n" +
-        "You have access to the project's GitHub repository. Follow these rules:\n" +
-        "- Call `github_list_files` ONCE with empty path to get the full recursive file tree. " +
-        "Do NOT call it repeatedly for individual subdirectories — one call returns everything.\n" +
-        "- Use `github_read_file` to read file contents — do NOT guess or hallucinate code.\n" +
-        "- Be efficient with tool calls: plan which files you need, then read them. Avoid exploratory browsing.\n" +
-        (githubToolNames.includes("github_build_verify")
-          ? "- Call `github_build_verify` ONLY ONCE per task. Do NOT call it multiple times for the same change.\n" +
-            "- BUILD ENVIRONMENT: The E2B sandbox has node/npm only. Always use `npm install` and `npm run build`. NEVER use pnpm or yarn.\n" +
-            "- If changes are ONLY non-code files (.txt, .md, images, configs without build impact), SKIP build verification entirely and go directly to `github_request_push_approval`.\n" +
-            "- After calling `github_build_verify`, call `github_build_status` at most 2-3 times. " +
-            "If the build is still in progress, STOP polling and reply to the user: " +
-            "\"Build is in progress (job_id: xxx). Please ask me to check status again in a moment.\"\n"
-          : "") +
-        (githubToolNames.includes("github_request_push_approval")
-          ? "- After calling `github_request_push_approval`, do NOT poll `github_push_approval_status` in the same turn. " +
-            "Instead, immediately reply to the user: \"Approval request sent. Once you approve, just tell me to proceed with the push.\" " +
-            "The user will send a follow-up message after approving.\n"
-          : "") +
-        (githubToolNames.includes("github_commit_push")
-          ? "- Only call `github_commit_push` when the user explicitly tells you to push (e.g. \"push it\", \"go ahead\", \"已批准继续推送\"). " +
-            "Do NOT call it automatically after approval — wait for the user's instruction.\n"
-          : "");
+        "\n\n## GitHub Self-Evolution Pipeline\n" +
+        "You can read and modify the project's GitHub repository, triggering Vercel auto-deployment.\n\n" +
+        "### Workflow\n" +
+        "1. **Understand**: Call `github_list_files` ONCE (empty path = full recursive tree). Then `github_read_file` for files you need.\n" +
+        "2. **Propose**: Present a clear modification plan with full code diffs to the user. NEVER skip this step.\n" +
+        "3. **Wait for confirmation**: Only proceed when the user explicitly approves (e.g. 'ok', 'go ahead', '同意', '推送', '继续').\n" +
+        "4. **Commit**: Call `github_commit_push` with the approved changes. Use conventional commit messages (feat/fix/docs/refactor).\n" +
+        "5. **Monitor**: Call `github_check_deploy` 2-3 times to check Vercel deployment status. If still BUILDING, tell the user to wait.\n" +
+        "6. **Revert if needed**: If the user requests a rollback, use `github_revert_commit` with the commit SHA.\n\n" +
+        "### Rules\n" +
+        "- NEVER call `github_commit_push` without prior user consent in the conversation.\n" +
+        "- NEVER call `github_revert_commit` without explicit user request.\n" +
+        "- Be efficient: plan reads upfront, minimize tool calls. Budget: ~25 steps total.\n" +
+        "- Always include the commit SHA in your reply after pushing, so the user can reference it for revert.\n";
     }
 
     if (Object.keys(tools).includes("image_generate")) {
@@ -1024,7 +1008,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     const githubWorkflowIntent = hasGithubWorkflowIntent(messageText);
     const githubActiveTools = GITHUB_WORKFLOW_TOOLS.filter((name) => Object.keys(tools).includes(name));
-    const isFollowUpQuery = /查询|状态|继续|progress|status|check|poll|go ahead|proceed|确认|批准/i.test(messageText);
+    const isFollowUpQuery = /查询|状态|继续|progress|status|check|poll|go ahead|proceed|确认|同意|推送|部署/i.test(messageText);
     const runWithGithubFocus = githubWorkflowIntent && githubActiveTools.length > 0 && !isFollowUpQuery;
 
     const deadline = startTime + AGENT_LIMITS.MAX_WALL_TIME_MS;
@@ -1152,20 +1136,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     let reply = roomToolCalled ? "" : (result.text || t("noResponseGenerated"));
     if (!roomToolCalled && stepsCount >= AGENT_LIMITS.MAX_STEPS && (!result.text || !result.text.trim())) {
       const hasPushSuccess = calledToolNames.has("github_commit_push");
-      const hasApprovalSent = calledToolNames.has("github_request_push_approval");
-      const hasBuildStarted = calledToolNames.has("github_build_verify");
       if (hasPushSuccess) {
         reply = locale === "zh"
-          ? "代码已成功推送到 GitHub，Vercel 将自动部署。"
-          : "Code has been pushed to GitHub. Vercel will auto-deploy.";
-      } else if (hasApprovalSent) {
-        reply = locale === "zh"
-          ? "审批请求已发送。批准后请告诉我“继续推送”即可。"
-          : "Approval request sent. After approving, just tell me to proceed with the push.";
-      } else if (hasBuildStarted) {
-        reply = locale === "zh"
-          ? "构建验证已启动，请稍后发送“查询构建状态”来查看结果。"
-          : "Build verification started. Please ask me to check build status in a moment.";
+          ? "代码已成功推送到 GitHub，Vercel 将自动部署。可以发送\"查询部署状态\"来跟进。"
+          : "Code pushed to GitHub. Vercel will auto-deploy. Ask me to check deploy status.";
       } else {
         reply = locale === "zh"
           ? "本轮任务已达到执行步骤上限。请告诉我需要继续做什么。"

@@ -1,7 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod/v4";
 import { createClient } from "@supabase/supabase-js";
-import { createHash } from "crypto";
 import {
   scheduleCronJob,
   unscheduleCronJob,
@@ -13,8 +12,6 @@ import {
   runPythonCode,
   runJavaScriptCode,
   saveHTMLPreview,
-  startBuildVerify,
-  checkBuildStatus,
 } from "@/lib/e2b/sandbox";
 import {
   getGitHubConfig,
@@ -25,12 +22,6 @@ import {
   listTree as githubListTree,
   createCommitAndPush,
 } from "@/lib/github/api";
-import {
-  createGithubBuildJob,
-  getGithubBuildJob,
-  syncGithubBuildJobStatus,
-  updateGithubBuildJob,
-} from "@/lib/github/jobs";
 import type { PlatformSender } from "@/lib/platform/types";
 import { botT, getBotLocaleOrDefault } from "@/lib/i18n/bot";
 import type { Locale } from "@/lib/i18n/types";
@@ -78,32 +69,14 @@ interface ToolsOptions {
   traceId?: string;
 }
 
-function computePushPayloadHash(params: {
-  files: { path: string; content: string }[];
-  delete_files?: string[];
-  message: string;
-  branch?: string;
-}): string {
-  const files = [...params.files].sort((a, b) => a.path.localeCompare(b.path));
-  const deleteFiles = [...(params.delete_files ?? [])].sort();
-  const payload = {
-    branch: params.branch ?? "main",
-    message: params.message,
-    files,
-    delete_files: deleteFiles,
-  };
-  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
-}
-
-function computeBuildFilesHash(params: {
-  files: { path: string; content: string }[];
-  delete_files?: string[];
-}): string {
-  const files = [...params.files].sort((a, b) => a.path.localeCompare(b.path));
-  const deleteFiles = [...(params.delete_files ?? [])].sort();
-  return createHash("sha256")
-    .update(JSON.stringify({ files, delete_files: deleteFiles }))
-    .digest("hex");
+async function getSecret(key: string): Promise<string | null> {
+  const supabase = getSupabase();
+  const { data } = await supabase
+    .from("secrets")
+    .select("value")
+    .eq("key", key)
+    .single();
+  return data?.value ?? null;
 }
 
 export function createAgentTools({ agentId, channelId, isOwner, sender, platformChatId, platform, traceId }: ToolsOptions) {
@@ -891,451 +864,14 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
       },
     }),
 
-    github_build_verify: tool({
-      description:
-        "Clone the project repo into an E2B sandbox, apply code changes, and run a build to verify. " +
-        "IMPORTANT: Call this tool ONLY ONCE per task. Do NOT call it multiple times for the same change. " +
-        "This is an ASYNC operation — it immediately returns a persistent job_id. " +
-        "After calling this, call github_build_status 2-3 times max. If still building, " +
-        "STOP and tell the user to check back later. " +
-        "SKIP this tool entirely if changes are non-code files only (e.g. .txt, .md, images) — go directly to github_request_push_approval. " +
-        "BUILD ENVIRONMENT: The E2B sandbox has node/npm (NOT pnpm/yarn). " +
-        "Use `npm install` for install and `npm run build` for build. Do NOT use pnpm or yarn. " +
-        "Requires E2B_API_KEY, GITHUB_TOKEN, and GITHUB_REPO to be configured.",
-      inputSchema: z.object({
-        files: z
-          .array(z.object({ path: z.string(), content: z.string() }))
-          .describe("Files to create or modify, with paths relative to repo root"),
-        delete_files: z
-          .array(z.string())
-          .optional()
-          .describe("Files to delete, paths relative to repo root"),
-        install_cmd: z.string().optional().describe("Install command. Default: npm install. MUST use npm, NOT pnpm/yarn."),
-        build_cmd: z.string().optional().describe("Build command. Default: npm run build. MUST use npm, NOT pnpm/yarn."),
-        serve_cmd: z.string().optional().describe("Serve command for previewing build output. E.g. npx serve out -l 3000"),
-        port: z.number().optional().describe("Port for the preview server, default: 3000"),
-        ttl_minutes: z.number().optional().describe("Job TTL in minutes, default: 60, max: 180"),
-      }),
-      execute: async (params: {
-        files: { path: string; content: string }[];
-        delete_files?: string[];
-        install_cmd?: string;
-        build_cmd?: string;
-        serve_cmd?: string;
-        port?: number;
-        ttl_minutes?: number;
-      }) => {
-        const startedAtMs = Date.now();
-        const guardErr = githubPipelineGuardError();
-        if (guardErr) {
-          await writePipelineAudit({
-            toolName: "github_build_verify",
-            input: params,
-            output: { blocked: true },
-            status: "failed",
-            errorMessage: guardErr,
-            latencyMs: Date.now() - startedAtMs,
-          });
-          return { success: false, error: guardErr };
-        }
-
-        const apiKey = await getE2BApiKey();
-        if (!apiKey) {
-          return { success: false, error: "E2B_API_KEY not configured." };
-        }
-        const { token, repo } = await getGitHubConfig();
-        if (!token || !repo) {
-          return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
-        }
-        const expiresMinutes = Math.max(10, Math.min(180, Math.floor(params.ttl_minutes ?? 60)));
-        const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000).toISOString();
-        const filesHash = computeBuildFilesHash({
-          files: params.files,
-          delete_files: params.delete_files,
-        });
-
-        let requesterUid: string | null = null;
-        if (channelId) {
-          const { data: ch } = await supabase
-            .from("channels")
-            .select("platform_uid")
-            .eq("id", channelId)
-            .single();
-          requesterUid = (ch?.platform_uid as string | undefined) ?? null;
-        }
-
-        const job = await createGithubBuildJob({
-          agentId,
-          channelId: channelId ?? null,
-          requesterUid,
-          traceId: traceId ?? null,
-          filesHash,
-          port: params.port ?? 3000,
-          expiresAt,
-          metadata: {
-            install_cmd: params.install_cmd ?? null,
-            build_cmd: params.build_cmd ?? null,
-            serve_cmd: params.serve_cmd ?? null,
-            file_count: params.files.length,
-            delete_count: params.delete_files?.length ?? 0,
-          },
-        });
-
-        try {
-          const { owner, name } = parseRepo(repo);
-          const result = await startBuildVerify({
-            apiKey,
-            repoUrl: `https://github.com/${owner}/${name}.git`,
-            githubToken: token,
-            files: params.files,
-            deleteFiles: params.delete_files,
-            installCmd: params.install_cmd,
-            buildCmd: params.build_cmd,
-            serveCmd: params.serve_cmd,
-            port: params.port,
-          });
-          await updateGithubBuildJob(job.id, {
-            status: "building",
-            phase: "clone",
-            sandbox_id: result.sandboxId,
-            started_at: new Date().toISOString(),
-            last_log: "Build started in E2B sandbox",
-          });
-          await writePipelineAudit({
-            toolName: "github_build_verify",
-            input: {
-              job_id: job.id,
-              files_count: params.files.length,
-              delete_count: params.delete_files?.length ?? 0,
-            },
-            output: {
-              jobId: job.id,
-              sandboxId: result.sandboxId,
-              status: "building",
-            },
-            status: "success",
-            latencyMs: Date.now() - startedAtMs,
-          });
-          return {
-            success: true,
-            jobId: job.id,
-            sandboxId: result.sandboxId,
-            status: "building",
-            expiresAt,
-            message: "Build started. Use github_build_status with job_id to check progress.",
-          };
-        } catch (err) {
-          await updateGithubBuildJob(job.id, {
-            status: "failed",
-            phase: "queued",
-            error_code: "build_start_failed",
-            finished_at: new Date().toISOString(),
-            last_log: err instanceof Error ? err.message : "Build start failed",
-          }).catch(() => {});
-          await writePipelineAudit({
-            toolName: "github_build_verify",
-            input: {
-              job_id: job.id,
-              files_count: params.files.length,
-              delete_count: params.delete_files?.length ?? 0,
-            },
-            output: null,
-            status: "failed",
-            errorMessage: err instanceof Error ? err.message : "Build start failed",
-            latencyMs: Date.now() - startedAtMs,
-          });
-          return { success: false, error: err instanceof Error ? err.message : "Build start failed" };
-        }
-      },
-    }),
-
-    github_build_status: tool({
-      description:
-        "Check the status of an async build verification started by github_build_verify. " +
-        "Use job_id as the primary identifier. It returns pending/building/success/failed/expired and build metadata. " +
-        "Poll this every ~15 seconds after starting a build.",
-      inputSchema: z
-        .object({
-          job_id: z.string().optional().describe("Job ID returned by github_build_verify (preferred)"),
-          sandbox_id: z.string().optional().describe("Legacy fallback sandbox ID"),
-          port: z.number().optional().describe("Port the preview server uses, default: 3000"),
-        })
-        .refine((v) => Boolean(v.job_id || v.sandbox_id), "job_id or sandbox_id is required"),
-      execute: async ({ job_id, sandbox_id, port }: { job_id?: string; sandbox_id?: string; port?: number }) => {
-        try {
-          let jobId = job_id ?? null;
-          if (!jobId && sandbox_id) {
-            const { data: row } = await supabase
-              .from("github_build_jobs")
-              .select("id")
-              .eq("sandbox_id", sandbox_id)
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            jobId = (row?.id as string | undefined) ?? null;
-          }
-
-          if (jobId) {
-            let job = await getGithubBuildJob(jobId);
-            if (!job) return { success: false, error: "Build job not found." };
-            if (job.status === "pending" || job.status === "building") {
-              job = (await syncGithubBuildJobStatus(job.id)) ?? job;
-            }
-            return {
-              success: true,
-              jobId: job.id,
-              sandboxId: job.sandbox_id,
-              status: job.status,
-              phase: job.phase,
-              log: job.last_log,
-              previewUrl: job.preview_url,
-              errorCode: job.error_code,
-              startedAt: job.started_at,
-              finishedAt: job.finished_at,
-              expiresAt: job.expires_at,
-            };
-          }
-
-          // Backward compatibility path when only sandbox_id is available.
-          if (!sandbox_id) return { success: false, error: "job_id or sandbox_id is required." };
-          const apiKey = await getE2BApiKey();
-          if (!apiKey) {
-            return { success: false, error: "E2B_API_KEY not configured." };
-          }
-          const status = await checkBuildStatus(apiKey, sandbox_id, port);
-          return { success: true, sandboxId: sandbox_id, ...status };
-        } catch (err) {
-          return { success: false, error: err instanceof Error ? err.message : "Status check failed" };
-        }
-      },
-    }),
-
-    github_request_push_approval: tool({
-      description:
-        "Request an explicit, one-time owner approval to commit and push code changes to GitHub. " +
-        "This sends an Approve/Reject button to the owner and returns an approval_id. " +
-        "IMPORTANT: After calling this, do NOT poll github_push_approval_status in the same turn. " +
-        "Instead, immediately reply to the user that the approval request has been sent and wait for their next message. " +
-        "The user will tell you to proceed after they approve.",
-      inputSchema: z.object({
-        files: z
-          .array(z.object({ path: z.string(), content: z.string() }))
-          .describe("Files that would be committed, with paths relative to repo root"),
-        delete_files: z
-          .array(z.string())
-          .optional()
-          .describe("Files to delete in this commit"),
-        message: z.string().describe("Git commit message"),
-        branch: z.string().optional().describe("Target branch, default: main"),
-        build_job_id: z.string().describe("A github_build_verify job_id that has status=success"),
-        expires_in_minutes: z
-          .number()
-          .optional()
-          .describe("Approval expiry window in minutes (default: 10, max: 60)"),
-      }),
-      execute: async (params: {
-        files: { path: string; content: string }[];
-        delete_files?: string[];
-        message: string;
-        branch?: string;
-        build_job_id: string;
-        expires_in_minutes?: number;
-      }) => {
-        const startedAtMs = Date.now();
-        const guardErr = githubPipelineGuardError();
-        if (guardErr) {
-          await writePipelineAudit({
-            toolName: "github_request_push_approval",
-            input: params,
-            output: { blocked: true },
-            status: "failed",
-            errorMessage: guardErr,
-            latencyMs: Date.now() - startedAtMs,
-          });
-          return { success: false, error: guardErr };
-        }
-
-        if (!channelId) {
-          return { success: false, error: "No channel context for push approval request." };
-        }
-
-        const [{ data: requestCh }, { data: ownerCh }] = await Promise.all([
-          supabase
-            .from("channels")
-            .select("id, platform_uid, display_name")
-            .eq("id", channelId)
-            .single(),
-          supabase
-            .from("channels")
-            .select("id, platform_uid")
-            .eq("agent_id", agentId)
-            .eq("is_owner", true)
-            .single(),
-        ]);
-
-        if (!requestCh) return { success: false, error: "Request channel not found." };
-        if (!ownerCh?.platform_uid) return { success: false, error: "Owner channel not found." };
-
-        const branch = params.branch ?? "main";
-        const expiresMinutes = Math.max(1, Math.min(60, Math.floor(params.expires_in_minutes ?? 10)));
-        const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000).toISOString();
-
-        const buildJob = await getGithubBuildJob(params.build_job_id);
-        if (!buildJob) return { success: false, error: "Build job not found." };
-        if (buildJob.status !== "success") {
-          return { success: false, error: `Build job not successful (status: ${buildJob.status}).` };
-        }
-        if (buildJob.expires_at && Date.now() > Date.parse(buildJob.expires_at)) {
-          return { success: false, error: "Build job expired." };
-        }
-
-        const filePaths = params.files.map((f) => f.path).sort();
-        const deletePaths = [...(params.delete_files ?? [])].sort();
-        const payloadHash = computePushPayloadHash(params);
-        const filesHash = computeBuildFilesHash({ files: params.files, delete_files: params.delete_files });
-        if (buildJob.files_hash !== filesHash) {
-          return { success: false, error: "Build job does not match current file payload." };
-        }
-
-        const { data: inserted, error: insertErr } = await supabase
-          .from("github_push_approvals")
-          .insert({
-            agent_id: agentId,
-            request_channel_id: requestCh.id,
-            requested_by_uid: requestCh.platform_uid,
-            status: "pending",
-            payload_hash: payloadHash,
-            branch,
-            commit_message: params.message,
-            files: filePaths,
-            delete_files: deletePaths,
-            build_job_id: buildJob.id,
-            expires_at: expiresAt,
-          })
-          .select("id")
-          .single();
-
-        if (insertErr || !inserted?.id) {
-          return { success: false, error: insertErr?.message || "Failed to create approval request." };
-        }
-
-        const requesterName = requestCh.display_name || requestCh.platform_uid;
-        const filesPreview = filePaths.slice(0, 15).map((p) => `- \`${p}\``).join("\n");
-        const deletesPreview = deletePaths.slice(0, 15).map((p) => `- \`${p}\``).join("\n");
-        const moreFiles = filePaths.length > 15 ? `\n… and ${filePaths.length - 15} more` : "";
-        const moreDeletes = deletePaths.length > 15 ? `\n… and ${deletePaths.length - 15} more` : "";
-
-        const text =
-          `🚀 *Push Approval Required*\n\n` +
-          `*Requested by:* ${requesterName}\n` +
-          `*Branch:* \`${branch}\`\n` +
-          `*Build Job:* \`${buildJob.id}\`\n` +
-          `*Commit message:* ${params.message}\n\n` +
-          (filePaths.length ? `*Files:*\n${filesPreview}${moreFiles}\n\n` : "") +
-          (deletePaths.length ? `*Delete:*\n${deletesPreview}${moreDeletes}\n\n` : "") +
-          `*Approval ID:* \`${inserted.id}\`\n` +
-          `*Expires in:* ${expiresMinutes} min`;
-
-        try {
-          await sender.sendInteractiveButtons(
-            ownerCh.platform_uid,
-            text,
-            [[
-              { label: "✅ Approve Push", callbackData: `push_approve:${inserted.id}` },
-              { label: "❌ Reject", callbackData: `push_reject:${inserted.id}` },
-            ]],
-            { parseMode: "Markdown" },
-          );
-        } catch (err) {
-          await writePipelineAudit({
-            toolName: "github_request_push_approval",
-            input: {
-              build_job_id: buildJob.id,
-              branch,
-              files_count: filePaths.length,
-              delete_count: deletePaths.length,
-            },
-            output: null,
-            status: "failed",
-            errorMessage: err instanceof Error ? err.message : "Failed to send approval request.",
-            latencyMs: Date.now() - startedAtMs,
-          });
-          return { success: false, error: err instanceof Error ? err.message : "Failed to send approval request." };
-        }
-
-        await writePipelineAudit({
-          toolName: "github_request_push_approval",
-          input: {
-            build_job_id: buildJob.id,
-            branch,
-            files_count: filePaths.length,
-            delete_count: deletePaths.length,
-          },
-          output: {
-            approval_id: inserted.id,
-            expires_at: expiresAt,
-          },
-          status: "success",
-          latencyMs: Date.now() - startedAtMs,
-        });
-
-        return {
-          success: true,
-          approvalId: inserted.id,
-          buildJobId: buildJob.id,
-          expiresAt,
-          message: "Approval requested from owner. Use github_push_approval_status to check status.",
-        };
-      },
-    }),
-
-    github_push_approval_status: tool({
-      description:
-        "Check the status of a push approval requested by github_request_push_approval. " +
-        "Returns pending/approved/rejected/expired/used.",
-      inputSchema: z.object({
-        approval_id: z.string().describe("Approval ID returned by github_request_push_approval"),
-      }),
-      execute: async ({ approval_id }: { approval_id: string }) => {
-        const { data: row, error } = await supabase
-          .from("github_push_approvals")
-          .select("id, status, build_job_id, expires_at, approved_at, rejected_at, used_at")
-          .eq("id", approval_id)
-          .single();
-
-        if (error || !row) {
-          return { success: false, error: error?.message || "Approval not found." };
-        }
-
-        const expiresAtMs = new Date(row.expires_at as string).getTime();
-        if (row.status === "pending" && Number.isFinite(expiresAtMs) && Date.now() > expiresAtMs) {
-          await supabase
-            .from("github_push_approvals")
-            .update({ status: "expired" })
-            .eq("id", approval_id);
-          return { success: true, status: "expired", expiresAt: row.expires_at };
-        }
-
-        return {
-          success: true,
-          status: row.status,
-          buildJobId: row.build_job_id,
-          expiresAt: row.expires_at,
-          approvedAt: row.approved_at,
-          rejectedAt: row.rejected_at,
-          usedAt: row.used_at,
-        };
-      },
-    }),
-
     github_commit_push: tool({
       description:
-        "Commit and push code changes to the project's GitHub repository. " +
-        "CRITICAL: This requires an explicit one-time owner approval via github_request_push_approval. " +
-        "Never push without approval. This triggers Vercel auto-deployment. " +
-        "Use github_build_verify first to validate changes.",
+        "Commit and push code changes to the project's GitHub repository main branch. " +
+        "This triggers Vercel auto-deployment. " +
+        "CRITICAL: You MUST present the full change plan to the user and receive explicit text confirmation " +
+        "(e.g. 'go ahead', 'push it', 'ok', '同意', '推送') BEFORE calling this tool. " +
+        "NEVER call this without prior user consent in the conversation.",
       inputSchema: z.object({
-        approval_id: z.string().describe("Approval ID from github_request_push_approval (must be approved)"),
         files: z
           .array(z.object({ path: z.string(), content: z.string() }))
           .describe("Files to commit, with paths relative to repo root"),
@@ -1343,7 +879,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           .array(z.string())
           .optional()
           .describe("Files to delete in this commit"),
-        message: z.string().describe("Git commit message"),
+        message: z.string().describe("Git commit message (use conventional commits: feat/fix/docs/refactor)"),
         branch: z.string().optional().describe("Target branch, default: main"),
       }),
       execute: async (params: {
@@ -1351,7 +887,6 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         delete_files?: string[];
         message: string;
         branch?: string;
-        approval_id: string;
       }) => {
         const startedAtMs = Date.now();
         const guardErr = githubPipelineGuardError();
@@ -1380,66 +915,11 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           return { success: false, error: "Only the owner channel can push to GitHub." };
         }
 
-        const { data: approval, error: approvalErr } = await supabase
-          .from("github_push_approvals")
-          .select("id, status, payload_hash, branch, commit_message, build_job_id, expires_at, used_at")
-          .eq("id", params.approval_id)
-          .single();
-        if (approvalErr || !approval) {
-          return { success: false, error: approvalErr?.message || "Approval not found." };
-        }
-
-        const expiresAtMs = new Date(approval.expires_at as string).getTime();
-        if (approval.status === "pending" && Number.isFinite(expiresAtMs) && Date.now() > expiresAtMs) {
-          await supabase
-            .from("github_push_approvals")
-            .update({ status: "expired" })
-            .eq("id", params.approval_id);
-          return { success: false, error: "Approval expired." };
-        }
-
-        if (approval.status !== "approved") {
-          return { success: false, error: `Approval not granted (status: ${approval.status}).` };
-        }
-        if (approval.used_at) {
-          return { success: false, error: "Approval already used." };
-        }
-
-        const branch = params.branch ?? "main";
-        if (approval.branch !== branch || approval.commit_message !== params.message) {
-          return { success: false, error: "Approval does not match branch or commit message." };
-        }
-
-        const payloadHash = computePushPayloadHash(params);
-        if (payloadHash !== approval.payload_hash) {
-          return { success: false, error: "Approval does not match the proposed file changes." };
-        }
-
-        if (!approval.build_job_id) {
-          return { success: false, error: "Approval is not bound to a build job." };
-        }
-        const buildJob = await getGithubBuildJob(approval.build_job_id as string);
-        if (!buildJob) {
-          return { success: false, error: "Bound build job not found." };
-        }
-        if (buildJob.status !== "success") {
-          return { success: false, error: `Bound build job not successful (status: ${buildJob.status}).` };
-        }
-        if (buildJob.expires_at && Date.now() > Date.parse(buildJob.expires_at)) {
-          return { success: false, error: "Bound build job expired." };
-        }
-        const filesHash = computeBuildFilesHash({
-          files: params.files,
-          delete_files: params.delete_files,
-        });
-        if (buildJob.files_hash !== filesHash) {
-          return { success: false, error: "Bound build job does not match file payload hash." };
-        }
-
         const { token, repo } = await getGitHubConfig();
         if (!token || !repo) {
           return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
         }
+        const branch = params.branch ?? "main";
         try {
           const { owner, name } = parseRepo(repo);
           const result = await createCommitAndPush(
@@ -1450,24 +930,9 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
             params.message,
             branch
           );
-          await updateGithubBuildJob(buildJob.id, {
-            metadata: {
-              ...(buildJob.metadata ?? {}),
-              pushed_commit_sha: result.commitSha,
-              pushed_at: new Date().toISOString(),
-              approval_id: params.approval_id,
-              branch,
-            },
-          }).catch(() => {});
-          await supabase
-            .from("github_push_approvals")
-            .update({ status: "used", used_at: new Date().toISOString() })
-            .eq("id", params.approval_id);
           await writePipelineAudit({
             toolName: "github_commit_push",
             input: {
-              approval_id: params.approval_id,
-              build_job_id: buildJob.id,
               branch,
               files_count: params.files.length,
               delete_count: params.delete_files?.length ?? 0,
@@ -1483,23 +948,106 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
             success: true,
             commitSha: result.commitSha,
             commitUrl: result.commitUrl,
-            message: `Committed and pushed: ${result.commitUrl}`,
+            message: `Committed and pushed to ${branch}: ${result.commitUrl}. Vercel will auto-deploy. Use github_check_deploy to monitor.`,
           };
         } catch (err) {
           await writePipelineAudit({
             toolName: "github_commit_push",
-            input: {
-              approval_id: params.approval_id,
-              branch: params.branch ?? "main",
-              files_count: params.files.length,
-              delete_count: params.delete_files?.length ?? 0,
-            },
+            input: { branch, files_count: params.files.length },
             output: null,
             status: "failed",
             errorMessage: err instanceof Error ? err.message : "Push failed",
             latencyMs: Date.now() - startedAtMs,
           });
           return { success: false, error: err instanceof Error ? err.message : "Push failed" };
+        }
+      },
+    }),
+
+    github_check_deploy: tool({
+      description:
+        "Check the Vercel deployment status for a specific git commit. " +
+        "Call this after github_commit_push to monitor whether the deployment succeeded. " +
+        "Poll 2-3 times with a few seconds between calls. If still BUILDING, tell the user to check back.",
+      inputSchema: z.object({
+        commit_sha: z.string().describe("The git commit SHA to check deployment for"),
+      }),
+      execute: async ({ commit_sha }: { commit_sha: string }) => {
+        try {
+          const { checkVercelDeployment } = await import("@/lib/github/api");
+          const vercelToken = await getSecret("VERCEL_TOKEN");
+          const projectId = await getSecret("VERCEL_PROJECT_ID");
+          if (!vercelToken || !projectId) {
+            return { success: false, error: "VERCEL_TOKEN or VERCEL_PROJECT_ID not configured. Ask the user to set them in Dashboard > Coding > Vercel." };
+          }
+          const deployment = await checkVercelDeployment(vercelToken, projectId, commit_sha);
+          return { success: true, ...deployment };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Deploy check failed" };
+        }
+      },
+    }),
+
+    github_revert_commit: tool({
+      description:
+        "Revert a specific git commit by creating a new reverse commit on the main branch. " +
+        "This undoes the changes from the specified commit while preserving git history. " +
+        "The new commit triggers Vercel to redeploy with the reverted code. " +
+        "CRITICAL: Only call this when the user explicitly requests a revert.",
+      inputSchema: z.object({
+        commit_sha: z.string().describe("The SHA of the commit to revert"),
+        branch: z.string().optional().describe("Branch name, default: main"),
+      }),
+      execute: async ({ commit_sha, branch }: { commit_sha: string; branch?: string }) => {
+        const startedAtMs = Date.now();
+        const guardErr = githubPipelineGuardError();
+        if (guardErr) {
+          return { success: false, error: guardErr };
+        }
+
+        if (!channelId) {
+          return { success: false, error: "No channel context." };
+        }
+        const { data: callerCh } = await supabase
+          .from("channels")
+          .select("id, is_owner")
+          .eq("id", channelId)
+          .single();
+        if (!callerCh?.is_owner) {
+          return { success: false, error: "Only the owner channel can revert commits." };
+        }
+
+        const { token, repo } = await getGitHubConfig();
+        if (!token || !repo) {
+          return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
+        }
+        try {
+          const { revertCommit } = await import("@/lib/github/api");
+          const { owner, name } = parseRepo(repo);
+          const result = await revertCommit(token, `${owner}/${name}`, commit_sha, branch ?? "main");
+          await writePipelineAudit({
+            toolName: "github_revert_commit",
+            input: { commit_sha, branch: branch ?? "main" },
+            output: { revert_sha: result.commitSha, revert_url: result.commitUrl },
+            status: "success",
+            latencyMs: Date.now() - startedAtMs,
+          });
+          return {
+            success: true,
+            revertCommitSha: result.commitSha,
+            revertCommitUrl: result.commitUrl,
+            message: `Reverted commit ${commit_sha.slice(0, 8)}. New commit: ${result.commitUrl}. Vercel will redeploy.`,
+          };
+        } catch (err) {
+          await writePipelineAudit({
+            toolName: "github_revert_commit",
+            input: { commit_sha, branch: branch ?? "main" },
+            output: null,
+            status: "failed",
+            errorMessage: err instanceof Error ? err.message : "Revert failed",
+            latencyMs: Date.now() - startedAtMs,
+          });
+          return { success: false, error: err instanceof Error ? err.message : "Revert failed" };
         }
       },
     }),
