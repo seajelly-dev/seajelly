@@ -252,9 +252,9 @@ PY
 }
 
 pick_runner() {
-  if [ -f pnpm-lock.yaml ]; then
+  if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null 2>&1; then
     echo "pnpm"
-  elif [ -f yarn.lock ]; then
+  elif [ -f yarn.lock ] && command -v yarn >/dev/null 2>&1; then
     echo "yarn"
   else
     echo "npm"
