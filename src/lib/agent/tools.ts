@@ -894,9 +894,13 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
     github_build_verify: tool({
       description:
         "Clone the project repo into an E2B sandbox, apply code changes, and run a build to verify. " +
-        "This is an ASYNC operation — it immediately returns a persistent job_id (and sandbox_id when available). " +
-        "You MUST then call github_build_status with job_id to poll for the result. " +
-        "Use this to validate code changes before committing to the main branch. " +
+        "IMPORTANT: Call this tool ONLY ONCE per task. Do NOT call it multiple times for the same change. " +
+        "This is an ASYNC operation — it immediately returns a persistent job_id. " +
+        "After calling this, call github_build_status 2-3 times max. If still building, " +
+        "STOP and tell the user to check back later. " +
+        "SKIP this tool entirely if changes are non-code files only (e.g. .txt, .md, images) — go directly to github_request_push_approval. " +
+        "BUILD ENVIRONMENT: The E2B sandbox has node/npm (NOT pnpm/yarn). " +
+        "Use `npm install` for install and `npm run build` for build. Do NOT use pnpm or yarn. " +
         "Requires E2B_API_KEY, GITHUB_TOKEN, and GITHUB_REPO to be configured.",
       inputSchema: z.object({
         files: z
@@ -906,9 +910,9 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           .array(z.string())
           .optional()
           .describe("Files to delete, paths relative to repo root"),
-        install_cmd: z.string().optional().describe("Custom install command, default: npm install"),
-        build_cmd: z.string().optional().describe("Custom build command, default: npm run build"),
-        serve_cmd: z.string().optional().describe("Custom serve command for previewing the build output"),
+        install_cmd: z.string().optional().describe("Install command. Default: npm install. MUST use npm, NOT pnpm/yarn."),
+        build_cmd: z.string().optional().describe("Build command. Default: npm run build. MUST use npm, NOT pnpm/yarn."),
+        serve_cmd: z.string().optional().describe("Serve command for previewing build output. E.g. npx serve out -l 3000"),
         port: z.number().optional().describe("Port for the preview server, default: 3000"),
         ttl_minutes: z.number().optional().describe("Job TTL in minutes, default: 60, max: 180"),
       }),
@@ -1110,7 +1114,9 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
       description:
         "Request an explicit, one-time owner approval to commit and push code changes to GitHub. " +
         "This sends an Approve/Reject button to the owner and returns an approval_id. " +
-        "You MUST bind the request to a successful build job and wait until approval is granted before calling github_commit_push.",
+        "IMPORTANT: After calling this, do NOT poll github_push_approval_status in the same turn. " +
+        "Instead, immediately reply to the user that the approval request has been sent and wait for their next message. " +
+        "The user will tell you to proceed after they approve.",
       inputSchema: z.object({
         files: z
           .array(z.object({ path: z.string(), content: z.string() }))

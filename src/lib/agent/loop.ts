@@ -981,12 +981,21 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         "- Use `github_read_file` to read file contents — do NOT guess or hallucinate code.\n" +
         "- Be efficient with tool calls: plan which files you need, then read them. Avoid exploratory browsing.\n" +
         (githubToolNames.includes("github_build_verify")
-          ? "- Before committing any code change, ALWAYS use `github_build_verify` to validate the build.\n" +
-            "- After calling `github_build_verify`, poll with `github_build_status` until completion.\n"
+          ? "- Call `github_build_verify` ONLY ONCE per task. Do NOT call it multiple times for the same change.\n" +
+            "- BUILD ENVIRONMENT: The E2B sandbox has node/npm only. Always use `npm install` and `npm run build`. NEVER use pnpm or yarn.\n" +
+            "- If changes are ONLY non-code files (.txt, .md, images, configs without build impact), SKIP build verification entirely and go directly to `github_request_push_approval`.\n" +
+            "- After calling `github_build_verify`, call `github_build_status` at most 2-3 times. " +
+            "If the build is still in progress, STOP polling and reply to the user: " +
+            "\"Build is in progress (job_id: xxx). Please ask me to check status again in a moment.\"\n"
+          : "") +
+        (githubToolNames.includes("github_request_push_approval")
+          ? "- After calling `github_request_push_approval`, do NOT poll `github_push_approval_status` in the same turn. " +
+            "Instead, immediately reply to the user: \"Approval request sent. Once you approve, just tell me to proceed with the push.\" " +
+            "The user will send a follow-up message after approving.\n"
           : "") +
         (githubToolNames.includes("github_commit_push")
-          ? "- NEVER call `github_commit_push` without explicit user confirmation. " +
-            "Always ask the user to confirm before pushing to the repository.\n"
+          ? "- Only call `github_commit_push` when the user explicitly tells you to push (e.g. \"push it\", \"go ahead\", \"已批准继续推送\"). " +
+            "Do NOT call it automatically after approval — wait for the user's instruction.\n"
           : "");
     }
 
@@ -1015,7 +1024,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     const githubWorkflowIntent = hasGithubWorkflowIntent(messageText);
     const githubActiveTools = GITHUB_WORKFLOW_TOOLS.filter((name) => Object.keys(tools).includes(name));
-    const runWithGithubFocus = githubWorkflowIntent && githubActiveTools.length > 0;
+    const isFollowUpQuery = /查询|状态|继续|progress|status|check|poll|go ahead|proceed|确认|批准/i.test(messageText);
+    const runWithGithubFocus = githubWorkflowIntent && githubActiveTools.length > 0 && !isFollowUpQuery;
 
     const deadline = startTime + AGENT_LIMITS.MAX_WALL_TIME_MS;
     const abortController = new AbortController();
@@ -1141,9 +1151,26 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     let reply = roomToolCalled ? "" : (result.text || t("noResponseGenerated"));
     if (!roomToolCalled && stepsCount >= AGENT_LIMITS.MAX_STEPS && (!result.text || !result.text.trim())) {
-      reply = locale === "zh"
-        ? "本轮任务已达到执行步骤上限，流程可能仍在进行中。请继续发送“查询构建状态”，我会继续跟进。"
-        : "This run reached the step limit and may still be in progress. Please ask me to continue checking build status.";
+      const hasPushSuccess = calledToolNames.has("github_commit_push");
+      const hasApprovalSent = calledToolNames.has("github_request_push_approval");
+      const hasBuildStarted = calledToolNames.has("github_build_verify");
+      if (hasPushSuccess) {
+        reply = locale === "zh"
+          ? "代码已成功推送到 GitHub，Vercel 将自动部署。"
+          : "Code has been pushed to GitHub. Vercel will auto-deploy.";
+      } else if (hasApprovalSent) {
+        reply = locale === "zh"
+          ? "审批请求已发送。批准后请告诉我“继续推送”即可。"
+          : "Approval request sent. After approving, just tell me to proceed with the push.";
+      } else if (hasBuildStarted) {
+        reply = locale === "zh"
+          ? "构建验证已启动，请稍后发送“查询构建状态”来查看结果。"
+          : "Build verification started. Please ask me to check build status in a moment.";
+      } else {
+        reply = locale === "zh"
+          ? "本轮任务已达到执行步骤上限。请告诉我需要继续做什么。"
+          : "This run reached the step limit. Please tell me what to do next.";
+      }
     }
 
     const usageDurationMs = Date.now() - startTime;
