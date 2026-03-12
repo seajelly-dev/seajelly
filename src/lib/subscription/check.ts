@@ -32,7 +32,7 @@ export async function checkSubscription(params: CheckParams): Promise<Subscripti
   if (activeSub) {
     if (activeSub.type === "time") {
       const now = new Date();
-      const expiresAt = activeSub.expires_at ? new Date(activeSub.expires_at) : null;
+      const expiresAt = activeSub.expires_at ? new Date(activeSub.expires_at as string) : null;
 
       if (expiresAt && now >= expiresAt) {
         await supabase
@@ -64,8 +64,8 @@ export async function checkSubscription(params: CheckParams): Promise<Subscripti
     }
 
     if (activeSub.type === "quota") {
-      const total = activeSub.quota_total ?? 0;
-      const used = activeSub.quota_used ?? 0;
+      const total = (activeSub.quota_total as number) ?? 0;
+      const used = (activeSub.quota_used as number) ?? 0;
       if (used >= total) {
         await supabase
           .from("channel_subscriptions")

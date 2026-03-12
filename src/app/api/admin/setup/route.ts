@@ -1390,4 +1390,98 @@ AS $fn$
   ORDER BY kc.embedding <=> query_embedding ASC
   LIMIT match_count;
 $fn$;
+
+-- Sub-Apps: sub_apps (registry)
+CREATE TABLE IF NOT EXISTS public.sub_apps (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug        text UNIQUE NOT NULL,
+  name        text NOT NULL,
+  description text,
+  tool_names  text[] NOT NULL DEFAULT '{}',
+  enabled     boolean NOT NULL DEFAULT true,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.sub_apps ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sub_apps_admin_all" ON public.sub_apps;
+CREATE POLICY "sub_apps_admin_all" ON public.sub_apps FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "sub_apps_service_select" ON public.sub_apps;
+CREATE POLICY "sub_apps_service_select" ON public.sub_apps FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+GRANT ALL ON public.sub_apps TO service_role, authenticated;
+
+-- Sub-Apps: agent_sub_apps (many-to-many)
+CREATE TABLE IF NOT EXISTS public.agent_sub_apps (
+  agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  sub_app_id  uuid NOT NULL REFERENCES public.sub_apps(id) ON DELETE CASCADE,
+  PRIMARY KEY (agent_id, sub_app_id)
+);
+ALTER TABLE public.agent_sub_apps ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "agent_sub_apps_admin_all" ON public.agent_sub_apps;
+CREATE POLICY "agent_sub_apps_admin_all" ON public.agent_sub_apps FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "agent_sub_apps_service_select" ON public.agent_sub_apps;
+CREATE POLICY "agent_sub_apps_service_select" ON public.agent_sub_apps FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+GRANT ALL ON public.agent_sub_apps TO service_role, authenticated;
+
+-- Sub-Apps: chat_rooms
+CREATE TABLE IF NOT EXISTS public.chat_rooms (
+  id          text PRIMARY KEY DEFAULT encode(gen_random_bytes(8), 'hex'),
+  agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  created_by  uuid REFERENCES public.channels(id) ON DELETE SET NULL,
+  title       text,
+  status      text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed')),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  closed_at   timestamptz
+);
+ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "chat_rooms_anon_select" ON public.chat_rooms;
+CREATE POLICY "chat_rooms_anon_select" ON public.chat_rooms FOR SELECT USING (true);
+DROP POLICY IF EXISTS "chat_rooms_admin_all" ON public.chat_rooms;
+CREATE POLICY "chat_rooms_admin_all" ON public.chat_rooms FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "chat_rooms_service_all" ON public.chat_rooms;
+CREATE POLICY "chat_rooms_service_all" ON public.chat_rooms FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+GRANT ALL ON public.chat_rooms TO service_role, authenticated;
+GRANT SELECT ON public.chat_rooms TO anon;
+
+-- Sub-Apps: chat_room_messages
+CREATE TABLE IF NOT EXISTS public.chat_room_messages (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id     text NOT NULL REFERENCES public.chat_rooms(id) ON DELETE CASCADE,
+  sender_type text NOT NULL CHECK (sender_type IN ('user', 'agent', 'system')),
+  sender_name text NOT NULL,
+  platform    text,
+  channel_id  uuid REFERENCES public.channels(id) ON DELETE SET NULL,
+  content     text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS chat_room_messages_room ON public.chat_room_messages(room_id, created_at);
+ALTER TABLE public.chat_room_messages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "chat_room_messages_anon_select" ON public.chat_room_messages;
+CREATE POLICY "chat_room_messages_anon_select" ON public.chat_room_messages FOR SELECT USING (true);
+DROP POLICY IF EXISTS "chat_room_messages_anon_insert" ON public.chat_room_messages;
+CREATE POLICY "chat_room_messages_anon_insert" ON public.chat_room_messages FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "chat_room_messages_admin_all" ON public.chat_room_messages;
+CREATE POLICY "chat_room_messages_admin_all" ON public.chat_room_messages FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "chat_room_messages_service_all" ON public.chat_room_messages;
+CREATE POLICY "chat_room_messages_service_all" ON public.chat_room_messages FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+GRANT ALL ON public.chat_room_messages TO service_role, authenticated;
+GRANT SELECT, INSERT ON public.chat_room_messages TO anon;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'chat_room_messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_room_messages;
+  END IF;
+END $$;
+
+INSERT INTO public.sub_apps (slug, name, description, tool_names, enabled)
+VALUES ('room', 'Chatroom', 'Cross-platform realtime chatroom', ARRAY['create_chat_room', 'close_chat_room'], true)
+ON CONFLICT (slug) DO NOTHING;
 `;

@@ -217,6 +217,7 @@ export default function AgentsPage() {
 
   const [boundMcpNames, setBoundMcpNames] = useState<string[]>([]);
   const [boundSkillNames, setBoundSkillNames] = useState<string[]>([]);
+  const [boundSubAppNames, setBoundSubAppNames] = useState<string[]>([]);
   const [allKnowledgeBases, setAllKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [boundKbIds, setBoundKbIds] = useState<Set<string>>(new Set());
   const [boundKbNames, setBoundKbNames] = useState<string[]>([]);
@@ -265,24 +266,30 @@ export default function AgentsPage() {
   const fetchBoundResources = useCallback(async (agentId: string) => {
     setBoundMcpNames([]);
     setBoundSkillNames([]);
+    setBoundSubAppNames([]);
     setBoundKbIds(new Set());
     setBoundKbNames([]);
-    const [mcpRes, skillRes, kbRes, mcpListRes, skillListRes, kbListRes] = await Promise.all([
+    const [mcpRes, skillRes, kbRes, mcpListRes, skillListRes, kbListRes, subAppRes, subAppListRes] = await Promise.all([
       fetch(`/api/admin/agents/mcps?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
       fetch(`/api/admin/agents/skills?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
       fetch(`/api/admin/agents/knowledge?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/mcp").then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/skills").then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/knowledge/bases").then((r) => r.json()).catch(() => ({})),
+      fetch(`/api/admin/sub-apps?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
+      fetch("/api/admin/sub-apps").then((r) => r.json()).catch(() => ({})),
     ]);
     const mcpIds = new Set<string>(mcpRes.mcp_server_ids ?? []);
     const skillIds = new Set<string>(skillRes.skill_ids ?? []);
     const kbIdSet = new Set<string>(kbRes.knowledge_base_ids ?? []);
+    const subAppIds = new Set<string>(subAppRes.sub_app_ids ?? []);
     const allMcps: McpServer[] = mcpListRes.servers ?? [];
     const allSkills: Skill[] = skillListRes.skills ?? [];
     const allKbs: KnowledgeBase[] = kbListRes.bases ?? [];
+    const allSubApps: { id: string; name: string }[] = subAppListRes.sub_apps ?? [];
     setBoundMcpNames(allMcps.filter((m) => mcpIds.has(m.id)).map((m) => m.name));
     setBoundSkillNames(allSkills.filter((s) => skillIds.has(s.id)).map((s) => s.name));
+    setBoundSubAppNames(allSubApps.filter((a) => subAppIds.has(a.id)).map((a) => a.name));
     setAllKnowledgeBases(allKbs);
     setBoundKbIds(kbIdSet);
     setBoundKbNames(allKbs.filter((kb) => kbIdSet.has(kb.id)).map((kb) => kb.name));
@@ -1085,6 +1092,16 @@ export default function AgentsPage() {
                       <p className="text-xs font-medium text-muted-foreground mb-1">{t("agents.skills")}</p>
                       <div className="flex flex-wrap gap-1.5">
                         {boundSkillNames.map((name) => (
+                          <Badge key={name} variant="secondary">{name}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {boundSubAppNames.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">{t("sidebar.subApps")}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {boundSubAppNames.map((name) => (
                           <Badge key={name} variant="secondary">{name}</Badge>
                         ))}
                       </div>

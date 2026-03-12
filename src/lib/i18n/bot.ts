@@ -20,6 +20,7 @@ const botStrings = {
     helpTts: "{prefix}tts — Toggle TTS (owner only)",
     helpLive: "{prefix}live — Get a live voice chat link",
     helpAsr: "{prefix}asr — Get an ASR transcription link",
+    helpRoom: "{prefix}room — Create a cross-platform chatroom (owner only)",
     helpHelp: "{prefix}help — Show this message",
     helpFooter: "Send any text to chat.",
 
@@ -119,6 +120,18 @@ const botStrings = {
     cmdDescLive: "Get a live voice chat link",
     cmdDescAsr: "Get an ASR transcription link",
     cmdDescHelp: "Show available commands",
+    cmdDescRoom: "Create a cross-platform chatroom",
+
+    roomCreated:
+      "🏠 *Chatroom Created*\n\n" +
+      "*Title:* {title}\n" +
+      "🔗 {url}\n\n" +
+      "Share this link with anyone to join the chatroom.",
+    roomBroadcast: "🏠 *You're invited to a chatroom!*\n\n*Title:* {title}\n🔗 {url}",
+    roomClosed: "🏠 Chatroom *{title}* has been closed.",
+    roomOwnerOnly: "Only the owner can create or close chatrooms.",
+    roomCreateFailed: "Failed to create chatroom.",
+    roomNoActive: "No active chatroom to close.",
   },
 
   zh: {
@@ -140,6 +153,7 @@ const botStrings = {
     helpTts: "{prefix}tts — 开关 TTS 语音（仅实控人）",
     helpLive: "{prefix}live — 获取实时语音聊天链接",
     helpAsr: "{prefix}asr — 获取 ASR 语音识别链接",
+    helpRoom: "{prefix}room — 创建跨平台聊天室（仅实控人）",
     helpHelp: "{prefix}help — 显示此帮助信息",
     helpFooter: "直接发送文字即可开始聊天。",
 
@@ -238,6 +252,18 @@ const botStrings = {
     cmdDescLive: "获取实时语音聊天链接",
     cmdDescAsr: "获取 ASR 语音识别链接",
     cmdDescHelp: "显示可用命令",
+    cmdDescRoom: "创建跨平台聊天室",
+
+    roomCreated:
+      "🏠 *聊天室已创建*\n\n" +
+      "*标题：* {title}\n" +
+      "🔗 {url}\n\n" +
+      "分享此链接即可加入聊天室。",
+    roomBroadcast: "🏠 *你被邀请加入聊天室！*\n\n*标题：* {title}\n🔗 {url}",
+    roomClosed: "🏠 聊天室 *{title}* 已关闭。",
+    roomOwnerOnly: "只有实控人可以创建或关闭聊天室。",
+    roomCreateFailed: "创建聊天室失败。",
+    roomNoActive: "没有可关闭的活跃聊天室。",
   },
 } as const;
 
@@ -283,6 +309,7 @@ export function buildHelpText(
     t("helpTts", { prefix }) + "\n" +
     t("helpLive", { prefix }) + "\n" +
     t("helpAsr", { prefix }) + "\n" +
+    t("helpRoom", { prefix }) + "\n" +
     t("helpHelp", { prefix }) + "\n\n" +
     t("helpFooter")
   );
@@ -304,6 +331,7 @@ export function buildWelcomeText(
     t("helpTts", { prefix }) + "\n" +
     t("helpLive", { prefix }) + "\n" +
     t("helpAsr", { prefix }) + "\n" +
+    t("helpRoom", { prefix }) + "\n" +
     t("helpHelp", { prefix }) + "\n\n" +
     t("helpFooter")
   );
@@ -319,6 +347,7 @@ export function getBotCommands(locale: Locale) {
     { command: "tts", description: t("cmdDescTts") },
     { command: "live", description: t("cmdDescLive") },
     { command: "asr", description: t("cmdDescAsr") },
+    { command: "room", description: t("cmdDescRoom") },
     { command: "help", description: t("cmdDescHelp") },
   ];
 }

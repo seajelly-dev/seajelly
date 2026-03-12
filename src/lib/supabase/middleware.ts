@@ -148,6 +148,8 @@ export async function updateSession(request: NextRequest) {
     "/preview",
     "/voice/live",
     "/voice/asr",
+    "/app",
+    "/api/app",
     "/api/auth/login",
     "/api/webhook",
     "/api/worker",

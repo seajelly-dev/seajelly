@@ -2,6 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  turbopack: {
+    // Prevent Turbopack from scanning parent home directory when multiple lockfiles exist.
+    root: process.cwd(),
+  },
   async headers() {
     return [
       {

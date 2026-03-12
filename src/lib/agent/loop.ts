@@ -1,7 +1,7 @@
 import { generateText, stepCountIs, type ModelMessage } from "ai";
 import { createClient } from "@supabase/supabase-js";
 import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown, getHumanReadableError } from "./provider";
-import { createAgentTools } from "./tools";
+import { createAgentTools, createSubAppTools } from "./tools";
 import { AGENT_LIMITS } from "./limits";
 import { getSenderForAgent, getFileDownloader } from "@/lib/platform/sender";
 import { isImageMime, isTextMime } from "@/lib/platform/file-utils";
@@ -364,6 +364,57 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         await sender.sendMarkdown(platformChatId, asrText);
         return { success: true, reply: asrUrl, traceId };
       }
+
+      if (command === "/room") {
+        if (!channel?.is_owner) {
+          await sender.sendText(platformChatId, t("roomOwnerOnly"));
+          return { success: true, reply: "owner only", traceId };
+        }
+        const roomTitle = messageText.replace(/^\/room\s*/i, "").trim() || `Room ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+        const { data: room, error: roomErr } = await supabase
+          .from("chat_rooms")
+          .insert({
+            agent_id: typedAgent.id,
+            created_by: channel?.id || null,
+            title: roomTitle,
+          })
+          .select()
+          .single();
+        if (roomErr || !room) {
+          await sender.sendText(platformChatId, t("roomCreateFailed"));
+          return { success: false, error: "Failed to create chatroom", traceId };
+        }
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+        const roomUrl = `${baseUrl}/app/room/${room.id}`;
+
+        await supabase.from("chat_room_messages").insert({
+          room_id: room.id,
+          sender_type: "system",
+          sender_name: "System",
+          content: `Chatroom "${roomTitle}" created`,
+        });
+
+        await sender.sendMarkdown(platformChatId, t("roomCreated", { title: roomTitle, url: roomUrl }));
+
+        const { data: channels } = await supabase
+          .from("channels")
+          .select("id, platform, platform_chat_id, is_allowed")
+          .eq("agent_id", typedAgent.id)
+          .eq("is_allowed", true);
+        if (channels) {
+          for (const ch of channels) {
+            if (ch.platform_chat_id && ch.id !== channel?.id) {
+              try {
+                const chSender = await getSenderForAgent(typedAgent.id, ch.platform);
+                if (chSender) {
+                  await chSender.sendMarkdown(ch.platform_chat_id, t("roomBroadcast", { title: roomTitle, url: roomUrl }));
+                }
+              } catch { /* skip failing channels */ }
+            }
+          }
+        }
+        return { success: true, reply: roomUrl, traceId };
+      }
     }
 
     const history: ChatMessage[] = Array.isArray(session.messages)
@@ -504,6 +555,32 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         tools = { ...filteredBuiltin, ...mcpResult.tools } as typeof filteredBuiltin;
       } catch (err) {
         console.warn("MCP tools loading failed, using builtin only:", err);
+      }
+    }
+
+    // ── Sub-App tools (from agent_sub_apps junction table) ──
+    const { data: subAppRows } = await supabase
+      .from("agent_sub_apps")
+      .select("sub_app_id, sub_apps!inner(tool_names, enabled)")
+      .eq("agent_id", typedAgent.id);
+    const enabledToolNames = new Set(
+      (subAppRows ?? [])
+        .filter((r) => (r.sub_apps as unknown as { enabled: boolean })?.enabled)
+        .flatMap((r) => (r.sub_apps as unknown as { tool_names: string[] })?.tool_names ?? [])
+    );
+    if (enabledToolNames.size > 0) {
+      const subAppTools = createSubAppTools({
+        agentId: typedAgent.id,
+        channelId: channel?.id,
+        isOwner: canEditAiSoul,
+        sender,
+        platformChatId,
+        platform,
+      });
+      for (const [name, def] of Object.entries(subAppTools)) {
+        if (enabledToolNames.has(name)) {
+          (tools as Record<string, unknown>)[name] = def;
+        }
       }
     }
 

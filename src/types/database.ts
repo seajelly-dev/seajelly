@@ -293,6 +293,41 @@ export interface McpServer {
   created_at: string;
 }
 
+export interface SubApp {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  tool_names: string[];
+  enabled: boolean;
+  created_at: string;
+}
+
+export type ChatRoomStatus = "active" | "closed";
+
+export interface ChatRoom {
+  id: string;
+  agent_id: string;
+  created_by: string | null;
+  title: string | null;
+  status: ChatRoomStatus;
+  created_at: string;
+  closed_at: string | null;
+}
+
+export type ChatRoomSenderType = "user" | "agent" | "system";
+
+export interface ChatRoomMessage {
+  id: string;
+  room_id: string;
+  sender_type: ChatRoomSenderType;
+  sender_name: string;
+  platform: string | null;
+  channel_id: string | null;
+  content: string;
+  created_at: string;
+}
+
 export const SECRET_KEYS = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "SUPABASE_ACCESS_TOKEN",
