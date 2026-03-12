@@ -205,6 +205,87 @@ CREATE POLICY "sessions_service_upd" ON public.sessions FOR UPDATE
   USING (current_setting('role') = 'service_role');
 
 -- ============================================================
+-- 5c. github_push_approvals
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.github_push_approvals (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id            uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  request_channel_id  uuid REFERENCES public.channels(id) ON DELETE SET NULL,
+  requested_by_uid    text,
+  status              text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','used','expired')),
+  payload_hash        text NOT NULL,
+  branch              text NOT NULL DEFAULT 'main',
+  commit_message      text NOT NULL,
+  files               jsonb NOT NULL DEFAULT '[]',
+  delete_files        jsonb NOT NULL DEFAULT '[]',
+  build_job_id        uuid,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  expires_at          timestamptz NOT NULL,
+  approved_by_uid     text,
+  approved_at         timestamptz,
+  rejected_at         timestamptz,
+  used_at             timestamptz
+);
+ALTER TABLE public.github_push_approvals
+  ADD COLUMN IF NOT EXISTS build_job_id uuid;
+CREATE INDEX IF NOT EXISTS github_push_approvals_agent_status ON public.github_push_approvals(agent_id, status);
+CREATE INDEX IF NOT EXISTS github_push_approvals_expires ON public.github_push_approvals(expires_at);
+CREATE INDEX IF NOT EXISTS github_push_approvals_build_job ON public.github_push_approvals(build_job_id);
+ALTER TABLE public.github_push_approvals ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "github_push_approvals_admin_all" ON public.github_push_approvals;
+CREATE POLICY "github_push_approvals_admin_all" ON public.github_push_approvals FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "github_push_approvals_service_select" ON public.github_push_approvals;
+CREATE POLICY "github_push_approvals_service_select" ON public.github_push_approvals FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "github_push_approvals_service_insert" ON public.github_push_approvals;
+CREATE POLICY "github_push_approvals_service_insert" ON public.github_push_approvals FOR INSERT
+  WITH CHECK (current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "github_push_approvals_service_update" ON public.github_push_approvals;
+CREATE POLICY "github_push_approvals_service_update" ON public.github_push_approvals FOR UPDATE
+  USING (current_setting('role') = 'service_role');
+
+-- ============================================================
+-- 5d. github_build_jobs
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.github_build_jobs (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id       uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+  channel_id     uuid REFERENCES public.channels(id) ON DELETE SET NULL,
+  requester_uid  text,
+  trace_id       text,
+  sandbox_id     text,
+  status         text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','building','success','failed','expired')),
+  phase          text,
+  last_log       text,
+  preview_url    text,
+  files_hash     text NOT NULL,
+  port           int NOT NULL DEFAULT 3000,
+  metadata       jsonb NOT NULL DEFAULT '{}',
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  started_at     timestamptz,
+  finished_at    timestamptz,
+  expires_at     timestamptz,
+  error_code     text
+);
+CREATE INDEX IF NOT EXISTS github_build_jobs_agent_status ON public.github_build_jobs(agent_id, status);
+CREATE INDEX IF NOT EXISTS github_build_jobs_trace ON public.github_build_jobs(trace_id);
+CREATE INDEX IF NOT EXISTS github_build_jobs_sandbox ON public.github_build_jobs(sandbox_id);
+CREATE INDEX IF NOT EXISTS github_build_jobs_expires ON public.github_build_jobs(expires_at);
+ALTER TABLE public.github_build_jobs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "github_build_jobs_admin_all" ON public.github_build_jobs;
+CREATE POLICY "github_build_jobs_admin_all" ON public.github_build_jobs FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "github_build_jobs_service_select" ON public.github_build_jobs;
+CREATE POLICY "github_build_jobs_service_select" ON public.github_build_jobs FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "github_build_jobs_service_insert" ON public.github_build_jobs;
+CREATE POLICY "github_build_jobs_service_insert" ON public.github_build_jobs FOR INSERT
+  WITH CHECK (current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "github_build_jobs_service_update" ON public.github_build_jobs;
+CREATE POLICY "github_build_jobs_service_update" ON public.github_build_jobs FOR UPDATE
+  USING (current_setting('role') = 'service_role');
+
+-- ============================================================
 -- 6. memories
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.memories (
@@ -363,6 +444,38 @@ CREATE POLICY "events_service_insert" ON public.events FOR INSERT
 DROP POLICY IF EXISTS "events_service_update" ON public.events;
 CREATE POLICY "events_service_update" ON public.events FOR UPDATE
   USING (current_setting('role') = 'service_role');
+
+-- ============================================================
+-- 9b. agent_step_logs (full step replay logs, 7-day retention)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.agent_step_logs (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  trace_id         text NOT NULL,
+  event_id         uuid REFERENCES public.events(id) ON DELETE SET NULL,
+  agent_id         uuid REFERENCES public.agents(id) ON DELETE SET NULL,
+  channel_id       uuid REFERENCES public.channels(id) ON DELETE SET NULL,
+  session_id       uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
+  step_no          int,
+  phase            text NOT NULL CHECK (phase IN ('model','tool')),
+  tool_name        text,
+  tool_input_json  jsonb NOT NULL DEFAULT '[]',
+  tool_output_json jsonb NOT NULL DEFAULT '[]',
+  model_text       text,
+  status           text NOT NULL DEFAULT 'success' CHECK (status IN ('success','failed')),
+  error_message    text,
+  latency_ms       int,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  expires_at       timestamptz NOT NULL DEFAULT (now() + interval '7 days')
+);
+CREATE INDEX IF NOT EXISTS agent_step_logs_trace_created ON public.agent_step_logs(trace_id, created_at);
+CREATE INDEX IF NOT EXISTS agent_step_logs_agent_created ON public.agent_step_logs(agent_id, created_at);
+CREATE INDEX IF NOT EXISTS agent_step_logs_expires ON public.agent_step_logs(expires_at);
+ALTER TABLE public.agent_step_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "agent_step_logs_admin_all" ON public.agent_step_logs;
+CREATE POLICY "agent_step_logs_admin_all" ON public.agent_step_logs FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "agent_step_logs_service_all" ON public.agent_step_logs;
+CREATE POLICY "agent_step_logs_service_all" ON public.agent_step_logs FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
 
 -- ============================================================
 -- 10. skills
@@ -925,6 +1038,8 @@ DROP TRIGGER IF EXISTS subscription_rules_updated_at ON public.subscription_rule
 CREATE TRIGGER subscription_rules_updated_at BEFORE UPDATE ON public.subscription_rules FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 DROP TRIGGER IF EXISTS knowledge_articles_updated_at ON public.knowledge_articles;
 CREATE TRIGGER knowledge_articles_updated_at BEFORE UPDATE ON public.knowledge_articles FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+DROP TRIGGER IF EXISTS github_build_jobs_updated_at ON public.github_build_jobs;
+CREATE TRIGGER github_build_jobs_updated_at BEFORE UPDATE ON public.github_build_jobs FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
 -- RPC: vector similarity search for knowledge chunks
 CREATE OR REPLACE FUNCTION public.match_knowledge_chunks(

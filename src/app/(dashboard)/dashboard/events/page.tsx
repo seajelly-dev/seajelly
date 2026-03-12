@@ -28,7 +28,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { TablePagination } from "@/components/table-pagination";
 import { toast } from "sonner";
-import { RefreshCw, RotateCcw, Radio, Copy, Clock, Webhook, Hand } from "lucide-react";
+import { RefreshCw, RotateCcw, Radio, Copy, Clock, Webhook, Hand, Search } from "lucide-react";
 import {
   TelegramIcon,
   FeishuIcon,
@@ -47,6 +47,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 const STATUS_OPTIONS = [
   "all",
@@ -82,6 +83,37 @@ const SOURCE_LABEL: Record<string, string> = {
 
 const PAGE_SIZE = 20;
 
+interface TraceStep {
+  id: string;
+  trace_id: string;
+  step_no: number | null;
+  phase: "model" | "tool";
+  tool_name: string | null;
+  tool_input_json: unknown;
+  tool_output_json: unknown;
+  model_text: string | null;
+  status: "success" | "failed";
+  error_message: string | null;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+function extractArtifacts(step: TraceStep): { jobId?: string; sandboxId?: string; previewUrl?: string } {
+  const out = step.tool_output_json;
+  const list = Array.isArray(out) ? out : [];
+  const artifacts: { jobId?: string; sandboxId?: string; previewUrl?: string } = {};
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const payload = (rec.output ?? rec.result) as Record<string, unknown> | undefined;
+    if (!payload || typeof payload !== "object") continue;
+    if (!artifacts.jobId && typeof payload.jobId === "string") artifacts.jobId = payload.jobId;
+    if (!artifacts.sandboxId && typeof payload.sandboxId === "string") artifacts.sandboxId = payload.sandboxId;
+    if (!artifacts.previewUrl && typeof payload.previewUrl === "string") artifacts.previewUrl = payload.previewUrl;
+  }
+  return artifacts;
+}
+
 export default function EventsPage() {
   const t = useT();
   const [events, setEvents] = useState<AgentEvent[]>([]);
@@ -90,6 +122,15 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedError, setSelectedError] = useState<string | null>(null);
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [traceSteps, setTraceSteps] = useState<TraceStep[]>([]);
+  const [traceTotal, setTraceTotal] = useState(0);
+  const [traceLoading, setTraceLoading] = useState(false);
+  const [traceToolFilter, setTraceToolFilter] = useState("");
+  const [traceStatusFilter, setTraceStatusFilter] = useState("all");
+  const [traceHasErrorFilter, setTraceHasErrorFilter] = useState("all");
+  const [traceMinLatency, setTraceMinLatency] = useState("");
+  const [traceMaxLatency, setTraceMaxLatency] = useState("");
 
   const fetchEvents = useCallback(
     async (p: number) => {
@@ -129,6 +170,43 @@ export default function EventsPage() {
     [statusFilter, t]
   );
 
+  const fetchTraceSteps = useCallback(
+    async (traceId: string) => {
+      setTraceLoading(true);
+      try {
+        const params = new URLSearchParams({
+          trace_id: traceId,
+          page: "1",
+          page_size: "200",
+        });
+        if (traceToolFilter.trim()) params.set("tool_name", traceToolFilter.trim());
+        if (traceStatusFilter !== "all") params.set("status", traceStatusFilter);
+        if (traceHasErrorFilter === "yes") params.set("has_error", "true");
+        if (traceHasErrorFilter === "no") params.set("has_error", "false");
+        if (traceMinLatency.trim()) params.set("min_latency_ms", traceMinLatency.trim());
+        if (traceMaxLatency.trim()) params.set("max_latency_ms", traceMaxLatency.trim());
+
+        const resp = await fetch(`/api/admin/trace-steps?${params.toString()}`, {
+          method: "GET",
+          cache: "no-store",
+        });
+        const json = (await resp.json()) as { steps?: TraceStep[]; total?: number; error?: string };
+        if (!resp.ok) {
+          throw new Error(json.error || "Failed to load trace steps");
+        }
+        setTraceSteps(json.steps ?? []);
+        setTraceTotal(json.total ?? 0);
+      } catch (error) {
+        setTraceSteps([]);
+        setTraceTotal(0);
+        toast.error(error instanceof Error ? error.message : "Failed to load trace steps");
+      } finally {
+        setTraceLoading(false);
+      }
+    },
+    [traceStatusFilter, traceToolFilter, traceHasErrorFilter, traceMinLatency, traceMaxLatency]
+  );
+
   useEffect(() => {
     setPage(1);
   }, [statusFilter]);
@@ -137,6 +215,11 @@ export default function EventsPage() {
     fetchEvents(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, statusFilter]);
+
+  useEffect(() => {
+    if (!selectedTraceId) return;
+    fetchTraceSteps(selectedTraceId);
+  }, [selectedTraceId, traceToolFilter, traceStatusFilter, traceHasErrorFilter, traceMinLatency, traceMaxLatency, fetchTraceSteps]);
 
   const handleReplay = async (eventId: string) => {
     const supabase = createClient();
@@ -158,6 +241,15 @@ export default function EventsPage() {
       () => toast.success(t("events.copySuccess")),
       () => toast.error(t("events.copyFailed"))
     );
+  };
+
+  const openTraceReview = (traceId: string) => {
+    setTraceToolFilter("");
+    setTraceStatusFilter("all");
+    setTraceHasErrorFilter("all");
+    setTraceMinLatency("");
+    setTraceMaxLatency("");
+    setSelectedTraceId(traceId);
   };
 
   const statusVariant = (status: string) => {
@@ -249,7 +341,13 @@ export default function EventsPage() {
                     {events.map((e) => (
                       <TableRow key={e.id}>
                         <TableCell className="font-mono text-xs">
-                          {e.trace_id.slice(0, 8)}
+                          <button
+                            type="button"
+                            className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+                            onClick={() => openTraceReview(e.trace_id)}
+                          >
+                            {e.trace_id.slice(0, 8)}
+                          </button>
                         </TableCell>
                         <TableCell>
                           <SourceCell source={e.source} />
@@ -300,6 +398,155 @@ export default function EventsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!selectedTraceId} onOpenChange={(open) => !open && setSelectedTraceId(null)}>
+        <DialogContent className="sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>
+              Trace Review · {selectedTraceId?.slice(0, 12)}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-60 flex-1">
+              <Search className="pointer-events-none absolute left-2 top-2.5 size-4 text-muted-foreground" />
+              <Input
+                value={traceToolFilter}
+                onChange={(e) => setTraceToolFilter(e.target.value)}
+                className="pl-8"
+                placeholder="Filter by tool name"
+              />
+            </div>
+            <Select value={traceStatusFilter} onValueChange={(v) => setTraceStatusFilter(v ?? "all")}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All status</SelectItem>
+                <SelectItem value="success">Success</SelectItem>
+                <SelectItem value="failed">Failed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={traceHasErrorFilter} onValueChange={(v) => setTraceHasErrorFilter(v ?? "all")}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Error" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All errors</SelectItem>
+                <SelectItem value="yes">Only with error</SelectItem>
+                <SelectItem value="no">Only without error</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              className="w-28"
+              inputMode="numeric"
+              placeholder="min ms"
+              value={traceMinLatency}
+              onChange={(e) => setTraceMinLatency(e.target.value.replace(/[^\d]/g, ""))}
+            />
+            <Input
+              className="w-28"
+              inputMode="numeric"
+              placeholder="max ms"
+              value={traceMaxLatency}
+              onChange={(e) => setTraceMaxLatency(e.target.value.replace(/[^\d]/g, ""))}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => selectedTraceId && fetchTraceSteps(selectedTraceId)}
+            >
+              Refresh
+            </Button>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {traceTotal} steps
+            </span>
+          </div>
+          <div className="max-h-[65vh] overflow-y-auto rounded-md border">
+            {traceLoading ? (
+              <div className="space-y-2 p-4">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-20 w-full" />
+                ))}
+              </div>
+            ) : traceSteps.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">No steps found for this trace.</div>
+            ) : (
+              <div className="divide-y">
+                {traceSteps.map((step) => {
+                  const artifacts = extractArtifacts(step);
+                  const toolInputText = JSON.stringify(step.tool_input_json ?? [], null, 2);
+                  const toolOutputText = JSON.stringify(step.tool_output_json ?? [], null, 2);
+                  const modelText = step.model_text ?? "";
+                  return (
+                    <div key={step.id} className="space-y-3 p-4">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <Badge variant={step.status === "failed" ? "destructive" : "default"}>
+                          {step.status}
+                        </Badge>
+                        <Badge variant="secondary">
+                          step #{step.step_no ?? "-"}
+                        </Badge>
+                        <Badge variant="outline">
+                          {step.phase}
+                        </Badge>
+                        {step.tool_name ? (
+                          <span className="font-mono">{step.tool_name}</span>
+                        ) : null}
+                        <span className="ml-auto text-muted-foreground">
+                          {step.latency_ms ?? 0} ms · {new Date(step.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      {(artifacts.jobId || artifacts.sandboxId || artifacts.previewUrl) ? (
+                        <div className="rounded-md bg-muted/50 p-3 text-xs">
+                          {artifacts.jobId ? <div>job_id: <span className="font-mono">{artifacts.jobId}</span></div> : null}
+                          {artifacts.sandboxId ? <div>sandbox_id: <span className="font-mono">{artifacts.sandboxId}</span></div> : null}
+                          {artifacts.previewUrl ? (
+                            <div>
+                              preview_url:{" "}
+                              <a className="underline" href={artifacts.previewUrl} target="_blank" rel="noreferrer">
+                                {artifacts.previewUrl}
+                              </a>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {step.error_message ? (
+                        <div className="rounded-md bg-destructive/10 p-3 text-xs text-destructive">
+                          {step.error_message}
+                        </div>
+                      ) : null}
+                      {modelText ? (
+                        <div className="rounded-md bg-muted/40 p-3">
+                          <div className="mb-1 text-xs text-muted-foreground">model_text</div>
+                          <pre className="max-h-48 overflow-auto whitespace-pre-wrap wrap-break-word font-mono text-xs">
+                            {modelText.length > 6000 ? `${modelText.slice(0, 6000)}\n...<truncated>` : modelText}
+                          </pre>
+                        </div>
+                      ) : null}
+                      {toolInputText !== "[]" ? (
+                        <div className="rounded-md bg-muted/40 p-3">
+                          <div className="mb-1 text-xs text-muted-foreground">tool_input_json</div>
+                          <pre className="max-h-56 overflow-auto whitespace-pre-wrap wrap-break-word font-mono text-xs">
+                            {toolInputText.length > 8000 ? `${toolInputText.slice(0, 8000)}\n...<truncated>` : toolInputText}
+                          </pre>
+                        </div>
+                      ) : null}
+                      {toolOutputText !== "[]" ? (
+                        <div className="rounded-md bg-muted/40 p-3">
+                          <div className="mb-1 text-xs text-muted-foreground">tool_output_json</div>
+                          <pre className="max-h-56 overflow-auto whitespace-pre-wrap wrap-break-word font-mono text-xs">
+                            {toolOutputText.length > 8000 ? `${toolOutputText.slice(0, 8000)}\n...<truncated>` : toolOutputText}
+                          </pre>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!selectedError} onOpenChange={(open) => !open && setSelectedError(null)}>
         <DialogContent className="sm:max-w-2xl">

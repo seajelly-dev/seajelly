@@ -8,7 +8,9 @@ function getSupabase() {
   );
 }
 
-const LOCK_DURATION_SECONDS = 120;
+// Keep lock longer than the agent loop max wall time (240s)
+// to avoid duplicate claims while a long workflow is still running.
+const LOCK_DURATION_SECONDS = 360;
 const BATCH_SIZE = 5;
 
 export async function claimPendingEvents(): Promise<AgentEvent[]> {
@@ -39,6 +41,20 @@ export async function claimPendingEvents(): Promise<AgentEvent[]> {
     .select("*");
 
   return (claimed as AgentEvent[]) ?? [];
+}
+
+export async function renewEventLock(
+  eventId: string,
+  extendSeconds: number = LOCK_DURATION_SECONDS
+): Promise<void> {
+  if (!eventId) return;
+  const supabase = getSupabase();
+  const lockedUntil = new Date(Date.now() + extendSeconds * 1000).toISOString();
+  await supabase
+    .from("events")
+    .update({ locked_until: lockedUntil })
+    .eq("id", eventId)
+    .eq("status", "processing");
 }
 
 export async function markProcessed(eventId: string) {

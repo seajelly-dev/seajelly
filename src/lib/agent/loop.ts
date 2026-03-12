@@ -11,6 +11,7 @@ import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
 import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText, humanizeAgentError } from "@/lib/i18n/bot";
 import { checkSubscription } from "@/lib/subscription/check";
 import type { Locale } from "@/lib/i18n/types";
+import { renewEventLock } from "@/lib/events/queue";
 
 interface LoopResult {
   success: boolean;
@@ -90,6 +91,106 @@ function extractToolNamesFromResult(result: unknown): Set<string> {
   return names;
 }
 
+const GITHUB_WORKFLOW_TOOLS = [
+  "github_read_file",
+  "github_list_files",
+  "github_build_verify",
+  "github_build_status",
+  "github_request_push_approval",
+  "github_push_approval_status",
+  "github_commit_push",
+] as const;
+
+const STEP_PAYLOAD_MAX_CHARS = 64 * 1024;
+
+function hasGithubWorkflowIntent(messageText: string): boolean {
+  const t = messageText.toLowerCase();
+  if (!t.trim()) return false;
+  const keywords = [
+    "github",
+    "repo",
+    "repository",
+    "commit",
+    "push",
+    "pull request",
+    "pr",
+    "build",
+    "deploy",
+    "pipeline",
+    "构建",
+    "部署",
+    "仓库",
+    "代码修改",
+    "提交",
+    "自进化",
+    "验证构建",
+  ];
+  return keywords.some((k) => t.includes(k));
+}
+
+function redactSecrets(input: unknown): unknown {
+  const sensitiveKey = /(token|secret|apikey|api_key|password|authorization|bearer)/i;
+  if (Array.isArray(input)) {
+    return input.map((v) => redactSecrets(v));
+  }
+  if (input && typeof input === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+      if (sensitiveKey.test(k)) {
+        out[k] = "[REDACTED]";
+      } else if (typeof v === "string" && v.length > 0 && sensitiveKey.test(v)) {
+        out[k] = "[REDACTED]";
+      } else {
+        out[k] = redactSecrets(v);
+      }
+    }
+    return out;
+  }
+  return input;
+}
+
+function trimPayload(input: unknown): unknown {
+  try {
+    const redacted = redactSecrets(input);
+    const text = JSON.stringify(redacted);
+    if (text.length <= STEP_PAYLOAD_MAX_CHARS) return redacted;
+    return {
+      _truncated: true,
+      _original_length: text.length,
+      _max_length: STEP_PAYLOAD_MAX_CHARS,
+      _preview: text.slice(0, STEP_PAYLOAD_MAX_CHARS),
+    };
+  } catch {
+    return { _unserializable: true };
+  }
+}
+
+function extractBuildMetaFromResult(result: unknown): {
+  jobId?: string;
+  sandboxId?: string;
+  phase?: string;
+  status?: string;
+} {
+  const root = result as Record<string, unknown>;
+  const steps = Array.isArray(root.steps) ? root.steps : [];
+  const meta: { jobId?: string; sandboxId?: string; phase?: string; status?: string } = {};
+  for (const step of steps) {
+    if (!step || typeof step !== "object") continue;
+    const toolResults = Array.isArray((step as Record<string, unknown>).toolResults)
+      ? ((step as Record<string, unknown>).toolResults as Array<Record<string, unknown>>)
+      : [];
+    for (const tr of toolResults) {
+      const out = (tr.output ?? tr.result) as Record<string, unknown> | undefined;
+      if (!out || typeof out !== "object") continue;
+      if (typeof out.jobId === "string") meta.jobId = out.jobId;
+      if (typeof out.sandboxId === "string") meta.sandboxId = out.sandboxId;
+      if (typeof out.phase === "string") meta.phase = out.phase;
+      if (typeof out.status === "string") meta.status = out.status;
+    }
+  }
+  return meta;
+}
+
 export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
   const traceId = event.trace_id;
 
@@ -101,6 +202,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
   const startTime = Date.now();
   let mcpResult: MCPResult | null = null;
+  let lockRenewTimer: ReturnType<typeof setInterval> | null = null;
 
   const platform = resolvePlatform(event);
   let sender: PlatformSender | null = null;
@@ -111,6 +213,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     sender = await getSenderForAgent(event.agent_id, platform);
+
 
     // QQ Bot requires msg_id/event_id for passive replies
     if (platform === "qqbot" && "setReplyContext" in sender) {
@@ -647,6 +750,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       sender,
       platformChatId,
       platform,
+      traceId,
     });
 
     // ── Filter tools by tools_config (least-privilege enforcement) ──
@@ -858,7 +962,15 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         "You may still write code snippets as text for the user to run themselves.";
     }
 
-    const allGithubToolKeys = ["github_read_file", "github_list_files", "github_build_verify", "github_build_status", "github_commit_push"];
+    const allGithubToolKeys = [
+      "github_read_file",
+      "github_list_files",
+      "github_build_verify",
+      "github_build_status",
+      "github_request_push_approval",
+      "github_push_approval_status",
+      "github_commit_push",
+    ];
     const githubToolNames = Object.keys(tools).filter((n) => allGithubToolKeys.includes(n));
     if (githubToolNames.length > 0) {
       systemPrompt +=
@@ -893,6 +1005,16 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         "- If the tool call fails, report the error honestly instead of faking a result.";
     }
 
+    if (event.id) {
+      lockRenewTimer = setInterval(() => {
+        renewEventLock(event.id, 360).catch(() => {});
+      }, 60_000);
+    }
+
+    const githubWorkflowIntent = hasGithubWorkflowIntent(messageText);
+    const githubActiveTools = GITHUB_WORKFLOW_TOOLS.filter((name) => Object.keys(tools).includes(name));
+    const runWithGithubFocus = githubWorkflowIntent && githubActiveTools.length > 0;
+
     const deadline = startTime + AGENT_LIMITS.MAX_WALL_TIME_MS;
     const abortController = new AbortController();
     const timer = setTimeout(
@@ -906,18 +1028,87 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }, 4000);
 
     const toolNames = Object.keys(tools);
-    console.log(`[agent-loop] trace=${traceId} agent=${typedAgent.name} model=${typedAgent.model} tools=[${toolNames.join(",")}] toolCount=${toolNames.length} systemPromptLen=${systemPrompt.length}`);
+    console.log(
+      `[agent-loop] trace=${traceId} agent=${typedAgent.name} model=${typedAgent.model} tools=[${toolNames.join(",")}] toolCount=${toolNames.length} systemPromptLen=${systemPrompt.length} githubFocus=${runWithGithubFocus}`,
+    );
 
     let result;
+    let stepCounter = 0;
+    let lastStepTs = Date.now();
     try {
       result = await generateText({
         model,
         system: systemPrompt || undefined,
         messages,
         tools,
+        ...(runWithGithubFocus
+          ? {
+              activeTools: githubActiveTools as never,
+              toolChoice: "required" as const,
+            }
+          : {}),
         stopWhen: stepCountIs(AGENT_LIMITS.MAX_STEPS),
         maxOutputTokens: AGENT_LIMITS.MAX_TOKENS,
         abortSignal: abortController.signal,
+        onStepFinish: async (step) => {
+          try {
+            const rec = step as unknown as Record<string, unknown>;
+            const toolCalls = Array.isArray(rec.toolCalls) ? rec.toolCalls : [];
+            const toolResults = Array.isArray(rec.toolResults) ? rec.toolResults : [];
+            const names = [
+              ...toolCalls.map((c) => (c && typeof c === "object" ? (c as Record<string, unknown>).toolName : "")).filter((v) => typeof v === "string" && v.length > 0),
+              ...toolResults.map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>).toolName : "")).filter((v) => typeof v === "string" && v.length > 0),
+            ] as string[];
+            const phase = toolCalls.length > 0 || toolResults.length > 0 ? "tool" : "model";
+            const modelText = typeof rec.text === "string" ? rec.text : "";
+            const finishReason = typeof rec.finishReason === "string" ? rec.finishReason : "done";
+            const hasToolError = toolResults.some((r) => {
+              if (!r || typeof r !== "object") return false;
+              const out = ((r as Record<string, unknown>).output ??
+                (r as Record<string, unknown>).result) as Record<string, unknown> | undefined;
+              return Boolean(out && typeof out === "object" && out.success === false);
+            });
+            const status = finishReason === "error" || hasToolError ? "failed" : "success";
+            const toolError = toolResults.find((r) => {
+              if (!r || typeof r !== "object") return false;
+              const out = ((r as Record<string, unknown>).output ??
+                (r as Record<string, unknown>).result) as Record<string, unknown> | undefined;
+              return Boolean(out && typeof out === "object" && out.success === false);
+            }) as Record<string, unknown> | undefined;
+            const toolErrorOutput = (toolError
+              ? ((toolError.output ?? toolError.result) as Record<string, unknown> | undefined)
+              : undefined);
+            const errorMessage =
+              status === "failed" && toolErrorOutput && typeof toolErrorOutput.error === "string"
+                ? toolErrorOutput.error
+                : finishReason === "error"
+                  ? "Model step failed"
+                  : null;
+            stepCounter += 1;
+            const now = Date.now();
+            const latency = Math.max(0, now - lastStepTs);
+            lastStepTs = now;
+            const row = {
+              trace_id: traceId,
+              event_id: event.id ?? null,
+              agent_id: typedAgent.id,
+              channel_id: channel?.id ?? null,
+              session_id: session.id,
+              step_no: typeof rec.stepNumber === "number" ? rec.stepNumber + 1 : stepCounter,
+              phase,
+              tool_name: names.length > 0 ? names.join(",") : null,
+              tool_input_json: trimPayload(toolCalls),
+              tool_output_json: trimPayload(toolResults),
+              model_text: modelText.length > STEP_PAYLOAD_MAX_CHARS ? modelText.slice(0, STEP_PAYLOAD_MAX_CHARS) : modelText,
+              status,
+              error_message: errorMessage,
+              latency_ms: latency,
+            };
+            await supabase.from("agent_step_logs").insert(row);
+          } catch {
+            // non-blocking: step log should never break main agent flow
+          }
+        },
       });
     } catch (genErr) {
       clearInterval(typingInterval);
@@ -934,13 +1125,24 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     const calledToolNames = extractToolNamesFromResult(result);
-    console.log(`[agent-loop] trace=${traceId} calledTools=[${[...calledToolNames].join(",")}] steps=${(result as unknown as Record<string, unknown>).steps ? ((result as unknown as Record<string, unknown>).steps as unknown[]).length : 0} textLen=${(result.text || "").length}`);
+    const stepsCount = (result as unknown as Record<string, unknown>).steps
+      ? ((result as unknown as Record<string, unknown>).steps as unknown[]).length
+      : 0;
+    const buildMeta = extractBuildMetaFromResult(result);
+    console.log(
+      `[agent-loop] trace=${traceId} calledTools=[${[...calledToolNames].join(",")}] steps=${stepsCount} textLen=${(result.text || "").length} jobId=${buildMeta.jobId ?? ""} sandboxId=${buildMeta.sandboxId ?? ""} phase=${buildMeta.phase ?? ""} status=${buildMeta.status ?? ""}`,
+    );
     const roomToolCalled =
       calledToolNames.has("create_chat_room") ||
       calledToolNames.has("close_chat_room") ||
       calledToolNames.has("reopen_chat_room");
 
-    const reply = roomToolCalled ? "" : (result.text || t("noResponseGenerated"));
+    let reply = roomToolCalled ? "" : (result.text || t("noResponseGenerated"));
+    if (!roomToolCalled && stepsCount >= AGENT_LIMITS.MAX_STEPS && (!result.text || !result.text.trim())) {
+      reply = locale === "zh"
+        ? "本轮任务已达到执行步骤上限，流程可能仍在进行中。请继续发送“查询构建状态”，我会继续跟进。"
+        : "This run reached the step limit and may still be in progress. Please ask me to continue checking build status.";
+    }
 
     const usageDurationMs = Date.now() - startTime;
     supabase
@@ -1013,6 +1215,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       );
     }
 
+    if (lockRenewTimer) clearInterval(lockRenewTimer);
     if (mcpResult) await mcpResult.cleanup().catch(() => {});
     return { success: true, reply: roomToolCalled ? "[room_tool_handled]" : reply, traceId };
   } catch (err) {
@@ -1031,6 +1234,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
 
+    if (lockRenewTimer) clearInterval(lockRenewTimer);
     if (mcpResult) await mcpResult.cleanup().catch(() => {});
     return { success: false, error: errMsg, traceId };
   }

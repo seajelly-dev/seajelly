@@ -153,6 +153,7 @@ export async function saveHTMLPreview(
 const BUILD_TIMEOUT_MS = 55 * 60 * 1000;
 const RESULT_FILE = "/home/user/.build_result.json";
 const AUTO_COMMAND = "__AUTO__";
+const BUILD_STALL_TIMEOUT_MS = 15 * 60 * 1000;
 
 function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -232,6 +233,7 @@ write_status() {
   python - "$1" "$2" "$3" "$4" "$5" "$RESULT_FILE" <<'PY'
 import json
 import sys
+from datetime import datetime, timezone
 
 status, phase, log, preview, preview_port, result_file = sys.argv[1:7]
 payload = {
@@ -239,6 +241,7 @@ payload = {
     "phase": phase,
     "log": log,
     "preview": preview == "true",
+    "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
 }
 if preview_port != "null":
     payload["previewPort"] = int(preview_port)
@@ -429,6 +432,8 @@ export interface BuildStatus {
   phase?: string;
   log?: string;
   previewUrl?: string;
+  errorCode?: string;
+  updatedAt?: string;
 }
 
 export async function checkBuildStatus(
@@ -444,6 +449,7 @@ export async function checkBuildStatus(
       status: "failed",
       phase: "connect",
       log: err instanceof Error ? err.message : "Sandbox is no longer reachable",
+      errorCode: "sandbox_unreachable",
     };
   }
 
@@ -456,6 +462,7 @@ export async function checkBuildStatus(
       log?: string;
       preview?: boolean;
       previewPort?: number;
+      updatedAt?: string;
     };
 
     if (result.status === "success") {
@@ -465,14 +472,29 @@ export async function checkBuildStatus(
         phase: result.phase,
         log: result.log,
         previewUrl: result.preview ? `https://${sbx.getHost(previewPort)}` : undefined,
+        updatedAt: result.updatedAt,
       };
     }
 
     if (result.status === "building") {
+      if (result.updatedAt) {
+        const updatedAtMs = Date.parse(result.updatedAt);
+        if (Number.isFinite(updatedAtMs) && Date.now() - updatedAtMs > BUILD_STALL_TIMEOUT_MS) {
+          await sbx.kill().catch(() => {});
+          return {
+            status: "failed",
+            phase: result.phase || "building",
+            log: `Build appears stalled for more than ${Math.floor(BUILD_STALL_TIMEOUT_MS / 60000)} minutes.`,
+            errorCode: "build_stalled",
+            updatedAt: result.updatedAt,
+          };
+        }
+      }
       return {
         status: "building",
         phase: result.phase,
         log: result.log,
+        updatedAt: result.updatedAt,
       };
     }
 
@@ -481,12 +503,15 @@ export async function checkBuildStatus(
       status: "failed",
       phase: result.phase,
       log: result.log,
+      errorCode: "build_failed",
+      updatedAt: result.updatedAt,
     };
   } catch (err) {
     return {
       status: "failed",
       phase: "status",
       log: err instanceof Error ? err.message : "Failed to read build status",
+      errorCode: "status_read_failed",
     };
   }
 }

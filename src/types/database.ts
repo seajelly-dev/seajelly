@@ -271,6 +271,58 @@ export interface AgentEvent {
   processed_at: string | null;
 }
 
+export type GithubBuildJobStatus =
+  | "pending"
+  | "building"
+  | "success"
+  | "failed"
+  | "expired";
+
+export interface GithubBuildJob {
+  id: string;
+  agent_id: string;
+  channel_id: string | null;
+  requester_uid: string | null;
+  trace_id: string | null;
+  sandbox_id: string | null;
+  status: GithubBuildJobStatus;
+  phase: string | null;
+  last_log: string | null;
+  preview_url: string | null;
+  files_hash: string;
+  port: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  expires_at: string | null;
+  error_code: string | null;
+}
+
+export type AgentStepPhase = "model" | "tool";
+export type AgentStepStatus = "success" | "failed";
+
+export interface AgentStepLog {
+  id: string;
+  trace_id: string;
+  event_id: string | null;
+  agent_id: string | null;
+  channel_id: string | null;
+  session_id: string | null;
+  step_no: number | null;
+  phase: AgentStepPhase;
+  tool_name: string | null;
+  tool_input_json: unknown;
+  tool_output_json: unknown;
+  model_text: string | null;
+  status: AgentStepStatus;
+  error_message: string | null;
+  latency_ms: number | null;
+  created_at: string;
+  expires_at: string;
+}
+
 export interface Skill {
   id: string;
   name: string;

@@ -25,6 +25,12 @@ import {
   listTree as githubListTree,
   createCommitAndPush,
 } from "@/lib/github/api";
+import {
+  createGithubBuildJob,
+  getGithubBuildJob,
+  syncGithubBuildJobStatus,
+  updateGithubBuildJob,
+} from "@/lib/github/jobs";
 import type { PlatformSender } from "@/lib/platform/types";
 import { botT, getBotLocaleOrDefault } from "@/lib/i18n/bot";
 import type { Locale } from "@/lib/i18n/types";
@@ -69,6 +75,7 @@ interface ToolsOptions {
   platformChatId: string;
   platform: string;
   locale?: Locale;
+  traceId?: string;
 }
 
 function computePushPayloadHash(params: {
@@ -88,8 +95,85 @@ function computePushPayloadHash(params: {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-export function createAgentTools({ agentId, channelId, isOwner, sender, platformChatId, platform }: ToolsOptions) {
+function computeBuildFilesHash(params: {
+  files: { path: string; content: string }[];
+  delete_files?: string[];
+}): string {
+  const files = [...params.files].sort((a, b) => a.path.localeCompare(b.path));
+  const deleteFiles = [...(params.delete_files ?? [])].sort();
+  return createHash("sha256")
+    .update(JSON.stringify({ files, delete_files: deleteFiles }))
+    .digest("hex");
+}
+
+export function createAgentTools({ agentId, channelId, isOwner, sender, platformChatId, platform, traceId }: ToolsOptions) {
   const supabase = getSupabase();
+
+  function githubPipelineGuardError(): string | null {
+    const raw = process.env.GITHUB_PIPELINE_ALLOWLIST?.trim();
+    if (!raw) return null;
+    const allowed = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    if (allowed.includes(agentId)) return null;
+    return "GitHub pipeline is in gray release for selected agents only.";
+  }
+
+  function redactAudit(value: unknown): unknown {
+    const sensitive = /(token|secret|apikey|api_key|password|authorization|bearer)/i;
+    if (Array.isArray(value)) return value.map((v) => redactAudit(v));
+    if (value && typeof value === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        out[k] = sensitive.test(k) ? "[REDACTED]" : redactAudit(v);
+      }
+      return out;
+    }
+    return value;
+  }
+
+  function truncateAudit(value: unknown, maxChars = 8 * 1024): unknown {
+    try {
+      const redacted = redactAudit(value);
+      const text = JSON.stringify(redacted);
+      if (text.length <= maxChars) return redacted;
+      return {
+        _truncated: true,
+        _original_length: text.length,
+        _preview: text.slice(0, maxChars),
+      };
+    } catch {
+      return { _unserializable: true };
+    }
+  }
+
+  async function writePipelineAudit(entry: {
+    toolName: string;
+    input?: unknown;
+    output?: unknown;
+    status: "success" | "failed";
+    errorMessage?: string;
+    latencyMs?: number;
+  }): Promise<void> {
+    try {
+      await supabase.from("agent_step_logs").insert({
+        trace_id: traceId ?? `manual-${Date.now()}`,
+        event_id: null,
+        agent_id: agentId,
+        channel_id: channelId ?? null,
+        session_id: null,
+        step_no: null,
+        phase: "tool",
+        tool_name: entry.toolName,
+        tool_input_json: truncateAudit(entry.input ?? {}),
+        tool_output_json: truncateAudit(entry.output ?? {}),
+        model_text: null,
+        status: entry.status,
+        error_message: entry.errorMessage ?? null,
+        latency_ms: entry.latencyMs ?? null,
+      });
+    } catch {
+      // non-blocking
+    }
+  }
 
   function getTaskJobName(taskConfig: unknown): string | null {
     if (!taskConfig || typeof taskConfig !== "object") return null;
@@ -809,8 +893,8 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
     github_build_verify: tool({
       description:
         "Clone the project repo into an E2B sandbox, apply code changes, and run a build to verify. " +
-        "This is an ASYNC operation — it immediately returns a sandbox_id. " +
-        "You MUST then call github_build_status to poll for the result. " +
+        "This is an ASYNC operation — it immediately returns a persistent job_id (and sandbox_id when available). " +
+        "You MUST then call github_build_status with job_id to poll for the result. " +
         "Use this to validate code changes before committing to the main branch. " +
         "Requires E2B_API_KEY, GITHUB_TOKEN, and GITHUB_REPO to be configured.",
       inputSchema: z.object({
@@ -825,6 +909,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         build_cmd: z.string().optional().describe("Custom build command, default: npm run build"),
         serve_cmd: z.string().optional().describe("Custom serve command for previewing the build output"),
         port: z.number().optional().describe("Port for the preview server, default: 3000"),
+        ttl_minutes: z.number().optional().describe("Job TTL in minutes, default: 60, max: 180"),
       }),
       execute: async (params: {
         files: { path: string; content: string }[];
@@ -833,7 +918,22 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         build_cmd?: string;
         serve_cmd?: string;
         port?: number;
+        ttl_minutes?: number;
       }) => {
+        const startedAtMs = Date.now();
+        const guardErr = githubPipelineGuardError();
+        if (guardErr) {
+          await writePipelineAudit({
+            toolName: "github_build_verify",
+            input: params,
+            output: { blocked: true },
+            status: "failed",
+            errorMessage: guardErr,
+            latencyMs: Date.now() - startedAtMs,
+          });
+          return { success: false, error: guardErr };
+        }
+
         const apiKey = await getE2BApiKey();
         if (!apiKey) {
           return { success: false, error: "E2B_API_KEY not configured." };
@@ -842,6 +942,40 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         if (!token || !repo) {
           return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
         }
+        const expiresMinutes = Math.max(10, Math.min(180, Math.floor(params.ttl_minutes ?? 60)));
+        const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000).toISOString();
+        const filesHash = computeBuildFilesHash({
+          files: params.files,
+          delete_files: params.delete_files,
+        });
+
+        let requesterUid: string | null = null;
+        if (channelId) {
+          const { data: ch } = await supabase
+            .from("channels")
+            .select("platform_uid")
+            .eq("id", channelId)
+            .single();
+          requesterUid = (ch?.platform_uid as string | undefined) ?? null;
+        }
+
+        const job = await createGithubBuildJob({
+          agentId,
+          channelId: channelId ?? null,
+          requesterUid,
+          traceId: traceId ?? null,
+          filesHash,
+          port: params.port ?? 3000,
+          expiresAt,
+          metadata: {
+            install_cmd: params.install_cmd ?? null,
+            build_cmd: params.build_cmd ?? null,
+            serve_cmd: params.serve_cmd ?? null,
+            file_count: params.files.length,
+            delete_count: params.delete_files?.length ?? 0,
+          },
+        });
+
         try {
           const { owner, name } = parseRepo(repo);
           const result = await startBuildVerify({
@@ -855,12 +989,56 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
             serveCmd: params.serve_cmd,
             port: params.port,
           });
+          await updateGithubBuildJob(job.id, {
+            status: "building",
+            phase: "clone",
+            sandbox_id: result.sandboxId,
+            started_at: new Date().toISOString(),
+            last_log: "Build started in E2B sandbox",
+          });
+          await writePipelineAudit({
+            toolName: "github_build_verify",
+            input: {
+              job_id: job.id,
+              files_count: params.files.length,
+              delete_count: params.delete_files?.length ?? 0,
+            },
+            output: {
+              jobId: job.id,
+              sandboxId: result.sandboxId,
+              status: "building",
+            },
+            status: "success",
+            latencyMs: Date.now() - startedAtMs,
+          });
           return {
             success: true,
+            jobId: job.id,
             sandboxId: result.sandboxId,
-            message: "Build started. Use github_build_status to check progress.",
+            status: "building",
+            expiresAt,
+            message: "Build started. Use github_build_status with job_id to check progress.",
           };
         } catch (err) {
+          await updateGithubBuildJob(job.id, {
+            status: "failed",
+            phase: "queued",
+            error_code: "build_start_failed",
+            finished_at: new Date().toISOString(),
+            last_log: err instanceof Error ? err.message : "Build start failed",
+          }).catch(() => {});
+          await writePipelineAudit({
+            toolName: "github_build_verify",
+            input: {
+              job_id: job.id,
+              files_count: params.files.length,
+              delete_count: params.delete_files?.length ?? 0,
+            },
+            output: null,
+            status: "failed",
+            errorMessage: err instanceof Error ? err.message : "Build start failed",
+            latencyMs: Date.now() - startedAtMs,
+          });
           return { success: false, error: err instanceof Error ? err.message : "Build start failed" };
         }
       },
@@ -869,20 +1047,58 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
     github_build_status: tool({
       description:
         "Check the status of an async build verification started by github_build_verify. " +
-        "Returns 'building' if still in progress, 'success' with a preview URL, or 'failed' with error logs. " +
+        "Use job_id as the primary identifier. It returns pending/building/success/failed/expired and build metadata. " +
         "Poll this every ~15 seconds after starting a build.",
-      inputSchema: z.object({
-        sandbox_id: z.string().describe("The sandbox ID returned by github_build_verify"),
-        port: z.number().optional().describe("Port the preview server uses, default: 3000"),
-      }),
-      execute: async ({ sandbox_id, port }: { sandbox_id: string; port?: number }) => {
-        const apiKey = await getE2BApiKey();
-        if (!apiKey) {
-          return { success: false, error: "E2B_API_KEY not configured." };
-        }
+      inputSchema: z
+        .object({
+          job_id: z.string().optional().describe("Job ID returned by github_build_verify (preferred)"),
+          sandbox_id: z.string().optional().describe("Legacy fallback sandbox ID"),
+          port: z.number().optional().describe("Port the preview server uses, default: 3000"),
+        })
+        .refine((v) => Boolean(v.job_id || v.sandbox_id), "job_id or sandbox_id is required"),
+      execute: async ({ job_id, sandbox_id, port }: { job_id?: string; sandbox_id?: string; port?: number }) => {
         try {
+          let jobId = job_id ?? null;
+          if (!jobId && sandbox_id) {
+            const { data: row } = await supabase
+              .from("github_build_jobs")
+              .select("id")
+              .eq("sandbox_id", sandbox_id)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            jobId = (row?.id as string | undefined) ?? null;
+          }
+
+          if (jobId) {
+            let job = await getGithubBuildJob(jobId);
+            if (!job) return { success: false, error: "Build job not found." };
+            if (job.status === "pending" || job.status === "building") {
+              job = (await syncGithubBuildJobStatus(job.id)) ?? job;
+            }
+            return {
+              success: true,
+              jobId: job.id,
+              sandboxId: job.sandbox_id,
+              status: job.status,
+              phase: job.phase,
+              log: job.last_log,
+              previewUrl: job.preview_url,
+              errorCode: job.error_code,
+              startedAt: job.started_at,
+              finishedAt: job.finished_at,
+              expiresAt: job.expires_at,
+            };
+          }
+
+          // Backward compatibility path when only sandbox_id is available.
+          if (!sandbox_id) return { success: false, error: "job_id or sandbox_id is required." };
+          const apiKey = await getE2BApiKey();
+          if (!apiKey) {
+            return { success: false, error: "E2B_API_KEY not configured." };
+          }
           const status = await checkBuildStatus(apiKey, sandbox_id, port);
-          return { success: true, ...status };
+          return { success: true, sandboxId: sandbox_id, ...status };
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : "Status check failed" };
         }
@@ -893,7 +1109,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
       description:
         "Request an explicit, one-time owner approval to commit and push code changes to GitHub. " +
         "This sends an Approve/Reject button to the owner and returns an approval_id. " +
-        "You MUST wait until the approval is granted before calling github_commit_push.",
+        "You MUST bind the request to a successful build job and wait until approval is granted before calling github_commit_push.",
       inputSchema: z.object({
         files: z
           .array(z.object({ path: z.string(), content: z.string() }))
@@ -904,6 +1120,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           .describe("Files to delete in this commit"),
         message: z.string().describe("Git commit message"),
         branch: z.string().optional().describe("Target branch, default: main"),
+        build_job_id: z.string().describe("A github_build_verify job_id that has status=success"),
         expires_in_minutes: z
           .number()
           .optional()
@@ -914,8 +1131,23 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         delete_files?: string[];
         message: string;
         branch?: string;
+        build_job_id: string;
         expires_in_minutes?: number;
       }) => {
+        const startedAtMs = Date.now();
+        const guardErr = githubPipelineGuardError();
+        if (guardErr) {
+          await writePipelineAudit({
+            toolName: "github_request_push_approval",
+            input: params,
+            output: { blocked: true },
+            status: "failed",
+            errorMessage: guardErr,
+            latencyMs: Date.now() - startedAtMs,
+          });
+          return { success: false, error: guardErr };
+        }
+
         if (!channelId) {
           return { success: false, error: "No channel context for push approval request." };
         }
@@ -941,9 +1173,22 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         const expiresMinutes = Math.max(1, Math.min(60, Math.floor(params.expires_in_minutes ?? 10)));
         const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000).toISOString();
 
+        const buildJob = await getGithubBuildJob(params.build_job_id);
+        if (!buildJob) return { success: false, error: "Build job not found." };
+        if (buildJob.status !== "success") {
+          return { success: false, error: `Build job not successful (status: ${buildJob.status}).` };
+        }
+        if (buildJob.expires_at && Date.now() > Date.parse(buildJob.expires_at)) {
+          return { success: false, error: "Build job expired." };
+        }
+
         const filePaths = params.files.map((f) => f.path).sort();
         const deletePaths = [...(params.delete_files ?? [])].sort();
         const payloadHash = computePushPayloadHash(params);
+        const filesHash = computeBuildFilesHash({ files: params.files, delete_files: params.delete_files });
+        if (buildJob.files_hash !== filesHash) {
+          return { success: false, error: "Build job does not match current file payload." };
+        }
 
         const { data: inserted, error: insertErr } = await supabase
           .from("github_push_approvals")
@@ -957,6 +1202,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
             commit_message: params.message,
             files: filePaths,
             delete_files: deletePaths,
+            build_job_id: buildJob.id,
             expires_at: expiresAt,
           })
           .select("id")
@@ -976,6 +1222,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           `🚀 *Push Approval Required*\n\n` +
           `*Requested by:* ${requesterName}\n` +
           `*Branch:* \`${branch}\`\n` +
+          `*Build Job:* \`${buildJob.id}\`\n` +
           `*Commit message:* ${params.message}\n\n` +
           (filePaths.length ? `*Files:*\n${filesPreview}${moreFiles}\n\n` : "") +
           (deletePaths.length ? `*Delete:*\n${deletesPreview}${moreDeletes}\n\n` : "") +
@@ -993,12 +1240,42 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
             { parseMode: "Markdown" },
           );
         } catch (err) {
+          await writePipelineAudit({
+            toolName: "github_request_push_approval",
+            input: {
+              build_job_id: buildJob.id,
+              branch,
+              files_count: filePaths.length,
+              delete_count: deletePaths.length,
+            },
+            output: null,
+            status: "failed",
+            errorMessage: err instanceof Error ? err.message : "Failed to send approval request.",
+            latencyMs: Date.now() - startedAtMs,
+          });
           return { success: false, error: err instanceof Error ? err.message : "Failed to send approval request." };
         }
+
+        await writePipelineAudit({
+          toolName: "github_request_push_approval",
+          input: {
+            build_job_id: buildJob.id,
+            branch,
+            files_count: filePaths.length,
+            delete_count: deletePaths.length,
+          },
+          output: {
+            approval_id: inserted.id,
+            expires_at: expiresAt,
+          },
+          status: "success",
+          latencyMs: Date.now() - startedAtMs,
+        });
 
         return {
           success: true,
           approvalId: inserted.id,
+          buildJobId: buildJob.id,
           expiresAt,
           message: "Approval requested from owner. Use github_push_approval_status to check status.",
         };
@@ -1015,7 +1292,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
       execute: async ({ approval_id }: { approval_id: string }) => {
         const { data: row, error } = await supabase
           .from("github_push_approvals")
-          .select("id, status, expires_at, approved_at, rejected_at, used_at")
+          .select("id, status, build_job_id, expires_at, approved_at, rejected_at, used_at")
           .eq("id", approval_id)
           .single();
 
@@ -1035,6 +1312,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         return {
           success: true,
           status: row.status,
+          buildJobId: row.build_job_id,
           expiresAt: row.expires_at,
           approvedAt: row.approved_at,
           rejectedAt: row.rejected_at,
@@ -1068,6 +1346,20 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         branch?: string;
         approval_id: string;
       }) => {
+        const startedAtMs = Date.now();
+        const guardErr = githubPipelineGuardError();
+        if (guardErr) {
+          await writePipelineAudit({
+            toolName: "github_commit_push",
+            input: params,
+            output: { blocked: true },
+            status: "failed",
+            errorMessage: guardErr,
+            latencyMs: Date.now() - startedAtMs,
+          });
+          return { success: false, error: guardErr };
+        }
+
         if (!channelId) {
           return { success: false, error: "No channel context for push." };
         }
@@ -1083,7 +1375,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
 
         const { data: approval, error: approvalErr } = await supabase
           .from("github_push_approvals")
-          .select("id, status, payload_hash, branch, commit_message, expires_at, used_at")
+          .select("id, status, payload_hash, branch, commit_message, build_job_id, expires_at, used_at")
           .eq("id", params.approval_id)
           .single();
         if (approvalErr || !approval) {
@@ -1116,6 +1408,27 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           return { success: false, error: "Approval does not match the proposed file changes." };
         }
 
+        if (!approval.build_job_id) {
+          return { success: false, error: "Approval is not bound to a build job." };
+        }
+        const buildJob = await getGithubBuildJob(approval.build_job_id as string);
+        if (!buildJob) {
+          return { success: false, error: "Bound build job not found." };
+        }
+        if (buildJob.status !== "success") {
+          return { success: false, error: `Bound build job not successful (status: ${buildJob.status}).` };
+        }
+        if (buildJob.expires_at && Date.now() > Date.parse(buildJob.expires_at)) {
+          return { success: false, error: "Bound build job expired." };
+        }
+        const filesHash = computeBuildFilesHash({
+          files: params.files,
+          delete_files: params.delete_files,
+        });
+        if (buildJob.files_hash !== filesHash) {
+          return { success: false, error: "Bound build job does not match file payload hash." };
+        }
+
         const { token, repo } = await getGitHubConfig();
         if (!token || !repo) {
           return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
@@ -1130,10 +1443,35 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
             params.message,
             branch
           );
+          await updateGithubBuildJob(buildJob.id, {
+            metadata: {
+              ...(buildJob.metadata ?? {}),
+              pushed_commit_sha: result.commitSha,
+              pushed_at: new Date().toISOString(),
+              approval_id: params.approval_id,
+              branch,
+            },
+          }).catch(() => {});
           await supabase
             .from("github_push_approvals")
             .update({ status: "used", used_at: new Date().toISOString() })
             .eq("id", params.approval_id);
+          await writePipelineAudit({
+            toolName: "github_commit_push",
+            input: {
+              approval_id: params.approval_id,
+              build_job_id: buildJob.id,
+              branch,
+              files_count: params.files.length,
+              delete_count: params.delete_files?.length ?? 0,
+            },
+            output: {
+              commit_sha: result.commitSha,
+              commit_url: result.commitUrl,
+            },
+            status: "success",
+            latencyMs: Date.now() - startedAtMs,
+          });
           return {
             success: true,
             commitSha: result.commitSha,
@@ -1141,6 +1479,19 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
             message: `Committed and pushed: ${result.commitUrl}`,
           };
         } catch (err) {
+          await writePipelineAudit({
+            toolName: "github_commit_push",
+            input: {
+              approval_id: params.approval_id,
+              branch: params.branch ?? "main",
+              files_count: params.files.length,
+              delete_count: params.delete_files?.length ?? 0,
+            },
+            output: null,
+            status: "failed",
+            errorMessage: err instanceof Error ? err.message : "Push failed",
+            latencyMs: Date.now() - startedAtMs,
+          });
           return { success: false, error: err instanceof Error ? err.message : "Push failed" };
         }
       },
