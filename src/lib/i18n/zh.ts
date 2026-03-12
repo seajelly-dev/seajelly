@@ -164,7 +164,6 @@ const zh: TranslationKeys = {
     recentEvents: "最近事件",
     recentEventsDesc: "所有 Agent 的最近 10 条事件",
     noEvents: "暂无事件。向你的 Telegram Bot 发送消息以开始使用。",
-    refresh: "刷新",
   },
 
   agents: {
@@ -285,7 +284,7 @@ const zh: TranslationKeys = {
     webhookInfo: "Webhook 信息",
     webhookNoBotToken: "未配置 Bot Token，请先添加。",
     webhookNoAppUrl: "服务器未配置 NEXT_PUBLIC_APP_URL。",
-    webhookAutoSet: "Webhook 将在保存后自动设置。",
+    webhookAutoSet: "保存后将自动设置 Webhook。",
   },
 
   sessions: {
@@ -877,7 +876,7 @@ const zh: TranslationKeys = {
     doubaoProxyUrl: "豆包代理地址（旧版）",
     doubaoProxyPlaceholder: "wss://your-proxy.example.com",
     doubaoProxyHint: "旧版模式：直连 WebSocket 代理地址。如果已在「设置」中配置了 Edge Gateway，此字段将被忽略。",
-    doubaoCredentialsHint: "填入火山引擎/字节跳动的 App Key 和 Access Key。配置 Edge Gateway 后，网关会从 Supabase 动态拉取 these 凭据，无需在网关主机上配置任何密钥。",
+    doubaoCredentialsHint: "填入火山引擎/字节跳动的 App Key 和 Access Key。配置 Edge Gateway 后，网关会从 Supabase 动态拉取这些凭据，无需在网关主机上配置任何密钥。",
     configSaved: "配置已保存",
     configSaveFailed: "配置保存失败",
     keySaved: "API 密钥已保存",
