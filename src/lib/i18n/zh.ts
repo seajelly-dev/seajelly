@@ -266,6 +266,7 @@ const zh: TranslationKeys = {
     wecomGatewayHint: "企微自建应用要求 API 调用来自白名单 IP。请先在「设置 → Edge Gateway」中配置网关，然后将网关的公网 IP 添加到企微管理后台的 IP 白名单中。",
     hintSlack: "前往 api.slack.com/apps → Create New App (From scratch) → OAuth & Permissions 添加 Bot Scope：chat:write、im:history、files:read → Install to Workspace → 复制 Bot User OAuth Token (xoxb- 开头) → Basic Information 获取 Signing Secret → Event Subscriptions 启用并填入下方 Webhook URL，订阅 message.im 事件 → App Home 开启 Messages Tab 并允许用户发消息 → Interactivity & Shortcuts 填入同一 Webhook URL。",
     hintQqbot: "前往 q.qq.com → 创建机器人 → 获取 AppID 和 AppSecret → 在开发设置中配置事件回调地址（填入下方 Webhook URL）。",
+    hintWhatsapp: "前往 developers.facebook.com → 创建应用（Business 类型）→ 添加 WhatsApp 产品 → 在 API Setup 获取 Phone Number ID → 在 Business Settings → System Users 生成永久 Access Token → 在 Webhook Configuration 填入下方 Webhook URL 和自定义的 Verify Token → 订阅 messages 字段。",
     credentialKeepHint: "留空则保持现有值",
     channelsTitle: "渠道管理",
     channelsDesc: "为此 Agent 接入 IM 平台。",

@@ -243,6 +243,53 @@ async function handleQQBot(action: string, agentId: string, body: Record<string,
   return NextResponse.json({ error: "Invalid action for qqbot" }, { status: 400 });
 }
 
+async function handleWhatsApp(action: string, agentId: string, body: Record<string, unknown>) {
+  if (action === "get-info") {
+    const db = await createAdminClient();
+    const { data: creds } = await db
+      .from("agent_credentials")
+      .select("credential_type")
+      .eq("agent_id", agentId)
+      .eq("platform", "whatsapp");
+    const types = (creds || []).map((c: { credential_type: string }) => c.credential_type);
+    return NextResponse.json({
+      configured: types.includes("access_token") && types.includes("phone_number_id"),
+      credentials: types,
+      webhook_url: `${body.base_url || ""}/api/webhook/whatsapp/${agentId}`,
+    });
+  }
+  if (action === "test-connection") {
+    const inline = body.inline_credentials as Record<string, string> | undefined;
+    let accessToken: string;
+    let phoneNumberId: string;
+    if (inline?.access_token?.trim() && inline?.phone_number_id?.trim()) {
+      accessToken = inline.access_token.trim();
+      phoneNumberId = inline.phone_number_id.trim();
+    } else {
+      const db = await createAdminClient();
+      const { data: rows } = await db
+        .from("agent_credentials")
+        .select("credential_type, encrypted_value")
+        .eq("agent_id", agentId)
+        .eq("platform", "whatsapp");
+      const { decrypt } = await import("@/lib/crypto/encrypt");
+      const map: Record<string, string> = {};
+      for (const r of rows || []) map[r.credential_type] = decrypt(r.encrypted_value);
+      if (!map.access_token || !map.phone_number_id) throw new Error("WhatsApp credentials not configured");
+      accessToken = map.access_token;
+      phoneNumberId = map.phone_number_id;
+    }
+    const resp = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message || "WhatsApp API error");
+    const displayPhone = data.display_phone_number || data.verified_name || phoneNumberId;
+    return NextResponse.json({ success: true, message: `WhatsApp Business: ${displayPhone}` });
+  }
+  return NextResponse.json({ error: "Invalid action for whatsapp" }, { status: 400 });
+}
+
 async function handleGateway(action: string, body: Record<string, unknown>) {
   if (action === "test-gateway") {
     const gatewayUrl = (body.gateway_url as string)?.trim();
@@ -308,6 +355,8 @@ export async function POST(request: Request) {
         return await handleSlack(action, agent_id, body);
       case "qqbot":
         return await handleQQBot(action, agent_id, body);
+      case "whatsapp":
+        return await handleWhatsApp(action, agent_id, body);
       default:
         return NextResponse.json(
           { error: `Platform "${resolvedPlatform}" admin actions not yet supported` },

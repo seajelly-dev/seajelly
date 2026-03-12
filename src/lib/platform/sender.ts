@@ -9,6 +9,8 @@ import { FeishuAdapter } from "./adapters/feishu";
 import { WeComAdapter } from "./adapters/wecom";
 import { SlackAdapter } from "./adapters/slack";
 import { QQBotAdapter } from "./adapters/qqbot";
+import { WhatsAppAdapter } from "./adapters/whatsapp";
+import { WhatsAppFileDownloader } from "./adapters/whatsapp-file";
 
 export async function getSenderForAgent(
   agentId: string,
@@ -25,6 +27,8 @@ export async function getSenderForAgent(
       return new SlackAdapter(agentId);
     case "qqbot":
       return new QQBotAdapter(agentId);
+    case "whatsapp":
+      return new WhatsAppAdapter(agentId);
     default:
       throw new Error(`Unsupported platform: ${platform}`);
   }
@@ -40,6 +44,8 @@ export function getFileDownloader(platform: string): PlatformFileDownloader {
       return new FeishuFileDownloader();
     case "wecom":
       return new WeComFileDownloader();
+    case "whatsapp":
+      return new WhatsAppFileDownloader();
     default:
       return new NullFileDownloader();
   }

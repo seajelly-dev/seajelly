@@ -52,6 +52,7 @@ import {
   WeComIcon,
   SlackIcon,
   QQBotIcon,
+  WhatsAppIcon,
 } from "@/components/icons/platform-icons";
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -78,7 +79,7 @@ const PRIVILEGED_TOOLS = [
   { key: "tts_speak", label: "tts_speak", desc: "coding.toolTtsSpeak", defaultOn: false },
 ] as const;
 
-type PlatformKey = "telegram" | "feishu" | "wecom" | "slack" | "qqbot";
+type PlatformKey = "telegram" | "feishu" | "wecom" | "slack" | "qqbot" | "whatsapp";
 
 interface PlatformDef {
   key: PlatformKey;
@@ -134,6 +135,16 @@ const PLATFORMS: PlatformDef[] = [
       { name: "app_secret", label: "AppSecret", secret: true },
     ],
   },
+  {
+    key: "whatsapp",
+    label: "WhatsApp",
+    icon: WhatsAppIcon,
+    fields: [
+      { name: "access_token", label: "Access Token", secret: true },
+      { name: "phone_number_id", label: "Phone Number ID", secret: false },
+      { name: "verify_token", label: "Verify Token", secret: true },
+    ],
+  },
 ];
 
 const PLATFORM_HINT_KEYS: Record<PlatformKey, string> = {
@@ -142,6 +153,7 @@ const PLATFORM_HINT_KEYS: Record<PlatformKey, string> = {
   wecom: "hintWecom",
   slack: "hintSlack",
   qqbot: "hintQqbot",
+  whatsapp: "hintWhatsapp",
 };
 
 function useOrigin() {

@@ -264,6 +264,7 @@ const en = {
     wecomGatewayHint: "WeCom requires API calls from a whitelisted static IP. Configure Edge Gateway in Settings → Edge Gateway, then add the gateway's public IP to WeCom's IP whitelist.",
     hintSlack: "Go to api.slack.com/apps → Create New App (From scratch) → add Bot Scopes in OAuth & Permissions: chat:write, im:history, files:read → Install to Workspace → copy Bot User OAuth Token (starts with xoxb-) → get Signing Secret from Basic Information → enable Event Subscriptions with the Webhook URL below and subscribe to message.im → enable Messages Tab in App Home → set the same Webhook URL in Interactivity & Shortcuts.",
     hintQqbot: "Go to q.qq.com → create a bot → get AppID & AppSecret → set the Event Callback URL in Developer Settings to the Webhook URL below.",
+    hintWhatsapp: "Go to developers.facebook.com → create an app (Business type) → add WhatsApp product → in API Setup, get Phone Number ID and generate a permanent Access Token (System User in Business Settings) → in Webhook Configuration, set the Callback URL to the Webhook URL below with your custom Verify Token → subscribe to 'messages' field.",
     credentialKeepHint: "Leave empty to keep current",
     channelsTitle: "Channels",
     channelsDesc: "Connect IM platforms to this agent.",

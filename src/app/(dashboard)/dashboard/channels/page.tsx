@@ -58,6 +58,7 @@ import {
   WeComIcon,
   SlackIcon,
   QQBotIcon,
+  WhatsAppIcon,
 } from "@/components/icons/platform-icons";
 import { useT } from "@/lib/i18n";
 
@@ -88,6 +89,7 @@ const PLATFORMS: { key: string; label: string; icon: React.FC<{ className?: stri
   { key: "wecom", label: "WeCom", icon: WeComIcon },
   { key: "slack", label: "Slack", icon: SlackIcon },
   { key: "qqbot", label: "QQBot", icon: QQBotIcon },
+  { key: "whatsapp", label: "WhatsApp", icon: WhatsAppIcon },
 ];
 
 const PLATFORM_MAP = Object.fromEntries(PLATFORMS.map((p) => [p.key, p]));

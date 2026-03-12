@@ -31,9 +31,10 @@ import {
   WeComIcon,
   SlackIcon,
   QQBotIcon,
+  WhatsAppIcon,
 } from "@/components/icons/platform-icons";
 
-type SetupPlatform = "telegram" | "feishu" | "wecom" | "slack" | "qqbot" | "none";
+type SetupPlatform = "telegram" | "feishu" | "wecom" | "slack" | "qqbot" | "whatsapp" | "none";
 
 const SETUP_PLATFORMS = [
   {
@@ -79,6 +80,16 @@ const SETUP_PLATFORMS = [
     fields: [
       { name: "app_id", label: "AppID", secret: false },
       { name: "app_secret", label: "AppSecret", secret: true },
+    ],
+  },
+  {
+    key: "whatsapp" as const,
+    label: "WhatsApp",
+    icon: WhatsAppIcon,
+    fields: [
+      { name: "access_token", label: "Access Token", secret: true },
+      { name: "phone_number_id", label: "Phone Number ID", secret: false },
+      { name: "verify_token", label: "Verify Token", secret: true },
     ],
   },
 ];

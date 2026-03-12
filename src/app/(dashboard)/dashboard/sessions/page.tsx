@@ -35,6 +35,7 @@ import {
   WeComIcon,
   SlackIcon,
   QQBotIcon,
+  WhatsAppIcon,
 } from "@/components/icons/platform-icons";
 import { useT } from "@/lib/i18n";
 
@@ -65,6 +66,7 @@ const PLATFORM_ICON: Record<string, React.FC<{ className?: string }>> = {
   wecom: WeComIcon,
   slack: SlackIcon,
   qqbot: QQBotIcon,
+  whatsapp: WhatsAppIcon,
 };
 
 export default function SessionsPage() {

@@ -55,6 +55,7 @@ import {
   WeComIcon,
   SlackIcon,
   QQBotIcon,
+  WhatsAppIcon,
 } from "@/components/icons/platform-icons";
 
 const PLATFORM_MAP: Record<string, { label: string; icon: React.FC<{ className?: string }> }> = {
@@ -63,6 +64,7 @@ const PLATFORM_MAP: Record<string, { label: string; icon: React.FC<{ className?:
   wecom: { label: "WeCom", icon: WeComIcon },
   slack: { label: "Slack", icon: SlackIcon },
   qqbot: { label: "QQBot", icon: QQBotIcon },
+  whatsapp: { label: "WhatsApp", icon: WhatsAppIcon },
 };
 
 interface AgentOption { id: string; name: string }

@@ -32,6 +32,7 @@ import {
   WeComIcon,
   SlackIcon,
   QQBotIcon,
+  WhatsAppIcon,
 } from "@/components/icons/platform-icons";
 import type { ChatRoom, ChatRoomMessage } from "@/types/database";
 
@@ -41,6 +42,7 @@ const PLATFORM_ICON_MAP: Record<string, React.ComponentType<{ className?: string
   wecom: WeComIcon,
   slack: SlackIcon,
   qqbot: QQBotIcon,
+  whatsapp: WhatsAppIcon,
 };
 
 function PlatformIcon({ platform, className }: { platform: string; className?: string }) {
