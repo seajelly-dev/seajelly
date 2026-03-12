@@ -1137,16 +1137,11 @@ INSERT INTO public.models (model_id, label, provider_id, is_builtin) VALUES
   ('google/gemini-2.5-flash', 'Gemini 2.5 Flash (via OR)', '00000000-0000-0000-0000-000000000006', true),
   ('meta-llama/llama-3.3-70b-instruct', 'Llama 3.3 70B (via OR)', '00000000-0000-0000-0000-000000000006', true),
   -- Zhipu AI
-  ('glm-4-plus', 'GLM-4 Plus', '00000000-0000-0000-0000-00000000000a', true),
-  ('glm-4-flash', 'GLM-4 Flash', '00000000-0000-0000-0000-00000000000a', true),
-  ('glm-4-long', 'GLM-4 Long', '00000000-0000-0000-0000-00000000000a', true),
+  ('glm-5', 'GLM-5', '00000000-0000-0000-0000-00000000000a', true),
   -- Moonshot
-  ('moonshot-v1-auto', 'Moonshot v1 Auto', '00000000-0000-0000-0000-00000000000b', true),
-  ('moonshot-v1-8k', 'Moonshot v1 8K', '00000000-0000-0000-0000-00000000000b', true),
-  ('moonshot-v1-128k', 'Moonshot v1 128K', '00000000-0000-0000-0000-00000000000b', true),
+  ('kimi-k2.5', 'Kimi K2.5', '00000000-0000-0000-0000-00000000000b', true),
   -- MiniMax
-  ('MiniMax-Text-01', 'MiniMax Text 01', '00000000-0000-0000-0000-00000000000c', true),
-  ('abab6.5s-chat', 'ABAB 6.5s Chat', '00000000-0000-0000-0000-00000000000c', true),
+  ('MiniMax-M2.5', 'MiniMax M2.5', '00000000-0000-0000-0000-00000000000c', true),
   -- DashScope (Qwen)
   ('qwen-max', 'Qwen Max', '00000000-0000-0000-0000-00000000000d', true),
   ('qwen-plus', 'Qwen Plus', '00000000-0000-0000-0000-00000000000d', true),

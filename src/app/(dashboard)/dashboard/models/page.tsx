@@ -623,16 +623,14 @@ export default function ModelsPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           {m.is_builtin && <Badge variant="secondary" className="text-[10px]">{t("models.builtin")}</Badge>}
-                          {!m.is_builtin && (
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              className="text-muted-foreground hover:text-destructive"
-                              onClick={() => setDeleteTarget({ type: "model", id: m.id, name: m.label })}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="text-muted-foreground hover:text-destructive"
+                            onClick={() => setDeleteTarget({ type: "model", id: m.id, name: m.label })}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
                         </div>
                       </div>
                     ))}

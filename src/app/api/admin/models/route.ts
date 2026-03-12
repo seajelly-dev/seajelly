@@ -91,16 +91,6 @@ export async function DELETE(request: Request) {
 
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  const { data: model } = await db
-    .from("models")
-    .select("is_builtin")
-    .eq("id", id)
-    .single();
-
-  if (model?.is_builtin) {
-    return NextResponse.json({ error: "Cannot delete built-in model" }, { status: 403 });
-  }
-
   const { error } = await db.from("models").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
