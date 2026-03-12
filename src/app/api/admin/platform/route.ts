@@ -279,7 +279,7 @@ async function handleWhatsApp(action: string, agentId: string, body: Record<stri
       accessToken = map.access_token;
       phoneNumberId = map.phone_number_id;
     }
-    const resp = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}`, {
+    const resp = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const data = await resp.json();

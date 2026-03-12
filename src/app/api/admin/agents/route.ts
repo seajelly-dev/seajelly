@@ -54,6 +54,7 @@ const PLATFORM_CRED_KEYS: Record<string, string[]> = {
   wecom: ["corp_id", "corp_secret", "agent_id", "token", "encoding_aes_key"],
   slack: ["bot_token", "signing_secret"],
   qqbot: ["app_id", "app_secret"],
+  whatsapp: ["access_token", "phone_number_id", "verify_token"],
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -121,6 +122,7 @@ export async function GET() {
       wecom: (agentCreds?.has("wecom:corp_id") && agentCreds?.has("wecom:corp_secret")) ?? false,
       slack: (agentCreds?.has("slack:bot_token") && agentCreds?.has("slack:signing_secret")) ?? false,
       qqbot: (agentCreds?.has("qqbot:app_id") && agentCreds?.has("qqbot:app_secret")) ?? false,
+      whatsapp: (agentCreds?.has("whatsapp:access_token") && agentCreds?.has("whatsapp:phone_number_id")) ?? false,
     };
     const owner = ownerMap.get(a.id);
     return {

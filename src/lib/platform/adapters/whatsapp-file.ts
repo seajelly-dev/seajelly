@@ -3,7 +3,7 @@ import { guessMime } from "../file-utils";
 import { resolveWhatsAppCredentials } from "./whatsapp";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
-const GRAPH_API = "https://graph.facebook.com/v21.0";
+const GRAPH_API = "https://graph.facebook.com/v22.0";
 
 export class WhatsAppFileDownloader implements PlatformFileDownloader {
   async download(

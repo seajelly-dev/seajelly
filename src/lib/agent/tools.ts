@@ -668,10 +668,14 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
 
     run_python_code: tool({
       description:
-        "Execute Python code in a secure E2B cloud sandbox. Returns stdout, stderr, and any " +
-        "generated charts/images as base64 PNG. The sandbox has internet access and common " +
-        "libraries pre-installed (numpy, pandas, matplotlib, etc). " +
-        "Each execution creates a fresh sandbox (stateless). Sandbox max lifetime: 1 hour (Hobby plan).",
+        "Execute Python code in a secure E2B cloud sandbox and return real results. " +
+        "YOU MUST CALL THIS TOOL whenever the user wants to: run Python, generate charts/plots, " +
+        "do data analysis, create visualizations, or anything requiring Python execution. " +
+        "Returns stdout, stderr, and generated charts/images as base64 PNG. " +
+        "The sandbox has internet access and common libraries pre-installed " +
+        "(numpy, pandas, matplotlib, seaborn, scipy, scikit-learn, etc). " +
+        "Each execution creates a fresh sandbox (stateless). " +
+        "IMPORTANT: Never just output Python code as text — always call this tool to actually execute it.",
       inputSchema: z.object({
         code: z.string().describe("Python code to execute"),
       }),
@@ -698,8 +702,11 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
 
     run_javascript_code: tool({
       description:
-        "Execute JavaScript/TypeScript code in a secure E2B cloud sandbox. Returns stdout and stderr. " +
-        "Supports top-level await, ESM imports, and Node.js APIs. Each execution creates a fresh sandbox.",
+        "Execute JavaScript/TypeScript code in a secure E2B cloud sandbox and return real results. " +
+        "YOU MUST CALL THIS TOOL whenever the user wants to run JavaScript or Node.js code. " +
+        "Returns stdout and stderr. Supports top-level await, ESM imports, and Node.js APIs. " +
+        "Each execution creates a fresh sandbox. " +
+        "IMPORTANT: Never just output JS code as text — always call this tool to actually execute it.",
       inputSchema: z.object({
         code: z.string().describe("JavaScript or TypeScript code to execute"),
       }),
@@ -726,10 +733,12 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
 
     run_html_preview: tool({
       description:
-        "Preview HTML/CSS/JS by storing the HTML and returning a permanent public URL. " +
-        "The preview link never expires and does not require login to access. " +
-        "No E2B sandbox or credits are consumed. " +
-        "Include all CSS and JS inline in the HTML for best results.",
+        "Create an HTML page and return a permanent public preview URL. " +
+        "YOU MUST CALL THIS TOOL whenever the user wants to create HTML pages, landing pages, " +
+        "web UI demos, or any visual web content. The preview link never expires and does not " +
+        "require login. No E2B sandbox or credits consumed. " +
+        "Include all CSS and JS inline. " +
+        "IMPORTANT: Never output raw HTML as text — always call this tool to generate a clickable URL.",
       inputSchema: z.object({
         html: z.string().describe("Complete HTML document to preview"),
         title: z.string().optional().describe("Title for the preview page"),

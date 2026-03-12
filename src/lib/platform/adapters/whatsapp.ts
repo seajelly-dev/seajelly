@@ -39,7 +39,7 @@ export async function resolveWhatsAppCredentials(agentId: string): Promise<Whats
   return creds;
 }
 
-const GRAPH_API = "https://graph.facebook.com/v21.0";
+const GRAPH_API = "https://graph.facebook.com/v22.0";
 
 async function graphPost(
   creds: WhatsAppCredentials,

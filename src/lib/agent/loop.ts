@@ -747,9 +747,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         "- After a room tool succeeds, do not invent additional links or duplicate invitations.";
     }
 
-    const codingToolNames = Object.keys(tools).filter((n) =>
-      ["run_python_code", "run_javascript_code", "run_html_preview"].includes(n)
-    );
+    const allCodingToolKeys = ["run_python_code", "run_javascript_code", "run_html_preview"];
+    const codingToolNames = Object.keys(tools).filter((n) => allCodingToolKeys.includes(n));
     if (codingToolNames.length > 0) {
       systemPrompt +=
         "\n\n## Code Execution Tool Policy\n" +
@@ -772,11 +771,19 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           : "") +
         "- NEVER fabricate URLs, image links, or file paths. Only return URLs that tools actually provide.\n" +
         "- If a tool call fails, report the error honestly instead of faking a result.";
+    } else {
+      systemPrompt +=
+        "\n\n## Important: No Code Execution Capability\n" +
+        "You do NOT have code execution tools enabled. " +
+        "If the user asks you to run code, generate charts, execute scripts, or create HTML previews, " +
+        "you MUST honestly tell them that the code execution feature is not enabled for this agent, " +
+        "and suggest the admin enable it in Dashboard > Agents > Tool Settings. " +
+        "NEVER pretend you have executed code. NEVER fabricate execution results, images, charts, or URLs. " +
+        "You may still write code snippets as text for the user to run themselves.";
     }
 
-    const githubToolNames = Object.keys(tools).filter((n) =>
-      ["github_read_file", "github_list_files", "github_build_verify", "github_build_status", "github_commit_push"].includes(n)
-    );
+    const allGithubToolKeys = ["github_read_file", "github_list_files", "github_build_verify", "github_build_status", "github_commit_push"];
+    const githubToolNames = Object.keys(tools).filter((n) => allGithubToolKeys.includes(n));
     if (githubToolNames.length > 0) {
       systemPrompt +=
         "\n\n## GitHub Tool Policy\n" +
@@ -805,6 +812,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       sender!.sendTyping(platformChatId).catch(() => {});
     }, 4000);
 
+    const toolNames = Object.keys(tools);
+    console.log(`[agent-loop] trace=${traceId} agent=${typedAgent.name} model=${typedAgent.model} tools=[${toolNames.join(",")}] toolCount=${toolNames.length} systemPromptLen=${systemPrompt.length}`);
+
     let result;
     try {
       result = await generateText({
@@ -831,6 +841,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     const calledToolNames = extractToolNamesFromResult(result);
+    console.log(`[agent-loop] trace=${traceId} calledTools=[${[...calledToolNames].join(",")}] steps=${(result as unknown as Record<string, unknown>).steps ? ((result as unknown as Record<string, unknown>).steps as unknown[]).length : 0} textLen=${(result.text || "").length}`);
     const roomToolCalled =
       calledToolNames.has("create_chat_room") ||
       calledToolNames.has("close_chat_room") ||

@@ -213,7 +213,7 @@ export async function POST(
 
           // Mark as read
           if (accessToken) {
-            fetch(`https://graph.facebook.com/v21.0/${(value.metadata as Record<string, string>)?.phone_number_id}/messages`, {
+            fetch(`https://graph.facebook.com/v22.0/${(value.metadata as Record<string, string>)?.phone_number_id}/messages`, {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${accessToken}`,
