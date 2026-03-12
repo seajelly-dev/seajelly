@@ -45,9 +45,9 @@ function extractImagesFromResult(result: unknown): ExtractedImage[] {
       if (!tr || typeof tr !== "object") continue;
       const rec = tr as Record<string, unknown>;
       const toolName = (typeof rec.toolName === "string" ? rec.toolName : "") as string;
-      const res = rec.result as Record<string, unknown> | undefined;
-      if (!res) continue;
-      const results = Array.isArray(res.results) ? res.results : [];
+      const out = (rec.output ?? rec.result) as Record<string, unknown> | undefined;
+      if (!out) continue;
+      const results = Array.isArray(out.results) ? out.results : [];
       for (const r of results) {
         if (r && typeof r === "object" && typeof (r as Record<string, unknown>).png === "string") {
           images.push({ png: (r as Record<string, unknown>).png as string, toolName });
@@ -878,12 +878,14 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     const extractedImages = extractImagesFromResult(result);
+    console.log(`[agent-loop] trace=${traceId} extractedImages=${extractedImages.length}`);
     for (const img of extractedImages) {
       try {
         const buf = Buffer.from(img.png, "base64");
+        console.log(`[agent-loop] trace=${traceId} sendPhoto tool=${img.toolName} size=${buf.length}`);
         await sender.sendPhoto(platformChatId, buf);
       } catch (photoErr) {
-        console.warn("Failed to send extracted image:", photoErr);
+        console.warn(`[agent-loop] trace=${traceId} sendPhoto failed:`, photoErr);
       }
     }
 
