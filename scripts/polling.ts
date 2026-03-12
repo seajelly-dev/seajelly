@@ -11,12 +11,12 @@ import { resolve } from "path";
 import { createClient } from "@supabase/supabase-js";
 import { generateText, stepCountIs } from "ai";
 import { decrypt } from "@/lib/crypto/encrypt";
-import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown, getHumanReadableError } from "@/lib/agent/provider";
+import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown } from "@/lib/agent/provider";
 import { createAgentTools } from "@/lib/agent/tools";
 import { AGENT_LIMITS } from "@/lib/agent/limits";
 import { TelegramAdapter } from "@/lib/platform/adapters/telegram";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
-import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText, getBotCommands } from "@/lib/i18n/bot";
+import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText, getBotCommands, humanizeAgentError } from "@/lib/i18n/bot";
 import { checkSubscription } from "@/lib/subscription/check";
 import type { Locale } from "@/lib/i18n/types";
 import type { ChatMessage, Channel } from "@/types/database";
@@ -596,7 +596,7 @@ async function startBotForAgent(agent: AgentRow) {
         .then(() => {}, () => {});
     } catch (err) {
       console.error(`[${agent.name}] Error:`, err);
-      const humanError = getHumanReadableError(err);
+      const humanError = humanizeAgentError(locale, err);
       await ctx.reply(t("errorPrefix", { error: humanError }));
     }
   }

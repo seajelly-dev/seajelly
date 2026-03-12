@@ -74,6 +74,17 @@ const botStrings = {
     trialWelcome: "👋 Welcome! You have {n} free trial message(s). Enjoy!",
 
     errorPrefix: "⚠️ Error: {error}",
+    errorAllKeysCooling: "All API keys for this provider are cooling down. Please retry later.",
+    errorAllKeysCoolingAfter: "All API keys for this provider are cooling down. Please retry in {minutes} minute(s).",
+    errorInvalidApiKeys: "API keys are configured but invalid.",
+    errorRateLimit: "Rate limit / high demand — please retry later",
+    errorModelNotFound: "Model not found — please check provider & model settings",
+    errorNoApiKey: "No API key configured for this provider",
+    errorAuthFailed: "API key authentication failed",
+    errorTimeout: "Request timed out",
+    errorAborted: "Request aborted (possibly exceeded max processing time)",
+    errorContextTooLong: "Message too long — exceeds context window limit",
+    errorNetwork: "Network connection failed",
     noResponse: "[No response]",
     noResponseGenerated: "[No response generated]",
 
@@ -208,6 +219,17 @@ const botStrings = {
     trialWelcome: "👋 欢迎！你有 {n} 次免费试用机会，尽情体验吧！",
 
     errorPrefix: "⚠️ 错误：{error}",
+    errorAllKeysCooling: "该模型服务商的全部 API Key 正在冷却中，请稍后重试。",
+    errorAllKeysCoolingAfter: "该模型服务商的全部 API Key 正在冷却中，请在剩余 {minutes} 分钟后重试。",
+    errorInvalidApiKeys: "该模型服务商的 API Key 已配置，但无效或解密失败。",
+    errorRateLimit: "请求过载或达到速率限制，请稍后重试",
+    errorModelNotFound: "模型不存在，请检查服务商与模型配置",
+    errorNoApiKey: "该模型服务商未配置可用的 API Key",
+    errorAuthFailed: "API Key 鉴权失败",
+    errorTimeout: "请求超时",
+    errorAborted: "请求已中止（可能超过最大处理时长）",
+    errorContextTooLong: "消息过长，超出模型上下文窗口限制",
+    errorNetwork: "网络连接失败",
     noResponse: "[无回复]",
     noResponseGenerated: "[未生成回复]",
 
@@ -296,6 +318,52 @@ export function botT(
 export function getBotLocaleOrDefault(agentLocale?: string | null): Locale {
   if (agentLocale === "zh" || agentLocale === "en") return agentLocale;
   return "en";
+}
+
+export function humanizeAgentError(locale: Locale, error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  const coolingMatch = msg.match(/All API keys are cooling down(?:.*?until ([0-9TZ:.\-+]+))?/i);
+  if (coolingMatch) {
+    const untilRaw = coolingMatch[1];
+    if (untilRaw) {
+      const dt = new Date(untilRaw);
+      if (!Number.isNaN(dt.getTime())) {
+        const diffMs = dt.getTime() - Date.now();
+        const minutes = Math.max(1, Math.ceil(diffMs / 60_000));
+        return botT(locale, "errorAllKeysCoolingAfter", { minutes });
+      }
+    }
+    return botT(locale, "errorAllKeysCooling");
+  }
+
+  if (/API keys are configured but invalid/i.test(msg)) {
+    return botT(locale, "errorInvalidApiKeys");
+  }
+  if (/rate.?limit|\b429\b|high.?demand|overloaded|capacity|quota.?exceeded|too.?many.?requests|server.?overloaded|resource.?exhausted/i.test(msg)) {
+    return botT(locale, "errorRateLimit");
+  }
+  if (/\b404\b|not.?found/i.test(msg)) {
+    return botT(locale, "errorModelNotFound");
+  }
+  if (/No API key configured/i.test(msg)) {
+    return botT(locale, "errorNoApiKey");
+  }
+  if (/authentication|unauthorized|invalid.*key|api.?key/i.test(msg)) {
+    return botT(locale, "errorAuthFailed");
+  }
+  if (/timeout|timed?\s*out|deadline/i.test(msg)) {
+    return botT(locale, "errorTimeout");
+  }
+  if (/abort/i.test(msg)) {
+    return botT(locale, "errorAborted");
+  }
+  if (/context.?length|token.?limit|too.?long/i.test(msg)) {
+    return botT(locale, "errorContextTooLong");
+  }
+  if (/network|connect|ECONNREFUSED|ENOTFOUND/i.test(msg)) {
+    return botT(locale, "errorNetwork");
+  }
+  return msg.length > 200 ? msg.slice(0, 200) + "..." : msg;
 }
 
 export function buildHelpText(

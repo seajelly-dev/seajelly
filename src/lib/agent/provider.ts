@@ -36,36 +36,6 @@ export function isRateLimitError(error: unknown): boolean {
   return RATE_LIMIT_PATTERNS.some((p) => p.test(msg));
 }
 
-export function getHumanReadableError(error: unknown): string {
-  const msg = error instanceof Error ? error.message : String(error);
-  if (isRateLimitError(error)) {
-    return "Rate limit / high demand — please retry later";
-  }
-  if (/\b404\b|not.?found/i.test(msg)) {
-    return "Model not found — please check provider & model settings";
-  }
-  if (/No API key configured/i.test(msg)) {
-    return "No API key configured for this provider";
-  }
-  if (/authentication|unauthorized|invalid.*key|api.?key/i.test(msg)) {
-    return "API key authentication failed";
-  }
-  if (/timeout|timed?\s*out|deadline/i.test(msg)) {
-    return "Request timed out";
-  }
-  if (/abort/i.test(msg)) {
-    return "Request aborted (possibly exceeded max processing time)";
-  }
-  if (/context.?length|token.?limit|too.?long/i.test(msg)) {
-    return "Message too long — exceeds context window limit";
-  }
-  if (/network|connect|ECONNREFUSED|ENOTFOUND/i.test(msg)) {
-    return "Network connection failed";
-  }
-  const short = msg.length > 200 ? msg.slice(0, 200) + "..." : msg;
-  return short;
-}
-
 // ── Cooldown management ──
 
 const COOLDOWN_RATE_LIMIT_MS = 5 * 60 * 1000;
@@ -104,7 +74,13 @@ interface PickedKey {
   apiKey: string;
 }
 
-async function pickApiKey(providerId: string): Promise<PickedKey | null> {
+type PickApiKeyResult =
+  | { status: "picked"; picked: PickedKey }
+  | { status: "no_active_keys" }
+  | { status: "all_cooling"; nextReadyAt: string | null }
+  | { status: "invalid_keys" };
+
+async function pickApiKey(providerId: string): Promise<PickApiKeyResult> {
   const supabase = getSupabase();
   const now = new Date().toISOString();
 
@@ -114,12 +90,18 @@ async function pickApiKey(providerId: string): Promise<PickedKey | null> {
     .eq("provider_id", providerId)
     .eq("is_active", true);
 
-  if (!keys || keys.length === 0) return null;
+  if (!keys || keys.length === 0) return { status: "no_active_keys" };
 
   const available = keys.filter(
     (k) => !k.cooldown_until || k.cooldown_until < now,
   );
-  if (available.length === 0) return null;
+  if (available.length === 0) {
+    const nextReadyAt = keys
+      .map((k) => k.cooldown_until)
+      .filter((v): v is string => !!v)
+      .sort()[0] ?? null;
+    return { status: "all_cooling", nextReadyAt };
+  }
 
   const totalWeight = available.reduce((sum, k) => sum + (k.weight ?? 1), 0);
   let roll = Math.random() * totalWeight;
@@ -132,17 +114,21 @@ async function pickApiKey(providerId: string): Promise<PickedKey | null> {
     }
   }
 
-  try {
-    const apiKey = decrypt(picked.encrypted_value);
-    supabase
-      .from("provider_api_keys")
-      .update({ call_count: (picked.call_count ?? 0) + 1 })
-      .eq("id", picked.id)
-      .then(() => {}, () => {});
-    return { keyId: picked.id, apiKey };
-  } catch {
-    return null;
+  const ordered = [picked, ...available.filter((k) => k.id !== picked.id)];
+  for (const candidate of ordered) {
+    try {
+      const apiKey = decrypt(candidate.encrypted_value);
+      supabase
+        .from("provider_api_keys")
+        .update({ call_count: (candidate.call_count ?? 0) + 1 })
+        .eq("id", candidate.id)
+        .then(() => {}, () => {});
+      return { status: "picked", picked: { keyId: candidate.id, apiKey } };
+    } catch {
+      // try next key
+    }
   }
+  return { status: "invalid_keys" };
 }
 
 // ── Model creation ──
@@ -215,12 +201,20 @@ export async function getModel(
 
     if (provider) {
       const picked = await pickApiKey(provider.id);
-      if (picked) {
+      if (picked.status === "picked") {
         return {
-          model: createModelFromType(provider.type as ProviderType, picked.apiKey, modelId, provider.base_url),
+          model: createModelFromType(provider.type as ProviderType, picked.picked.apiKey, modelId, provider.base_url),
           resolvedProviderId: provider.id,
-          pickedKeyId: picked.keyId,
+          pickedKeyId: picked.picked.keyId,
         };
+      }
+      if (picked.status === "all_cooling") {
+        throw new Error(
+          `All API keys are cooling down for provider: ${provider.type}${picked.nextReadyAt ? ` until ${picked.nextReadyAt}` : ""}`,
+        );
+      }
+      if (picked.status === "invalid_keys") {
+        throw new Error(`API keys are configured but invalid for provider: ${provider.type}`);
       }
       throw new Error(`No API key configured for provider: ${provider.type}`);
     }
@@ -238,12 +232,20 @@ export async function getModel(
 
   if (matchingProvider) {
     const picked = await pickApiKey(matchingProvider.id);
-    if (picked) {
+    if (picked.status === "picked") {
       return {
-        model: createModelFromType(matchingProvider.type as ProviderType, picked.apiKey, modelId, matchingProvider.base_url),
+        model: createModelFromType(matchingProvider.type as ProviderType, picked.picked.apiKey, modelId, matchingProvider.base_url),
         resolvedProviderId: matchingProvider.id,
-        pickedKeyId: picked.keyId,
+        pickedKeyId: picked.picked.keyId,
       };
+    }
+    if (picked.status === "all_cooling") {
+      throw new Error(
+        `All API keys are cooling down for model: ${modelId}${picked.nextReadyAt ? ` until ${picked.nextReadyAt}` : ""}`,
+      );
+    }
+    if (picked.status === "invalid_keys") {
+      throw new Error(`API keys are configured but invalid for model: ${modelId}`);
     }
   }
 

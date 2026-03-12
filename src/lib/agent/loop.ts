@@ -1,6 +1,6 @@
 import { generateText, stepCountIs, type ModelMessage } from "ai";
 import { createClient } from "@supabase/supabase-js";
-import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown, getHumanReadableError } from "./provider";
+import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown } from "./provider";
 import { createAgentTools, createSubAppTools } from "./tools";
 import { AGENT_LIMITS } from "./limits";
 import { getSenderForAgent, getFileDownloader } from "@/lib/platform/sender";
@@ -8,7 +8,7 @@ import { isImageMime, isTextMime } from "@/lib/platform/file-utils";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import type { PlatformSender } from "@/lib/platform/types";
 import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
-import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText } from "@/lib/i18n/bot";
+import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText, humanizeAgentError } from "@/lib/i18n/bot";
 import { checkSubscription } from "@/lib/subscription/check";
 import type { Locale } from "@/lib/i18n/types";
 
@@ -936,7 +936,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         const errLocale = getBotLocaleOrDefault(
           ((await supabase.from("agents").select("bot_locale").eq("id", event.agent_id!).single()).data as { bot_locale?: string } | null)?.bot_locale
         );
-        const humanError = getHumanReadableError(err);
+        const humanError = humanizeAgentError(errLocale, err);
         await sender.sendText(event.platform_chat_id, botT(errLocale, "errorPrefix", { error: humanError }));
       } catch {
         // ignore send failure
