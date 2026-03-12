@@ -77,6 +77,7 @@ const PRIVILEGED_TOOLS = [
   { key: "github_push_approval_status", label: "github_push_approval_status", desc: "coding.toolGitHubPushApprovalStatus", defaultOn: false },
   { key: "github_commit_push", label: "github_commit_push", desc: "coding.toolGitHubCommitPush", defaultOn: false },
   { key: "tts_speak", label: "tts_speak", desc: "coding.toolTtsSpeak", defaultOn: false },
+  { key: "image_generate", label: "image_generate", desc: "coding.toolImageGenerate", defaultOn: false },
 ] as const;
 
 type PlatformKey = "telegram" | "feishu" | "wecom" | "slack" | "qqbot" | "whatsapp";
@@ -780,16 +781,16 @@ export default function AgentsPage() {
   // ── Tools sub-dialog content ──
   function renderToolsDialog() {
     return (
-      <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0 bg-background pb-3 border-b">
           <DialogTitle>{t("agents.toolsTitle")}</DialogTitle>
           <DialogDescription>{t("agents.toolsDesc")}</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-2 py-2">
+        <div className="flex flex-col gap-2 py-2 overflow-y-auto flex-1 min-h-0">
           {PRIVILEGED_TOOLS.map(({ key, label, desc }) => (
-            <label
+            <div
               key={key}
-              className="flex items-start gap-3 rounded-md border px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
+              className="flex items-start gap-3 rounded-md border px-3 py-2.5 hover:bg-muted/50 transition-colors"
             >
               <Switch
                 className="mt-0.5 shrink-0"
@@ -807,10 +808,10 @@ export default function AgentsPage() {
                   {t(desc)}
                 </p>
               </div>
-            </label>
+            </div>
           ))}
         </div>
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t pt-3">
           <Button onClick={() => setToolsOpen(false)}>OK</Button>
         </DialogFooter>
       </DialogContent>
@@ -847,8 +848,8 @@ export default function AgentsPage() {
             <Plus className="mr-1.5 size-4" />
             {t("agents.newAgent")}
           </DialogTrigger>
-          <DialogContent className="max-h-[85vh] sm:max-w-3xl overflow-y-auto">
-            <DialogHeader>
+          <DialogContent className="max-h-[85vh] sm:max-w-3xl flex flex-col overflow-hidden">
+            <DialogHeader className="shrink-0 bg-background pb-3 border-b">
               <DialogTitle>
                 {editingAgent ? t("agents.editAgent") : t("agents.createAgent")}
               </DialogTitle>
@@ -856,7 +857,7 @@ export default function AgentsPage() {
                 {editingAgent ? t("agents.editDesc") : t("agents.createDesc")}
               </DialogDescription>
             </DialogHeader>
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 overflow-y-auto flex-1 min-h-0 py-1">
               {/* Name */}
               <div className="flex flex-col gap-1.5">
                 <Label>{t("agents.name")}</Label>
@@ -1154,7 +1155,7 @@ export default function AgentsPage() {
                 </div>
               )}
             </div>
-            <DialogFooter>
+            <DialogFooter className="shrink-0 border-t pt-3">
               <Button variant="ghost" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">
                 {t("common.cancel")}
               </Button>

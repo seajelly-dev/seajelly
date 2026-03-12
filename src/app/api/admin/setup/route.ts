@@ -1175,7 +1175,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authen
 
 CREATE TABLE IF NOT EXISTS public.voice_api_keys (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  engine          text NOT NULL CHECK (engine IN ('aistudio','cloud-gemini','gemini-live','gemini-asr','doubao-asr')),
+  engine          text NOT NULL CHECK (engine IN ('aistudio','cloud-gemini','gemini-live','gemini-asr','doubao-asr','google-image-gen')),
   encrypted_value text NOT NULL,
   label           text NOT NULL DEFAULT '',
   extra_config    jsonb NOT NULL DEFAULT '{}',
@@ -1208,7 +1208,9 @@ INSERT INTO public.voice_settings (key, value) VALUES
   ('tts_voice', 'Aoede'),
   ('live_engine', 'gemini-live'),
   ('live_voice', 'Aoede'),
-  ('asr_engine', 'gemini-asr')
+  ('asr_engine', 'gemini-asr'),
+  ('image_gen_provider', 'google'),
+  ('image_gen_model', 'gemini-3.1-flash-image-preview')
 ON CONFLICT (key) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS public.tts_usage_logs (

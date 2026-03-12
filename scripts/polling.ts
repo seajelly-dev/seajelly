@@ -189,6 +189,70 @@ async function startBotForAgent(agent: AgentRow) {
     await ctx.reply(t("newSession"));
   });
 
+  // ── /imgedit ──
+  bot.command("imgedit", async (ctx) => {
+    const platformChatId = String(ctx.chat.id);
+    const toolsConfig = (agent.tools_config ?? {}) as Record<string, boolean>;
+    if (!toolsConfig.image_generate) {
+      await ctx.reply(t("imgeditNotEnabled"));
+      return;
+    }
+    const editPrompt = (ctx.message?.text || "").replace(/^\/imgedit\s*/i, "").trim();
+
+    let { data: session } = await supabase
+      .from("sessions")
+      .select("id, metadata")
+      .eq("platform_chat_id", platformChatId)
+      .eq("agent_id", agent.id)
+      .eq("is_active", true)
+      .single();
+
+    if (!session) {
+      const { data: newSession } = await supabase
+        .from("sessions")
+        .insert({ platform_chat_id: platformChatId, agent_id: agent.id, messages: [], version: 1, is_active: true })
+        .select("id, metadata")
+        .single();
+      session = newSession;
+    }
+    if (!session) { await ctx.reply(t("sessionCreateFailed")); return; }
+
+    const meta = (session.metadata ?? {}) as Record<string, unknown>;
+    await supabase
+      .from("sessions")
+      .update({ metadata: { ...meta, imgedit_pending: true, imgedit_prompt: editPrompt || null } })
+      .eq("id", session.id);
+
+    const msg = editPrompt
+      ? t("imgeditPrompt", { prompt: editPrompt })
+      : t("imgeditNoPrompt");
+    await ctx.reply(msg, { parse_mode: "Markdown" });
+  });
+
+  // ── /cancel ──
+  bot.command("cancel", async (ctx) => {
+    const platformChatId = String(ctx.chat.id);
+    const { data: session } = await supabase
+      .from("sessions")
+      .select("id, metadata")
+      .eq("platform_chat_id", platformChatId)
+      .eq("agent_id", agent.id)
+      .eq("is_active", true)
+      .single();
+    if (session) {
+      const meta = (session.metadata ?? {}) as Record<string, unknown>;
+      if (meta.imgedit_pending) {
+        await supabase
+          .from("sessions")
+          .update({ metadata: { ...meta, imgedit_pending: false, imgedit_prompt: null } })
+          .eq("id", session.id);
+        await ctx.reply(t("imgeditCancelled"));
+        return;
+      }
+    }
+    await ctx.reply("Nothing to cancel.");
+  });
+
   type ChatAction = "typing" | "upload_photo" | "record_video" | "upload_video" | "record_voice" | "upload_voice" | "upload_document" | "choose_sticker" | "find_location" | "record_video_note" | "upload_video_note";
 
   async function handleMessage(
@@ -302,6 +366,62 @@ async function startBotForAgent(agent: AgentRow) {
       if (!session) {
         await ctx.reply(t("sessionCreateFailed"));
         return;
+      }
+
+      // ── /imgedit image intercept ──
+      const sessionMeta = (session.metadata ?? {}) as Record<string, unknown>;
+      if (sessionMeta.imgedit_pending && fileId) {
+        try {
+          const botToken = decrypt(agent.telegram_bot_token);
+          const fileRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${fileId}`);
+          const fileData = await fileRes.json();
+          if (fileData.ok && fileData.result.file_path) {
+            const dlUrl = `https://api.telegram.org/file/bot${botToken}/${fileData.result.file_path}`;
+            const dlRes = await fetch(dlUrl);
+            if (dlRes.ok) {
+              const buf = Buffer.from(await dlRes.arrayBuffer());
+              const ext = fileData.result.file_path.split(".").pop()?.toLowerCase() || "";
+              const mimeMap: Record<string, string> = {
+                jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+                gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
+              };
+              const mime = (fileMime && fileMime !== "application/octet-stream")
+                ? fileMime : (mimeMap[ext] || "image/jpeg");
+
+              if (mime.startsWith("image/")) {
+                const editPrompt = (text || sessionMeta.imgedit_prompt as string || "").trim();
+                if (!editPrompt) {
+                  await ctx.reply(t("imgeditNoPrompt"), { parse_mode: "Markdown" });
+                  return;
+                }
+                await ctx.replyWithChatAction("upload_photo");
+                const { generateImage } = await import("@/lib/image-gen/engine");
+                const result = await generateImage({
+                  prompt: editPrompt,
+                  sourceImageBase64: buf.toString("base64"),
+                  sourceMimeType: mime,
+                });
+                const imageBuffer = Buffer.from(result.imageBase64, "base64");
+                const pollingSender = new TelegramAdapter(agent.id);
+                await pollingSender.sendPhoto(String(chatId), imageBuffer, result.textResponse || undefined);
+                await ctx.reply(t("imgeditSuccess", { ms: result.durationMs }));
+                await supabase
+                  .from("sessions")
+                  .update({ metadata: { ...sessionMeta, imgedit_pending: false, imgedit_prompt: null } })
+                  .eq("id", session.id);
+                return;
+              }
+            }
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : "Unknown error";
+          await ctx.reply(t("imgeditFailed", { error: errMsg }));
+          await supabase
+            .from("sessions")
+            .update({ metadata: { ...sessionMeta, imgedit_pending: false, imgedit_prompt: null } })
+            .eq("id", session.id);
+          return;
+        }
       }
 
       const history: ChatMessage[] = Array.isArray(session.messages)
@@ -421,6 +541,7 @@ async function startBotForAgent(agent: AgentRow) {
         schedule_task: true,
         cancel_scheduled_job: true,
         list_scheduled_jobs: true,
+        image_generate: false,
       };
       const toolsConfig = (agent.tools_config ?? {}) as Record<string, boolean>;
       const filteredBuiltin: typeof builtinTools = {} as typeof builtinTools;

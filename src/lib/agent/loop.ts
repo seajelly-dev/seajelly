@@ -478,6 +478,70 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         }
         return { success: true, reply: ownerUrl, traceId };
       }
+
+      if (command === "/imgedit") {
+        const toolsConfig = (typedAgent.tools_config ?? {}) as Record<string, boolean>;
+        if (!toolsConfig.image_generate) {
+          await sender.sendText(platformChatId, t("imgeditNotEnabled"));
+          return { success: true, reply: "imgedit_not_enabled", traceId };
+        }
+        const editPrompt = messageText.replace(/^[/!]imgedit\s*/i, "").trim();
+        const meta = (session.metadata ?? {}) as Record<string, unknown>;
+        await supabase
+          .from("sessions")
+          .update({ metadata: { ...meta, imgedit_pending: true, imgedit_prompt: editPrompt || null } })
+          .eq("id", session.id);
+        const msg = editPrompt
+          ? t("imgeditPrompt", { prompt: editPrompt })
+          : t("imgeditNoPrompt");
+        await sender.sendMarkdown(platformChatId, msg);
+        return { success: true, reply: "imgedit_pending", traceId };
+      }
+
+      if (command === "/cancel") {
+        const meta = (session.metadata ?? {}) as Record<string, unknown>;
+        if (meta.imgedit_pending) {
+          await supabase
+            .from("sessions")
+            .update({ metadata: { ...meta, imgedit_pending: false, imgedit_prompt: null } })
+            .eq("id", session.id);
+          await sender.sendText(platformChatId, t("imgeditCancelled"));
+          return { success: true, reply: "imgedit_cancelled", traceId };
+        }
+      }
+    }
+
+    // ── /imgedit image intercept: if pending and user sends an image, run image edit directly ──
+    const sessionMeta = (session.metadata ?? {}) as Record<string, unknown>;
+    if (sessionMeta.imgedit_pending && fileId && event.agent_id) {
+      const fileDownloader = getFileDownloader(platform);
+      const file = await fileDownloader.download(event.agent_id, fileId, fileMime, fileName);
+      if (file && isImageMime(file.mimeType)) {
+        const editPrompt = (messageText || sessionMeta.imgedit_prompt as string || "").trim();
+        if (!editPrompt) {
+          await sender.sendText(platformChatId, t("imgeditNoPrompt"));
+          return { success: true, reply: "imgedit_no_prompt", traceId };
+        }
+        try {
+          const { generateImage } = await import("@/lib/image-gen/engine");
+          const result = await generateImage({
+            prompt: editPrompt,
+            sourceImageBase64: file.base64,
+            sourceMimeType: file.mimeType,
+          });
+          const imageBuffer = Buffer.from(result.imageBase64, "base64");
+          await sender.sendPhoto(platformChatId, imageBuffer, result.textResponse || undefined);
+          await sender.sendText(platformChatId, t("imgeditSuccess", { ms: result.durationMs }));
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : "Unknown error";
+          await sender.sendText(platformChatId, t("imgeditFailed", { error: errMsg }));
+        }
+        await supabase
+          .from("sessions")
+          .update({ metadata: { ...sessionMeta, imgedit_pending: false, imgedit_prompt: null } })
+          .eq("id", session.id);
+        return { success: true, reply: "imgedit_done", traceId };
+      }
     }
 
     const history: ChatMessage[] = Array.isArray(session.messages)
@@ -598,6 +662,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       github_request_push_approval: false,
       github_push_approval_status: false,
       github_commit_push: false,
+      image_generate: false,
     };
     const toolsConfig = (typedAgent.tools_config ?? {}) as Record<string, boolean>;
     const filteredBuiltin: typeof builtinTools = {} as typeof builtinTools;
@@ -805,6 +870,23 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           ? "- NEVER call `github_commit_push` without explicit user confirmation. " +
             "Always ask the user to confirm before pushing to the repository.\n"
           : "");
+    }
+
+    if (Object.keys(tools).includes("image_generate")) {
+      systemPrompt +=
+        "\n\n## Image Generation & Editing Tool Policy\n" +
+        "You have access to `image_generate` which supports two modes:\n" +
+        "### Text-to-Image\n" +
+        "- When the user asks to generate, create, draw, or design an image, call `image_generate` with only `prompt`.\n" +
+        "### Image Editing\n" +
+        "- When the user sends an image AND asks to modify/edit it (add elements, remove objects, change style, adjust colors, etc.), " +
+        "call `image_generate` with `prompt` describing the desired edit, plus `source_image_base64` containing the user's image data.\n" +
+        "- If the user's image was provided in the conversation as a base64 image, extract its data for `source_image_base64` and set `source_mime_type` accordingly.\n" +
+        "### General Rules\n" +
+        "- Always craft detailed, descriptive prompts in English for best results, even if the user writes in another language.\n" +
+        "- The generated/edited image will be automatically sent to the user — do NOT embed base64 strings in your text reply.\n" +
+        "- NEVER fabricate image URLs or claim images were generated without calling the tool.\n" +
+        "- If the tool call fails, report the error honestly instead of faking a result.";
     }
 
     const deadline = startTime + AGENT_LIMITS.MAX_WALL_TIME_MS;

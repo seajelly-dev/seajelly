@@ -14,6 +14,7 @@ import {
   Square,
   AlertTriangle,
   Info,
+  ImageIcon,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import {
@@ -39,6 +40,12 @@ import {
   CLOUD_GEMINI_MODELS,
   type TTSEngine,
 } from "@/lib/voice/tts-config-data";
+import {
+  IMAGE_GEN_PROVIDERS,
+  IMAGE_GEN_MODELS,
+  getModelsForProvider,
+  type ImageGenProvider,
+} from "@/lib/image-gen/config-data";
 import { cn } from "@/lib/utils";
 
 interface VoiceKeyInfo {
@@ -50,7 +57,7 @@ interface VoiceKeyInfo {
 
 export default function VoicePage() {
   const t = useT();
-  const [activeTab, setActiveTab] = useState<"tts" | "live" | "asr">("tts");
+  const [activeTab, setActiveTab] = useState<"tts" | "live" | "asr" | "image_gen">("tts");
 
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [keys, setKeys] = useState<VoiceKeyInfo[]>([]);
@@ -62,6 +69,7 @@ export default function VoicePage() {
   const [doubaoProxyInput, setDoubaoProxyInput] = useState("");
   const [doubaoAppKeyInput, setDoubaoAppKeyInput] = useState("");
   const [doubaoAccessKeyInput, setDoubaoAccessKeyInput] = useState("");
+  const [imageGenKeyInput, setImageGenKeyInput] = useState("");
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
   const [previewPlaying, setPreviewPlaying] = useState(false);
@@ -71,7 +79,7 @@ export default function VoicePage() {
 
   const loadConfig = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/voice");
+      const res = await fetch("/api/admin/multimodal");
       const data = await res.json();
       setSettings(data.settings || {});
       setKeys(data.keys || []);
@@ -88,7 +96,7 @@ export default function VoicePage() {
 
   const updateSettings = async (updates: Record<string, string>) => {
     try {
-      await fetch("/api/admin/voice", {
+      await fetch("/api/admin/multimodal", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "update_settings", settings: updates }),
@@ -104,7 +112,7 @@ export default function VoicePage() {
     if (!apiKey.trim()) return;
     setSavingKey(engine);
     try {
-      const res = await fetch("/api/admin/voice", {
+      const res = await fetch("/api/admin/multimodal", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "save_key", engine, apiKey: apiKey.trim(), extraConfig }),
@@ -115,6 +123,7 @@ export default function VoicePage() {
       if (engine === "aistudio" || engine === "cloud-gemini") setTtsKeyInput("");
       if (engine === "gemini-live") setLiveKeyInput("");
       if (engine === "gemini-asr") setAsrKeyInput("");
+      if (engine === "google-image-gen") setImageGenKeyInput("");
     } catch {
       toast.error(t("voice.keySaveFailed"));
     } finally {
@@ -185,8 +194,8 @@ export default function VoicePage() {
       </div>
 
       <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
-        {(["tts", "live", "asr"] as const).map((tab) => {
-          const icons = { tts: Volume2, live: AudioLines, asr: Mic };
+        {(["tts", "live", "asr", "image_gen"] as const).map((tab) => {
+          const icons = { tts: Volume2, live: AudioLines, asr: Mic, image_gen: ImageIcon };
           const Icon = icons[tab];
           return (
             <button
@@ -575,6 +584,111 @@ export default function VoicePage() {
                     disabled={!doubaoProxyInput.trim()}
                   >
                     {t("voice.saveKey")}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Image Generation Tab */}
+      {activeTab === "image_gen" && (
+        <div className="flex flex-col gap-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <ImageIcon className="size-5 text-muted-foreground" />
+                <CardTitle>{t("voice.imageGenTitle")}</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-5">
+              <p className="text-sm text-muted-foreground">{t("voice.imageGenDescription")}</p>
+
+              <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3">
+                <Info className="size-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                <p className="text-xs text-blue-800 dark:text-blue-300">{t("voice.imageGenToggleHint")}</p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t("voice.imageGenProvider")}</Label>
+                  <Select
+                    value={settings.image_gen_provider || "google"}
+                    onValueChange={(v) => {
+                      if (!v) return;
+                      const providerModels = getModelsForProvider(v as ImageGenProvider);
+                      updateSettings({
+                        image_gen_provider: v,
+                        image_gen_model: providerModels[0]?.id || "",
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      {IMAGE_GEN_PROVIDERS[(settings.image_gen_provider || "google") as ImageGenProvider]?.name || "Google"}
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(IMAGE_GEN_PROVIDERS) as ImageGenProvider[]).map((p) => (
+                        <SelectItem key={p} value={p}>{IMAGE_GEN_PROVIDERS[p].name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t("voice.imageGenModel")}</Label>
+                  <Select
+                    value={settings.image_gen_model || IMAGE_GEN_MODELS[0]?.id}
+                    onValueChange={(v) => { if (v) updateSettings({ image_gen_model: v }); }}
+                  >
+                    <SelectTrigger>
+                      <span className="truncate">
+                        {IMAGE_GEN_MODELS.find(m => m.id === (settings.image_gen_model || IMAGE_GEN_MODELS[0]?.id))?.name || "Select"}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {getModelsForProvider((settings.image_gen_provider || "google") as ImageGenProvider).map(m => (
+                        <SelectItem key={m.id} value={m.id}>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{m.name}</span>
+                            <span className="text-xs text-muted-foreground">{m.description}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="size-4 text-muted-foreground" />
+                  <Label>{t("voice.apiKey")} (google-image-gen)</Label>
+                  {hasKey("google-image-gen") ? (
+                    <Badge variant="secondary" className="gap-1 text-green-600 dark:text-green-400">
+                      <CheckCircle2 className="size-3" /> {t("voice.apiKeyConfigured")}
+                    </Badge>
+                  ) : (
+                    <Badge variant="destructive" className="gap-1">
+                      <XCircle className="size-3" /> {t("voice.apiKeyNotConfigured")}
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex items-end gap-2">
+                  <Input
+                    type="password"
+                    placeholder={t("voice.apiKeyPlaceholder")}
+                    value={imageGenKeyInput}
+                    onChange={(e) => setImageGenKeyInput(e.target.value)}
+                    className="max-w-sm"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => saveKey("google-image-gen", imageGenKeyInput)}
+                    disabled={!imageGenKeyInput.trim() || savingKey === "google-image-gen"}
+                  >
+                    {savingKey === "google-image-gen" ? <Loader2 className="size-4 animate-spin" /> : t("voice.saveKey")}
                   </Button>
                 </div>
               </div>

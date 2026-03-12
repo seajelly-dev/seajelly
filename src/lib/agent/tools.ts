@@ -30,6 +30,7 @@ import { botT, getBotLocaleOrDefault } from "@/lib/i18n/bot";
 import type { Locale } from "@/lib/i18n/types";
 import { generateTTS, logTTSUsage, getVoiceSettings } from "@/lib/voice/tts-engine";
 import { isTextTooLong } from "@/lib/voice/tts-config-data";
+import { generateImage } from "@/lib/image-gen/engine";
 import { searchKnowledgeForAgent } from "@/lib/knowledge/search";
 
 function bigrams(text: string): Set<string> {
@@ -1197,10 +1198,70 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
     }),
   };
 
+  const imageGenTools = {
+    image_generate: tool({
+      description:
+        "Generate or edit an image and send it to the current chat. " +
+        "Supports two modes:\n" +
+        "1. Text-to-image: provide only `prompt` to generate a new image from scratch.\n" +
+        "2. Image editing: provide `prompt` + `source_image_base64` to modify an existing image " +
+        "(e.g. add/remove elements, change style, adjust colors).\n" +
+        "Always provide a detailed, descriptive prompt in English for best results.",
+      inputSchema: z.object({
+        prompt: z.string().describe(
+          "Detailed prompt describing the desired image (for generation) or the desired edit (for editing). " +
+          "For editing, describe what to change, e.g. 'Change the sofa color to red' or 'Add a hat to the cat'."
+        ),
+        source_image_base64: z.string().optional().describe(
+          "Base64-encoded source image for editing mode. Omit for text-to-image generation. " +
+          "When the user sends an image and asks to modify it, extract the image data and pass it here."
+        ),
+        source_mime_type: z.string().optional().describe(
+          "MIME type of the source image, e.g. 'image/png' or 'image/jpeg'. Defaults to 'image/png' if omitted."
+        ),
+      }),
+      execute: async ({ prompt, source_image_base64, source_mime_type }: {
+        prompt: string;
+        source_image_base64?: string;
+        source_mime_type?: string;
+      }) => {
+        try {
+          const { data: agentRow } = await supabase
+            .from("agents")
+            .select("tools_config")
+            .eq("id", agentId)
+            .single();
+          const tc = (agentRow?.tools_config ?? {}) as Record<string, boolean>;
+          if (!tc.image_generate) {
+            return { success: false, error: "Image generation is disabled for this agent. The admin can enable it in Dashboard > Agents > Tool Settings." };
+          }
+          const result = await generateImage({
+            prompt,
+            sourceImageBase64: source_image_base64,
+            sourceMimeType: source_mime_type,
+          });
+          const imageBuffer = Buffer.from(result.imageBase64, "base64");
+          if (platformChatId) {
+            await sender.sendPhoto(platformChatId, imageBuffer, result.textResponse || undefined);
+          }
+          const mode = source_image_base64 ? "edited" : "generated";
+          return {
+            success: true,
+            message: `Image ${mode} and sent`,
+            textResponse: result.textResponse || "",
+            durationMs: result.durationMs,
+          };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Image generation failed" };
+        }
+      },
+    }),
+  };
+
   if (channelId) {
-    return { ...baseTools, ...ttsTools, ...buildSoulTools(channelId, !!isOwner) };
+    return { ...baseTools, ...ttsTools, ...imageGenTools, ...buildSoulTools(channelId, !!isOwner) };
   }
-  return { ...baseTools, ...ttsTools };
+  return { ...baseTools, ...ttsTools, ...imageGenTools };
 }
 
 export function createSubAppTools({ agentId, channelId, isOwner, sender, platformChatId, platform, locale }: ToolsOptions) {
