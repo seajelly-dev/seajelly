@@ -2,9 +2,10 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { generateText } from "ai";
 import { getModel } from "@/lib/agent/provider";
-import { verifyRoomToken, type RoomTokenPayload } from "@/lib/room-token";
+import { verifyRoomToken } from "@/lib/room-token";
 import type { Agent } from "@/types/database";
 
+export const runtime = "nodejs";
 export const maxDuration = 60;
 
 function getSupabase() {
@@ -13,13 +14,6 @@ function getSupabase() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     serviceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
-}
-
-function extractToken(request: Request): RoomTokenPayload | null {
-  const { searchParams } = new URL(request.url);
-  const t = searchParams.get("t");
-  if (!t) return null;
-  return verifyRoomToken(t);
 }
 
 export async function GET(request: Request) {
@@ -109,6 +103,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Room is closed" }, { status: 403 });
   }
 
+  const agentId = room.agent_id as string;
+  const { data: agent } = await supabase
+    .from("agents")
+    .select("name")
+    .eq("id", agentId)
+    .single();
+  const agentName = agent?.name || "Agent";
+
   const { data: msg, error: msgErr } = await supabase
     .from("chat_room_messages")
     .insert({
@@ -126,15 +128,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: msgErr.message }, { status: 500 });
   }
 
-  const mentionsAgent = /@agent\b/i.test(content);
+  const mentionPattern = new RegExp(`@(agent|${escapeRegex(agentName)})\\b`, "i");
+  const mentionsAgent = mentionPattern.test(content);
 
   if (mentionsAgent) {
     after(async () => {
-      await handleAgentReply(supabase, room, content, sender_name);
+      try {
+        await handleAgentReply(supabase, room, content, sender_name);
+      } catch (err) {
+        console.error("after() agent reply error:", err);
+      }
     });
   }
 
-  return NextResponse.json({ message: msg, agent_triggered: mentionsAgent });
+  return NextResponse.json({
+    message: msg,
+    agent_triggered: mentionsAgent,
+    agent_name: agentName,
+  });
 }
 
 export async function PATCH(request: Request) {
@@ -194,16 +205,20 @@ export async function PATCH(request: Request) {
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 async function handleAgentReply(
   supabase: ReturnType<typeof getSupabase>,
   room: Record<string, unknown>,
   userContent: string,
   userName: string
 ) {
-  try {
-    const agentId = room.agent_id as string;
-    const roomId = room.id as string;
+  const agentId = room.agent_id as string;
+  const roomId = room.id as string;
 
+  try {
     const { data: agent } = await supabase
       .from("agents")
       .select("*")
@@ -223,14 +238,18 @@ async function handleAgentReply(
 
     const context = (recentMsgs ?? [])
       .reverse()
-      .map((m) => `[${m.sender_type === "agent" ? "Assistant" : m.sender_name}]: ${m.content}`)
+      .map((m) => {
+        const role = m.sender_type === "agent" ? typedAgent.name : m.sender_name;
+        return `[${role}]: ${m.content}`;
+      })
       .join("\n");
 
     const { model } = await getModel(typedAgent.model, typedAgent.provider_id);
     const systemPrompt =
       (typedAgent.system_prompt || "") +
-      "\n\nYou are participating in a cross-platform chatroom. " +
-      "Users may @agent to ask you questions. Reply concisely and helpfully. " +
+      `\n\nYou are "${typedAgent.name}", participating in a cross-platform chatroom. ` +
+      `Users mention you by typing @${typedAgent.name} to ask questions or chat. ` +
+      "Reply concisely and helpfully in the same language the user is using. " +
       "Keep responses under 200 words unless a longer answer is needed.";
 
     const result = await generateText({
@@ -257,7 +276,7 @@ async function handleAgentReply(
   } catch (err) {
     console.error("Agent reply in chatroom failed:", err);
     await supabase.from("chat_room_messages").insert({
-      room_id: room.id as string,
+      room_id: roomId,
       sender_type: "system",
       sender_name: "System",
       content: "Agent failed to respond. Please try again.",

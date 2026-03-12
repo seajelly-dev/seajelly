@@ -522,11 +522,27 @@ export default function ChatRoomPage() {
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
-              <PlatformIcon platform={identity?.platform || "web"} className="size-3.5" />
-              <span className="hidden sm:inline">{effectiveNickname}</span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <PlatformIcon platform={identity?.platform || "web"} className="size-3.5 text-muted-foreground" />
               {identity?.is_owner && (
                 <ShieldCheck className="size-3 text-amber-500" />
+              )}
+              {agentName && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const mention = `@${agentName} `;
+                    if (!inputText.includes(`@${agentName}`)) {
+                      setInputText((prev) => mention + prev);
+                    }
+                    inputRef.current?.focus();
+                  }}
+                  className="flex items-center gap-1 text-xs text-primary/70 hover:text-primary bg-primary/5 hover:bg-primary/10 px-1.5 py-0.5 rounded-md transition-colors"
+                  title={t("room.mentionAgent", { name: agentName })}
+                >
+                  <Bot className="size-3" />
+                  <span className="max-w-[60px] truncate">@{agentName}</span>
+                </button>
               )}
             </div>
             <Input
@@ -534,7 +550,7 @@ export default function ChatRoomPage() {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={t("room.messagePlaceholder")}
+              placeholder={t("room.messagePlaceholder", { name: agentName || "Agent" })}
               className="flex-1"
               disabled={sending}
               autoFocus
