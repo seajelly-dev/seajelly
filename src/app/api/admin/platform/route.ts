@@ -283,7 +283,15 @@ async function handleWhatsApp(action: string, agentId: string, body: Record<stri
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const data = await resp.json();
-    if (data.error) throw new Error(data.error.message || "WhatsApp API error");
+    if (data.error) {
+      const err = data.error as { message?: string; code?: number; error_subcode?: number };
+      if (err.code === 190) {
+        throw new Error(
+          "WhatsApp access token is expired/invalid (code 190). Please replace it with a permanent System User token from Meta Business Settings.",
+        );
+      }
+      throw new Error(err.message || "WhatsApp API error");
+    }
     const displayPhone = data.display_phone_number || data.verified_name || phoneNumberId;
     return NextResponse.json({ success: true, message: `WhatsApp Business: ${displayPhone}` });
   }

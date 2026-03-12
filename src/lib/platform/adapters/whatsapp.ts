@@ -9,11 +9,60 @@ interface WhatsAppCredentials {
 
 const credCache = new Map<string, { creds: WhatsAppCredentials; expiresAt: number }>();
 
+type WhatsAppApiErrorPayload = {
+  message?: string;
+  type?: string;
+  code?: number;
+  error_subcode?: number;
+  fbtrace_id?: string;
+};
+
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
+}
+
+function parseErrorPayload(data: unknown): WhatsAppApiErrorPayload | null {
+  if (!data || typeof data !== "object") return null;
+  const err = (data as Record<string, unknown>).error;
+  if (!err || typeof err !== "object") return null;
+  return err as WhatsAppApiErrorPayload;
+}
+
+function isTokenExpiredError(err: WhatsAppApiErrorPayload): boolean {
+  if (err.code === 190 && err.error_subcode === 463) return true;
+  if (err.code === 190 && typeof err.message === "string" && /expired/i.test(err.message)) return true;
+  return false;
+}
+
+function formatWhatsAppApiError(path: string, err: WhatsAppApiErrorPayload): string {
+  const code = err.code ?? "unknown";
+  const subcode = err.error_subcode ?? "unknown";
+  const base = err.message || "Unknown WhatsApp API error";
+  const tokenHint = isTokenExpiredError(err)
+    ? " Access token is expired/invalid. Please update with a permanent System User token."
+    : "";
+  return `WhatsApp API ${path} failed: ${base} (code=${code}, subcode=${subcode}).${tokenHint}`;
+}
+
+async function readJsonSafe(resp: Response): Promise<Record<string, unknown>> {
+  const text = await resp.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return { raw: text };
+  }
+}
+
+export function invalidateWhatsAppCache(agentId?: string): void {
+  if (agentId) {
+    credCache.delete(agentId);
+    return;
+  }
+  credCache.clear();
 }
 
 export async function resolveWhatsAppCredentials(agentId: string): Promise<WhatsAppCredentials> {
@@ -54,9 +103,14 @@ async function graphPost(
     },
     body: JSON.stringify(body),
   });
-  const data = await resp.json();
-  if (data.error) {
-    console.error("WhatsApp API error:", path, JSON.stringify(data.error));
+  const data = await readJsonSafe(resp);
+  const err = parseErrorPayload(data);
+  if (err) {
+    throw new Error(formatWhatsAppApiError(path, err));
+  }
+  if (!resp.ok) {
+    const raw = typeof data.raw === "string" ? data.raw.substring(0, 300) : "";
+    throw new Error(`WhatsApp API ${path} failed: HTTP ${resp.status} ${resp.statusText}${raw ? `, body=${raw}` : ""}`);
   }
   return data;
 }
@@ -77,12 +131,26 @@ async function uploadMedia(
     headers: { Authorization: `Bearer ${creds.accessToken}` },
     body: form,
   });
-  const data = await resp.json();
-  if (data.error) {
-    console.error("WhatsApp media upload error:", JSON.stringify(data.error));
+  const data = await readJsonSafe(resp);
+  const err = parseErrorPayload(data);
+  if (err) {
+    if (isTokenExpiredError(err)) {
+      throw new Error(formatWhatsAppApiError("/media", err));
+    }
+    console.error("WhatsApp media upload error:", formatWhatsAppApiError("/media", err));
     return null;
   }
-  return data.id || null;
+  if (!resp.ok) {
+    const raw = typeof data.raw === "string" ? data.raw.substring(0, 300) : "";
+    console.error(`WhatsApp media upload failed: HTTP ${resp.status} ${resp.statusText}${raw ? `, body=${raw}` : ""}`);
+    return null;
+  }
+  const mediaId = typeof data.id === "string" ? data.id : null;
+  if (!mediaId) {
+    console.error("WhatsApp media upload returned no media id");
+    return null;
+  }
+  return mediaId;
 }
 
 export class WhatsAppAdapter implements PlatformSender {
@@ -109,7 +177,8 @@ export class WhatsAppAdapter implements PlatformSender {
   }
 
   async sendTyping(_chatId: string): Promise<void> {
-    // WhatsApp has no typing indicator via Cloud API
+    // WhatsApp typing indicator requires incoming message_id context.
+    // We trigger it in the inbound webhook when marking the message as read.
   }
 
   async sendVoice(chatId: string, audio: Buffer, filename?: string): Promise<void> {

@@ -187,6 +187,10 @@ export async function POST(request: Request) {
       const { invalidateQQBotCache } = await import("@/lib/platform/adapters/qqbot");
       invalidateQQBotCache(data.id);
     }
+    if (platform_credentials.whatsapp) {
+      const { invalidateWhatsAppCache } = await import("@/lib/platform/adapters/whatsapp");
+      invalidateWhatsAppCache(data.id);
+    }
   }
 
   return NextResponse.json({
@@ -237,6 +241,10 @@ export async function PUT(request: Request) {
     if (platform_credentials.qqbot) {
       const { invalidateQQBotCache } = await import("@/lib/platform/adapters/qqbot");
       invalidateQQBotCache(data.id);
+    }
+    if (platform_credentials.whatsapp) {
+      const { invalidateWhatsAppCache } = await import("@/lib/platform/adapters/whatsapp");
+      invalidateWhatsAppCache(data.id);
     }
   }
 

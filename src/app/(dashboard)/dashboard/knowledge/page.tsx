@@ -46,6 +46,7 @@ import {
   ArrowLeft,
   Info,
   Settings2,
+  AlertCircle,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import type { KnowledgeBase, KnowledgeArticle, Provider } from "@/types/database";
@@ -787,6 +788,11 @@ export default function KnowledgePage() {
                     ))}
                   </SelectContent>
                 </Select>
+
+                <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                  <AlertCircle className="size-4 mt-0.5 shrink-0" />
+                  <span>{t("knowledge.embedModelWarning")}</span>
+                </div>
               </div>
 
               {/* API Key status & management */}
