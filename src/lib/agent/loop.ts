@@ -976,8 +976,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       systemPrompt +=
         "\n\n## GitHub Tool Policy\n" +
         "You have access to the project's GitHub repository. Follow these rules:\n" +
-        "- Use `github_list_files` to understand the project structure before reading specific files.\n" +
+        "- Call `github_list_files` ONCE with empty path to get the full recursive file tree. " +
+        "Do NOT call it repeatedly for individual subdirectories — one call returns everything.\n" +
         "- Use `github_read_file` to read file contents — do NOT guess or hallucinate code.\n" +
+        "- Be efficient with tool calls: plan which files you need, then read them. Avoid exploratory browsing.\n" +
         (githubToolNames.includes("github_build_verify")
           ? "- Before committing any code change, ALWAYS use `github_build_verify` to validate the build.\n" +
             "- After calling `github_build_verify`, poll with `github_build_status` until completion.\n"

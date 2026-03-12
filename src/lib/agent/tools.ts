@@ -868,11 +868,12 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
 
     github_list_files: tool({
       description:
-        "List files in the project's GitHub repository. " +
-        "Returns a flat list of file paths (excludes node_modules, .git, dist, lock files). " +
-        "Use this to understand the project structure before reading specific files.",
+        "List ALL files in the project's GitHub repository as a flat recursive tree. " +
+        "Returns the COMPLETE file list in one call (excludes node_modules, .git, dist, lock files). " +
+        "IMPORTANT: Call this ONCE with empty path to get the full project structure. " +
+        "Do NOT call repeatedly for individual subdirectories — one call is enough.",
       inputSchema: z.object({
-        path: z.string().optional().describe("Directory path to filter by, e.g. 'src/components'. Empty = entire repo"),
+        path: z.string().optional().describe("Optional directory prefix filter. Leave empty to get the FULL repo tree (recommended)"),
         branch: z.string().optional().describe("Branch name, defaults to main"),
       }),
       execute: async ({ path, branch }: { path?: string; branch?: string }) => {
@@ -883,7 +884,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         try {
           const { owner, name } = parseRepo(repo);
           const files = await githubListTree(token, `${owner}/${name}`, path, branch);
-          return { success: true, files, count: files.length };
+          return { success: true, files, count: files.length, hint: "This is the full recursive file list. No need to list subdirectories separately." };
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : "List failed" };
         }
