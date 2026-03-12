@@ -26,6 +26,8 @@ import {
   createCommitAndPush,
 } from "@/lib/github/api";
 import type { PlatformSender } from "@/lib/platform/types";
+import { botT, getBotLocaleOrDefault } from "@/lib/i18n/bot";
+import type { Locale } from "@/lib/i18n/types";
 import { generateTTS, logTTSUsage, getVoiceSettings } from "@/lib/voice/tts-engine";
 import { isTextTooLong } from "@/lib/voice/tts-config-data";
 import { searchKnowledgeForAgent } from "@/lib/knowledge/search";
@@ -65,6 +67,7 @@ interface ToolsOptions {
   sender: PlatformSender;
   platformChatId: string;
   platform: string;
+  locale?: Locale;
 }
 
 function computePushPayloadHash(params: {
@@ -1191,8 +1194,18 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
   return { ...baseTools, ...ttsTools };
 }
 
-export function createSubAppTools({ agentId, channelId, isOwner, sender, platformChatId, platform }: ToolsOptions) {
+export function createSubAppTools({ agentId, channelId, isOwner, sender, platformChatId, platform, locale }: ToolsOptions) {
   const supabase = getSupabase();
+  const botLocale = getBotLocaleOrDefault(locale);
+  const t = (k: Parameters<typeof botT>[1], p?: Parameters<typeof botT>[2]) => botT(botLocale, k, p);
+  const sendToCurrent = async (message: string) => {
+    if (!sender || !platformChatId) return;
+    try {
+      await sender.sendMarkdown(platformChatId, message);
+    } catch {
+      // ignore send failures
+    }
+  };
 
   async function broadcastRoomToChannels(roomId: string, roomTitle: string, excludeChannelId?: string | null) {
     const { buildRoomUrl } = await import("@/lib/room-token");
@@ -1213,7 +1226,7 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
         if (chSender) {
           await chSender.sendMarkdown(
             ch.platform_uid,
-            `🏠 *You're invited to a chatroom!*\n\n*Title:* ${roomTitle}\n🔗 [Join Chatroom](${url})`
+            t("roomBroadcast", { title: roomTitle, url })
           );
         }
       } catch { /* skip channels that fail */ }
@@ -1228,6 +1241,7 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
       }),
       execute: async ({ title }: { title?: string }) => {
         if (!isOwner) {
+          await sendToCurrent(t("roomOwnerOnly"));
           return { success: false, error: "Only the owner can create chatrooms" };
         }
         try {
@@ -1242,6 +1256,7 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
             .select()
             .single();
           if (error || !room) {
+            await sendToCurrent(t("roomCreateFailed"));
             return { success: false, error: error?.message ?? "Insert failed" };
           }
 
@@ -1258,7 +1273,7 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
           if (sender && platformChatId) {
             await sender.sendMarkdown(
               platformChatId,
-              `🏠 *Chatroom Created*\n\n*Title:* ${roomTitle}\n🔗 [Join Chatroom](${ownerUrl})`
+              t("roomCreated", { title: roomTitle, url: ownerUrl })
             );
           }
 
@@ -1266,6 +1281,7 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
 
           return { success: true, room_id: room.id, title: roomTitle, message: "Chatroom created and link sent." };
         } catch (err) {
+          await sendToCurrent(t("roomCreateFailed"));
           return { success: false, error: err instanceof Error ? err.message : "Failed" };
         }
       },
@@ -1278,6 +1294,7 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
       }),
       execute: async ({ room_id }: { room_id?: string }) => {
         if (!isOwner) {
+          await sendToCurrent(t("roomOwnerOnly"));
           return { success: false, error: "Only the owner can close chatrooms" };
         }
         try {
@@ -1291,10 +1308,18 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
               .order("created_at", { ascending: false })
               .limit(1);
             if (!rooms || rooms.length === 0) {
+              await sendToCurrent(t("roomNoActive"));
               return { success: false, error: "No active chatroom found" };
             }
             targetId = rooms[0].id;
           }
+
+          const { data: roomMeta } = await supabase
+            .from("chat_rooms")
+            .select("title")
+            .eq("id", targetId)
+            .single();
+          const roomTitle = roomMeta?.title || "Chatroom";
 
           const { error } = await supabase
             .from("chat_rooms")
@@ -1308,6 +1333,13 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
             sender_name: "System",
             content: "Chatroom has been closed by the owner.",
           });
+
+          if (sender && platformChatId) {
+            await sender.sendMarkdown(
+              platformChatId,
+              t("roomClosed", { title: roomTitle })
+            );
+          }
 
           return { success: true, room_id: targetId };
         } catch (err) {
@@ -1323,6 +1355,7 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
       }),
       execute: async ({ room_id }: { room_id?: string }) => {
         if (!isOwner) {
+          await sendToCurrent(t("roomOwnerOnly"));
           return { success: false, error: "Only the owner can reopen chatrooms" };
         }
         try {
@@ -1336,6 +1369,7 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
               .order("closed_at", { ascending: false })
               .limit(1);
             if (!rooms || rooms.length === 0) {
+              await sendToCurrent(t("roomNoClosed"));
               return { success: false, error: "No closed chatroom found" };
             }
             targetId = rooms[0].id;
@@ -1368,7 +1402,7 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
             const ownerUrl = buildRoomUrl(targetId!, channelId || null, platform || "web", "Owner", true);
             await sender.sendMarkdown(
               platformChatId,
-              `🏠 *Chatroom Reopened*\n\n*Title:* ${roomTitle}\n🔗 [Join Chatroom](${ownerUrl})`
+              t("roomReopened", { title: roomTitle, url: ownerUrl })
             );
           }
 

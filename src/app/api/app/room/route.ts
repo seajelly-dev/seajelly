@@ -128,8 +128,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: msgErr.message }, { status: 500 });
   }
 
-  const mentionPattern = new RegExp(`@(agent|${escapeRegex(agentName)})\\b`, "i");
-  const mentionsAgent = mentionPattern.test(content);
+  const normalized = content.trim();
+  const aliasMentioned = /@agent(?=$|\s|[,.!?，。！？:：;；])/i.test(normalized);
+  const nameMentioned = normalized.includes(`@${agentName}`);
+  const mentionsAgent = aliasMentioned || nameMentioned;
 
   if (mentionsAgent) {
     after(async () => {
@@ -203,10 +205,6 @@ export async function PATCH(request: Request) {
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
-}
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function handleAgentReply(

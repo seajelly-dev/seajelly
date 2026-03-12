@@ -28,6 +28,38 @@ function resolvePlatform(event: AgentEvent): string {
   return event.source;
 }
 
+function extractToolNamesFromResult(result: unknown): Set<string> {
+  const names = new Set<string>();
+
+  const readToolName = (call: unknown): string | null => {
+    if (!call || typeof call !== "object") return null;
+    const rec = call as Record<string, unknown>;
+    if (typeof rec.toolName === "string") return rec.toolName;
+    if (typeof rec.name === "string") return rec.name;
+    return null;
+  };
+
+  const root = result as Record<string, unknown>;
+  const topToolCalls = Array.isArray(root.toolCalls) ? root.toolCalls : [];
+  for (const call of topToolCalls) {
+    const name = readToolName(call);
+    if (name) names.add(name);
+  }
+
+  const steps = Array.isArray(root.steps) ? root.steps : [];
+  for (const step of steps) {
+    if (!step || typeof step !== "object") continue;
+    const stepRec = step as Record<string, unknown>;
+    const stepCalls = Array.isArray(stepRec.toolCalls) ? stepRec.toolCalls : [];
+    for (const call of stepCalls) {
+      const name = readToolName(call);
+      if (name) names.add(name);
+    }
+  }
+
+  return names;
+}
+
 export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
   const traceId = event.trace_id;
 
@@ -577,6 +609,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         sender,
         platformChatId,
         platform,
+        locale,
       });
       for (const [name, def] of Object.entries(subAppTools)) {
         if (enabledToolNames.has(name)) {
@@ -669,6 +702,21 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
 
+    if (
+      enabledToolNames.has("create_chat_room") ||
+      enabledToolNames.has("close_chat_room") ||
+      enabledToolNames.has("reopen_chat_room")
+    ) {
+      systemPrompt +=
+        "\n\n## Chatroom Tool Policy\n" +
+        "- If user asks to create/open/start a room/chatroom, you MUST call `create_chat_room`.\n" +
+        "- If user asks to close a room/chatroom, you MUST call `close_chat_room`.\n" +
+        "- If user asks to reopen/restart a closed room/chatroom, you MUST call `reopen_chat_room`.\n" +
+        "- Never generate HTML prototypes or fake links for chatroom requests.\n" +
+        "- Never call `run_html_preview` for chatroom creation requests.\n" +
+        "- After a room tool succeeds, do not invent additional links or duplicate invitations.";
+    }
+
     const deadline = startTime + AGENT_LIMITS.MAX_WALL_TIME_MS;
     const abortController = new AbortController();
     const timer = setTimeout(
@@ -706,7 +754,13 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       clearTimeout(timer);
     }
 
-    const reply = result.text || t("noResponseGenerated");
+    const calledToolNames = extractToolNamesFromResult(result);
+    const roomToolCalled =
+      calledToolNames.has("create_chat_room") ||
+      calledToolNames.has("close_chat_room") ||
+      calledToolNames.has("reopen_chat_room");
+
+    const reply = roomToolCalled ? "" : (result.text || t("noResponseGenerated"));
 
     const usageDurationMs = Date.now() - startTime;
     supabase
@@ -725,7 +779,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         () => {},
       );
 
-    await sender.sendMarkdown(platformChatId, reply);
+    if (!roomToolCalled) {
+      await sender.sendMarkdown(platformChatId, reply);
+    }
 
     const userContent = fileHandled
       ? `[File${fileName ? `: ${fileName}` : ""}]${messageText ? ` ${messageText}` : ""}`
@@ -738,11 +794,15 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         content: userContent,
         timestamp: new Date().toISOString(),
       },
-      {
-        role: "assistant" as const,
-        content: reply,
-        timestamp: new Date().toISOString(),
-      },
+      ...(
+        roomToolCalled
+          ? []
+          : [{
+              role: "assistant" as const,
+              content: reply,
+              timestamp: new Date().toISOString(),
+            }]
+      ),
     ].slice(-AGENT_LIMITS.MAX_SESSION_MESSAGES);
 
     const { error: updateErr } = await supabase
@@ -762,7 +822,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     if (mcpResult) await mcpResult.cleanup().catch(() => {});
-    return { success: true, reply, traceId };
+    return { success: true, reply: roomToolCalled ? "[room_tool_handled]" : reply, traceId };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : "Unknown error";
     console.error(`Agent loop failed (trace: ${traceId}):`, errMsg);
