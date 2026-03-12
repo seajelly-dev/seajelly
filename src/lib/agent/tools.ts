@@ -1207,6 +1207,16 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
     }
   };
 
+  async function getChannelDisplayName(): Promise<string> {
+    if (!channelId) return "User";
+    const { data } = await supabase
+      .from("channels")
+      .select("display_name, platform_uid")
+      .eq("id", channelId)
+      .single();
+    return data?.display_name || data?.platform_uid || "User";
+  }
+
   async function broadcastRoomToChannels(roomId: string, roomTitle: string, excludeChannelId?: string | null) {
     const { buildRoomUrl } = await import("@/lib/room-token");
     const { data: channels } = await supabase
@@ -1261,7 +1271,8 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
           }
 
           const { buildRoomUrl } = await import("@/lib/room-token");
-          const ownerUrl = buildRoomUrl(room.id, channelId || null, platform || "web", "Owner", true);
+          const ownerName = await getChannelDisplayName();
+          const ownerUrl = buildRoomUrl(room.id, channelId || null, platform || "web", ownerName, true);
 
           await supabase.from("chat_room_messages").insert({
             room_id: room.id,
@@ -1399,7 +1410,8 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
 
           if (sender && platformChatId) {
             const { buildRoomUrl } = await import("@/lib/room-token");
-            const ownerUrl = buildRoomUrl(targetId!, channelId || null, platform || "web", "Owner", true);
+            const ownerName = await getChannelDisplayName();
+            const ownerUrl = buildRoomUrl(targetId!, channelId || null, platform || "web", ownerName, true);
             await sender.sendMarkdown(
               platformChatId,
               t("roomReopened", { title: roomTitle, url: ownerUrl })
