@@ -8,6 +8,9 @@ interface WhatsAppCredentials {
 }
 
 const credCache = new Map<string, { creds: WhatsAppCredentials; expiresAt: number }>();
+const typingContextCache = new Map<string, { messageId: string; updatedAt: number }>();
+const TYPING_CONTEXT_TTL_MS = 15 * 60 * 1000;
+let lastTypingContextPruneAt = 0;
 
 type WhatsAppApiErrorPayload = {
   message?: string;
@@ -63,6 +66,30 @@ export function invalidateWhatsAppCache(agentId?: string): void {
     return;
   }
   credCache.clear();
+}
+
+function typingContextKey(agentId: string, chatId: string): string {
+  return `${agentId}:${chatId}`;
+}
+
+function pruneTypingContextCache(now = Date.now()): void {
+  if (now - lastTypingContextPruneAt < 60_000) return;
+  lastTypingContextPruneAt = now;
+  for (const [key, value] of typingContextCache.entries()) {
+    if (now - value.updatedAt > TYPING_CONTEXT_TTL_MS) {
+      typingContextCache.delete(key);
+    }
+  }
+}
+
+export function setWhatsAppTypingContext(agentId: string, chatId: string, messageId: string): void {
+  if (!agentId || !chatId || !messageId) return;
+  const now = Date.now();
+  pruneTypingContextCache(now);
+  typingContextCache.set(typingContextKey(agentId, chatId), {
+    messageId,
+    updatedAt: now,
+  });
 }
 
 export async function resolveWhatsAppCredentials(agentId: string): Promise<WhatsAppCredentials> {
@@ -176,9 +203,26 @@ export class WhatsAppAdapter implements PlatformSender {
     await this.sendText(chatId, md);
   }
 
-  async sendTyping(_chatId: string): Promise<void> {
-    // WhatsApp typing indicator requires incoming message_id context.
-    // We trigger it in the inbound webhook when marking the message as read.
+  async sendTyping(chatId: string): Promise<void> {
+    const now = Date.now();
+    pruneTypingContextCache(now);
+    const ctx = typingContextCache.get(typingContextKey(this.agentId, chatId));
+    if (!ctx) return;
+    if (now - ctx.updatedAt > TYPING_CONTEXT_TTL_MS) {
+      typingContextCache.delete(typingContextKey(this.agentId, chatId));
+      return;
+    }
+    try {
+      const creds = await resolveWhatsAppCredentials(this.agentId);
+      await graphPost(creds, "/messages", {
+        messaging_product: "whatsapp",
+        status: "read",
+        message_id: ctx.messageId,
+        typing_indicator: { type: "text" },
+      });
+    } catch (err) {
+      console.warn("WhatsApp sendTyping failed (ignored):", err);
+    }
   }
 
   async sendVoice(chatId: string, audio: Buffer, filename?: string): Promise<void> {

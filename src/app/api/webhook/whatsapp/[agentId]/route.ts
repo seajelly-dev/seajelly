@@ -5,6 +5,7 @@ import { decrypt } from "@/lib/crypto/encrypt";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
 import { processChannelApproval } from "@/lib/platform/approval-core";
 import { getSenderForAgent } from "@/lib/platform/sender";
+import { setWhatsAppTypingContext } from "@/lib/platform/adapters/whatsapp";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -217,6 +218,9 @@ export async function POST(
             console.log("WhatsApp: skipping empty message (no text and no fileRef)");
             continue;
           }
+
+          // Store context so loop-level sendTyping() can keep refreshing typing indicator.
+          setWhatsAppTypingContext(agentId, from, msgId);
 
           // Mark as read + show typing indicator
           const phoneNumberId = (value.metadata as Record<string, string>)?.phone_number_id;
