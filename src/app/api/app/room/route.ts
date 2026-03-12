@@ -1,9 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { generateText } from "ai";
 import { getModel } from "@/lib/agent/provider";
 import { verifyRoomToken, type RoomTokenPayload } from "@/lib/room-token";
 import type { Agent } from "@/types/database";
+
+export const maxDuration = 60;
 
 function getSupabase() {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -127,7 +129,9 @@ export async function POST(request: Request) {
   const mentionsAgent = /@agent\b/i.test(content);
 
   if (mentionsAgent) {
-    handleAgentReply(supabase, room, content, sender_name).catch(console.error);
+    after(async () => {
+      await handleAgentReply(supabase, room, content, sender_name);
+    });
   }
 
   return NextResponse.json({ message: msg, agent_triggered: mentionsAgent });

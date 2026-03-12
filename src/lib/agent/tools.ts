@@ -1213,7 +1213,7 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
         if (chSender) {
           await chSender.sendMarkdown(
             ch.platform_uid,
-            `🏠 *You're invited to a chatroom!*\n\n*Title:* ${roomTitle}\n🔗 ${url}`
+            `🏠 *You're invited to a chatroom!*\n\n*Title:* ${roomTitle}\n🔗 [Join Chatroom](${url})`
           );
         }
       } catch { /* skip channels that fail */ }
@@ -1222,7 +1222,7 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
 
   return {
     create_chat_room: tool({
-      description: "Create a cross-platform realtime chatroom. A shareable web link will be generated and broadcast to all approved channels. Only the owner can invoke this.",
+      description: "Create a cross-platform realtime chatroom. A shareable web link will be generated and broadcast to all approved channels. Only the owner can invoke this. IMPORTANT: The returned `url` contains a cryptographic auth token — you MUST send it to the user EXACTLY as-is. Never modify, shorten, or reconstruct the URL.",
       inputSchema: z.object({
         title: z.string().optional().describe("Optional chatroom title"),
       }),
@@ -1255,9 +1255,16 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
             content: `Chatroom "${roomTitle}" created`,
           });
 
+          if (sender && platformChatId) {
+            await sender.sendMarkdown(
+              platformChatId,
+              `🏠 *Chatroom Created*\n\n*Title:* ${roomTitle}\n🔗 [Join Chatroom](${ownerUrl})`
+            );
+          }
+
           await broadcastRoomToChannels(room.id, roomTitle, channelId);
 
-          return { success: true, room_id: room.id, url: ownerUrl, title: roomTitle };
+          return { success: true, room_id: room.id, title: roomTitle, message: "Chatroom created and link sent." };
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : "Failed" };
         }
@@ -1354,9 +1361,20 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
             .eq("id", targetId)
             .single();
 
-          await broadcastRoomToChannels(targetId!, roomData?.title || "Chatroom", channelId);
+          const roomTitle = roomData?.title || "Chatroom";
 
-          return { success: true, room_id: targetId };
+          if (sender && platformChatId) {
+            const { buildRoomUrl } = await import("@/lib/room-token");
+            const ownerUrl = buildRoomUrl(targetId!, channelId || null, platform || "web", "Owner", true);
+            await sender.sendMarkdown(
+              platformChatId,
+              `🏠 *Chatroom Reopened*\n\n*Title:* ${roomTitle}\n🔗 [Join Chatroom](${ownerUrl})`
+            );
+          }
+
+          await broadcastRoomToChannels(targetId!, roomTitle, channelId);
+
+          return { success: true, room_id: targetId, message: "Chatroom reopened and link sent." };
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : "Failed" };
         }

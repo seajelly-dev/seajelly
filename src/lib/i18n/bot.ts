@@ -125,11 +125,11 @@ const botStrings = {
     roomCreated:
       "🏠 *Chatroom Created*\n\n" +
       "*Title:* {title}\n" +
-      "🔗 {url}\n\n" +
+      "🔗 [Join Chatroom]({url})\n\n" +
       "Share this link with anyone to join the chatroom.",
-    roomBroadcast: "🏠 *You're invited to a chatroom!*\n\n*Title:* {title}\n🔗 {url}",
+    roomBroadcast: "🏠 *You're invited to a chatroom!*\n\n*Title:* {title}\n🔗 [Join Chatroom]({url})",
     roomClosed: "🏠 Chatroom *{title}* has been closed.",
-    roomReopened: "🏠 Chatroom *{title}* has been reopened!\n\n🔗 {url}",
+    roomReopened: "🏠 Chatroom *{title}* has been reopened!\n\n🔗 [Join Chatroom]({url})",
     roomOwnerOnly: "Only the owner can create or close chatrooms.",
     roomCreateFailed: "Failed to create chatroom.",
     roomNoActive: "No active chatroom to close.",
@@ -259,11 +259,11 @@ const botStrings = {
     roomCreated:
       "🏠 *聊天室已创建*\n\n" +
       "*标题：* {title}\n" +
-      "🔗 {url}\n\n" +
+      "🔗 [进入聊天室]({url})\n\n" +
       "分享此链接即可加入聊天室。",
-    roomBroadcast: "🏠 *你被邀请加入聊天室！*\n\n*标题：* {title}\n🔗 {url}",
+    roomBroadcast: "🏠 *你被邀请加入聊天室！*\n\n*标题：* {title}\n🔗 [进入聊天室]({url})",
     roomClosed: "🏠 聊天室 *{title}* 已关闭。",
-    roomReopened: "🏠 聊天室 *{title}* 已重新开启！\n\n🔗 {url}",
+    roomReopened: "🏠 聊天室 *{title}* 已重新开启！\n\n🔗 [进入聊天室]({url})",
     roomOwnerOnly: "只有实控人可以创建或关闭聊天室。",
     roomCreateFailed: "创建聊天室失败。",
     roomNoActive: "没有可关闭的活跃聊天室。",
