@@ -496,6 +496,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     if (fileId && event.agent_id) {
       const fileDownloader = getFileDownloader(platform);
       const file = await fileDownloader.download(event.agent_id, fileId, fileMime, fileName);
+      if (!file) {
+        console.warn(`File download returned null: platform=${platform} fileId=${fileId} fileMime=${fileMime}`);
+      }
       if (file) {
         const mime = file.mimeType;
         const textPrompt = messageText || "";
@@ -546,6 +549,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
     if (!fileHandled) {
+      if (fileId && !messageText) {
+        await sender.sendText(platformChatId, "⚠️ Failed to process the file you sent. Please try again or send as a different format.");
+        return { success: true, traceId };
+      }
       messages.push({ role: "user" as const, content: messageText });
     }
 

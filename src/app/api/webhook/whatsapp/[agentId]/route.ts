@@ -207,14 +207,21 @@ export async function POST(
             fileRef = sticker?.id || null;
             fileMime = sticker?.mime_type || "image/webp";
           } else {
+            console.log(`WhatsApp: unknown msgType "${msgType}", skipping`);
             continue;
           }
 
-          if (!text && !fileRef) continue;
+          console.log(`WhatsApp msg: type=${msgType} fileRef=${fileRef} fileMime=${fileMime} fileName=${fileName} text_len=${text.length} from=${from}`);
 
-          // Mark as read
-          if (accessToken) {
-            fetch(`https://graph.facebook.com/v22.0/${(value.metadata as Record<string, string>)?.phone_number_id}/messages`, {
+          if (!text && !fileRef) {
+            console.log("WhatsApp: skipping empty message (no text and no fileRef)");
+            continue;
+          }
+
+          // Mark as read + show typing indicator
+          const phoneNumberId = (value.metadata as Record<string, string>)?.phone_number_id;
+          if (accessToken && phoneNumberId) {
+            fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${accessToken}`,
@@ -224,6 +231,7 @@ export async function POST(
                 messaging_product: "whatsapp",
                 status: "read",
                 message_id: msgId,
+                typing_indicator: { type: "text" },
               }),
             }).catch(() => {});
           }

@@ -14,18 +14,18 @@ export class WhatsAppFileDownloader implements PlatformFileDownloader {
   ): Promise<PlatformFile | null> {
     try {
       const creds = await resolveWhatsAppCredentials(agentId);
+      console.log(`WhatsApp download: fileRef=${fileRef} hintMime=${hintMime} hintName=${hintName}`);
 
-      // Step 1: get media URL from media_id
       const metaResp = await fetch(`${GRAPH_API}/${fileRef}`, {
         headers: { Authorization: `Bearer ${creds.accessToken}` },
       });
       const meta = await metaResp.json();
       if (!meta.url) {
-        console.warn("WhatsApp media meta missing url:", JSON.stringify(meta).substring(0, 200));
+        console.warn("WhatsApp media meta missing url:", JSON.stringify(meta).substring(0, 300));
         return null;
       }
+      console.log(`WhatsApp download: meta url=${meta.url?.substring(0, 80)}... mime_type=${meta.mime_type}`);
 
-      // Step 2: download binary from the URL (requires auth header)
       const dlResp = await fetch(meta.url, {
         headers: { Authorization: `Bearer ${creds.accessToken}` },
       });
@@ -43,10 +43,12 @@ export class WhatsAppFileDownloader implements PlatformFileDownloader {
       const serverMime = meta.mime_type || hintMime || null;
       const resolvedMime = serverMime?.split(";")[0].trim() || null;
       const fileName = hintName || meta.file_name || null;
+      const finalMime = guessMime(fileName || fileRef, resolvedMime);
+      console.log(`WhatsApp download: ok size=${buffer.length} serverMime=${serverMime} resolvedMime=${resolvedMime} finalMime=${finalMime} fileName=${fileName}`);
 
       return {
         base64: buffer.toString("base64"),
-        mimeType: guessMime(fileName || fileRef, resolvedMime),
+        mimeType: finalMime,
         fileName,
         sizeBytes: buffer.length,
       };
