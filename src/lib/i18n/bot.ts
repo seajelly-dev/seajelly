@@ -129,9 +129,11 @@ const botStrings = {
       "Share this link with anyone to join the chatroom.",
     roomBroadcast: "🏠 *You're invited to a chatroom!*\n\n*Title:* {title}\n🔗 {url}",
     roomClosed: "🏠 Chatroom *{title}* has been closed.",
+    roomReopened: "🏠 Chatroom *{title}* has been reopened!\n\n🔗 {url}",
     roomOwnerOnly: "Only the owner can create or close chatrooms.",
     roomCreateFailed: "Failed to create chatroom.",
     roomNoActive: "No active chatroom to close.",
+    roomNoClosed: "No closed chatroom to reopen.",
   },
 
   zh: {
@@ -261,9 +263,11 @@ const botStrings = {
       "分享此链接即可加入聊天室。",
     roomBroadcast: "🏠 *你被邀请加入聊天室！*\n\n*标题：* {title}\n🔗 {url}",
     roomClosed: "🏠 聊天室 *{title}* 已关闭。",
+    roomReopened: "🏠 聊天室 *{title}* 已重新开启！\n\n🔗 {url}",
     roomOwnerOnly: "只有实控人可以创建或关闭聊天室。",
     roomCreateFailed: "创建聊天室失败。",
     roomNoActive: "没有可关闭的活跃聊天室。",
+    roomNoClosed: "没有可重新开启的已关闭聊天室。",
   },
 } as const;
 

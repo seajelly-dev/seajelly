@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { generateText } from "ai";
 import { getModel } from "@/lib/agent/provider";
+import { verifyRoomToken, type RoomTokenPayload } from "@/lib/room-token";
 import type { Agent } from "@/types/database";
 
 function getSupabase() {
@@ -12,12 +13,29 @@ function getSupabase() {
   );
 }
 
+function extractToken(request: Request): RoomTokenPayload | null {
+  const { searchParams } = new URL(request.url);
+  const t = searchParams.get("t");
+  if (!t) return null;
+  return verifyRoomToken(t);
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const roomId = searchParams.get("id");
+  const tokenStr = searchParams.get("t");
 
   if (!roomId) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
+  }
+
+  if (!tokenStr) {
+    return NextResponse.json({ error: "Unauthorized: token required" }, { status: 401 });
+  }
+
+  const token = verifyRoomToken(tokenStr);
+  if (!token || token.r !== roomId) {
+    return NextResponse.json({ error: "Unauthorized: invalid token" }, { status: 401 });
   }
 
   const supabase = getSupabase();
@@ -49,18 +67,29 @@ export async function GET(request: Request) {
     room,
     messages: messages ?? [],
     agent: agent ? { id: agent.id, name: agent.name } : null,
+    identity: {
+      channel_id: token.c,
+      platform: token.p,
+      display_name: token.n,
+      is_owner: token.o,
+    },
   });
 }
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { room_id, sender_name, platform, content } = body;
+  const { room_id, sender_name, platform, content, token: tokenStr } = body;
 
-  if (!room_id || !sender_name || !content) {
+  if (!room_id || !sender_name || !content || !tokenStr) {
     return NextResponse.json(
-      { error: "room_id, sender_name, and content are required" },
+      { error: "room_id, sender_name, content, and token are required" },
       { status: 400 }
     );
+  }
+
+  const token = verifyRoomToken(tokenStr);
+  if (!token || token.r !== room_id) {
+    return NextResponse.json({ error: "Unauthorized: invalid token" }, { status: 401 });
   }
 
   const supabase = getSupabase();
@@ -85,6 +114,7 @@ export async function POST(request: Request) {
       sender_type: "user",
       sender_name,
       platform: platform || "web",
+      channel_id: token.c || null,
       content,
     })
     .select()
@@ -101,6 +131,63 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ message: msg, agent_triggered: mentionsAgent });
+}
+
+export async function PATCH(request: Request) {
+  const body = await request.json();
+  const { room_id, action, token: tokenStr } = body;
+
+  if (!room_id || !action || !tokenStr) {
+    return NextResponse.json(
+      { error: "room_id, action, and token are required" },
+      { status: 400 }
+    );
+  }
+
+  const token = verifyRoomToken(tokenStr);
+  if (!token || token.r !== room_id || !token.o) {
+    return NextResponse.json({ error: "Unauthorized: owner only" }, { status: 403 });
+  }
+
+  const supabase = getSupabase();
+
+  if (action === "close") {
+    const { error } = await supabase
+      .from("chat_rooms")
+      .update({ status: "closed", closed_at: new Date().toISOString() })
+      .eq("id", room_id)
+      .eq("status", "active");
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await supabase.from("chat_room_messages").insert({
+      room_id,
+      sender_type: "system",
+      sender_name: "System",
+      content: "Chatroom has been closed by the owner.",
+    });
+
+    return NextResponse.json({ success: true, status: "closed" });
+  }
+
+  if (action === "reopen") {
+    const { error } = await supabase
+      .from("chat_rooms")
+      .update({ status: "active", closed_at: null })
+      .eq("id", room_id)
+      .eq("status", "closed");
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await supabase.from("chat_room_messages").insert({
+      room_id,
+      sender_type: "system",
+      sender_name: "System",
+      content: "Chatroom has been reopened by the owner.",
+    });
+
+    return NextResponse.json({ success: true, status: "active" });
+  }
+
+  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }
 
 async function handleAgentReply(

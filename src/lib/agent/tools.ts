@@ -1194,6 +1194,32 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
 export function createSubAppTools({ agentId, channelId, isOwner, sender, platformChatId, platform }: ToolsOptions) {
   const supabase = getSupabase();
 
+  async function broadcastRoomToChannels(roomId: string, roomTitle: string, excludeChannelId?: string | null) {
+    const { buildRoomUrl } = await import("@/lib/room-token");
+    const { data: channels } = await supabase
+      .from("channels")
+      .select("id, platform, platform_uid, display_name, is_allowed, is_owner")
+      .eq("agent_id", agentId)
+      .eq("is_allowed", true);
+
+    if (!channels) return;
+
+    const { getSenderForAgent } = await import("@/lib/platform/sender");
+    for (const ch of channels) {
+      if (!ch.platform_uid || ch.id === excludeChannelId) continue;
+      try {
+        const url = buildRoomUrl(roomId, ch.id, ch.platform, ch.display_name || ch.platform_uid, ch.is_owner);
+        const chSender = await getSenderForAgent(agentId, ch.platform);
+        if (chSender) {
+          await chSender.sendMarkdown(
+            ch.platform_uid,
+            `🏠 *You're invited to a chatroom!*\n\n*Title:* ${roomTitle}\n🔗 ${url}`
+          );
+        }
+      } catch { /* skip channels that fail */ }
+    }
+  }
+
   return {
     create_chat_room: tool({
       description: "Create a cross-platform realtime chatroom. A shareable web link will be generated and broadcast to all approved channels. Only the owner can invoke this.",
@@ -1218,9 +1244,9 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
           if (error || !room) {
             return { success: false, error: error?.message ?? "Insert failed" };
           }
-          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
-            ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000";
-          const roomUrl = `${baseUrl}/app/room/${room.id}`;
+
+          const { buildRoomUrl } = await import("@/lib/room-token");
+          const ownerUrl = buildRoomUrl(room.id, channelId || null, platform || "web", "Owner", true);
 
           await supabase.from("chat_room_messages").insert({
             room_id: room.id,
@@ -1229,30 +1255,9 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
             content: `Chatroom "${roomTitle}" created`,
           });
 
-          const { data: channels } = await supabase
-            .from("channels")
-            .select("id, platform, platform_chat_id, is_allowed")
-            .eq("agent_id", agentId)
-            .eq("is_allowed", true);
+          await broadcastRoomToChannels(room.id, roomTitle, channelId);
 
-          if (channels) {
-            const { getSenderForAgent } = await import("@/lib/platform/sender");
-            for (const ch of channels) {
-              if (ch.platform_chat_id && ch.id !== channelId) {
-                try {
-                  const chSender = await getSenderForAgent(agentId, ch.platform);
-                  if (chSender) {
-                    await chSender.sendMarkdown(
-                      ch.platform_chat_id,
-                      `🏠 *You're invited to a chatroom!*\n\n*Title:* ${roomTitle}\n🔗 ${roomUrl}`
-                    );
-                  }
-                } catch { /* skip channels that fail */ }
-              }
-            }
-          }
-
-          return { success: true, room_id: room.id, url: roomUrl, title: roomTitle };
+          return { success: true, room_id: room.id, url: ownerUrl, title: roomTitle };
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : "Failed" };
         }
@@ -1303,10 +1308,64 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
         }
       },
     }),
+
+    reopen_chat_room: tool({
+      description: "Reopen a previously closed chatroom. The same room ID and link will become active again. Only the owner can invoke this.",
+      inputSchema: z.object({
+        room_id: z.string().optional().describe("Specific room ID to reopen. If omitted, reopens the most recently closed room for this agent."),
+      }),
+      execute: async ({ room_id }: { room_id?: string }) => {
+        if (!isOwner) {
+          return { success: false, error: "Only the owner can reopen chatrooms" };
+        }
+        try {
+          let targetId = room_id;
+          if (!targetId) {
+            const { data: rooms } = await supabase
+              .from("chat_rooms")
+              .select("id")
+              .eq("agent_id", agentId)
+              .eq("status", "closed")
+              .order("closed_at", { ascending: false })
+              .limit(1);
+            if (!rooms || rooms.length === 0) {
+              return { success: false, error: "No closed chatroom found" };
+            }
+            targetId = rooms[0].id;
+          }
+
+          const { error } = await supabase
+            .from("chat_rooms")
+            .update({ status: "active", closed_at: null })
+            .eq("id", targetId)
+            .eq("status", "closed");
+          if (error) return { success: false, error: error.message };
+
+          await supabase.from("chat_room_messages").insert({
+            room_id: targetId,
+            sender_type: "system",
+            sender_name: "System",
+            content: "Chatroom has been reopened.",
+          });
+
+          const { data: roomData } = await supabase
+            .from("chat_rooms")
+            .select("title")
+            .eq("id", targetId)
+            .single();
+
+          await broadcastRoomToChannels(targetId!, roomData?.title || "Chatroom", channelId);
+
+          return { success: true, room_id: targetId };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Failed" };
+        }
+      },
+    }),
   };
 }
 
-export const SUB_APP_TOOL_NAMES = ["create_chat_room", "close_chat_room"] as const;
+export const SUB_APP_TOOL_NAMES = ["create_chat_room", "close_chat_room", "reopen_chat_room"] as const;
 
 function getUtcOffset(date: Date, timezone: string): string {
   const utcStr = date.toLocaleString("en-US", { timeZone: "UTC" });

@@ -1482,6 +1482,6 @@ BEGIN
 END $$;
 
 INSERT INTO public.sub_apps (slug, name, description, tool_names, enabled)
-VALUES ('room', 'Chatroom', 'Cross-platform realtime chatroom', ARRAY['create_chat_room', 'close_chat_room'], true)
+VALUES ('room', 'Chatroom', 'Cross-platform realtime chatroom', ARRAY['create_chat_room', 'close_chat_room', 'reopen_chat_room'], true)
 ON CONFLICT (slug) DO NOTHING;
 `;
