@@ -522,6 +522,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           await sender.sendText(platformChatId, t("imgeditNoPrompt"));
           return { success: true, reply: "imgedit_no_prompt", traceId };
         }
+        await sender!.sendTyping(platformChatId);
+        const typingTimer = setInterval(() => { sender?.sendTyping(platformChatId).catch(() => {}); }, 4000);
         try {
           const { generateImage } = await import("@/lib/image-gen/engine");
           const result = await generateImage({
@@ -529,10 +531,12 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             sourceImageBase64: file.base64,
             sourceMimeType: file.mimeType,
           });
+          clearInterval(typingTimer);
           const imageBuffer = Buffer.from(result.imageBase64, "base64");
           await sender.sendPhoto(platformChatId, imageBuffer, result.textResponse || undefined);
           await sender.sendText(platformChatId, t("imgeditSuccess", { ms: result.durationMs }));
         } catch (err) {
+          clearInterval(typingTimer);
           const errMsg = err instanceof Error ? err.message : "Unknown error";
           await sender.sendText(platformChatId, t("imgeditFailed", { error: errMsg }));
         }

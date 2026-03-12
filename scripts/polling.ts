@@ -395,12 +395,18 @@ async function startBotForAgent(agent: AgentRow) {
                   return;
                 }
                 await ctx.replyWithChatAction("upload_photo");
+                const typingTimer = setInterval(() => { ctx.replyWithChatAction("upload_photo").catch(() => {}); }, 4000);
                 const { generateImage } = await import("@/lib/image-gen/engine");
-                const result = await generateImage({
-                  prompt: editPrompt,
-                  sourceImageBase64: buf.toString("base64"),
-                  sourceMimeType: mime,
-                });
+                let result;
+                try {
+                  result = await generateImage({
+                    prompt: editPrompt,
+                    sourceImageBase64: buf.toString("base64"),
+                    sourceMimeType: mime,
+                  });
+                } finally {
+                  clearInterval(typingTimer);
+                }
                 const imageBuffer = Buffer.from(result.imageBase64, "base64");
                 const pollingSender = new TelegramAdapter(agent.id);
                 await pollingSender.sendPhoto(String(chatId), imageBuffer, result.textResponse || undefined);
