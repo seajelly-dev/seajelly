@@ -413,6 +413,7 @@ export async function checkVercelDeployment(
   commitSha: string
 ): Promise<{
   state: "BUILDING" | "READY" | "ERROR" | "QUEUED" | "CANCELED" | "NOT_FOUND";
+  commitSha?: string;
   deploymentId?: string;
   url?: string;
   createdAt?: string;
@@ -448,7 +449,7 @@ export async function checkVercelDeployment(
   );
 
   if (!match) {
-    return { state: "NOT_FOUND" };
+    return { state: "NOT_FOUND", commitSha: commitSha.trim() || undefined };
   }
 
   const stateMap: Record<string, string> = {
@@ -463,9 +464,16 @@ export async function checkVercelDeployment(
   const state = (stateMap[match.state ?? match.readyState] ?? "BUILDING") as
     "BUILDING" | "READY" | "ERROR" | "QUEUED" | "CANCELED";
   const deploymentId = match.uid as string | undefined;
+  const meta = (match.meta as Record<string, unknown> | undefined) ?? {};
+  const gitSource = (match.gitSource as Record<string, unknown> | undefined) ?? {};
+  const resolvedCommitSha =
+    (typeof meta.githubCommitSha === "string" && meta.githubCommitSha.trim()) ||
+    (typeof gitSource.sha === "string" && gitSource.sha.trim()) ||
+    commitSha.trim();
 
   const result: {
     state: typeof state;
+    commitSha?: string;
     deploymentId?: string;
     url?: string;
     createdAt?: string;
@@ -473,6 +481,7 @@ export async function checkVercelDeployment(
     buildLogs?: string;
   } = {
     state,
+    commitSha: resolvedCommitSha || undefined,
     deploymentId,
     url: match.url ? `https://${match.url}` : undefined,
     createdAt: match.createdAt ? new Date(match.createdAt).toISOString() : undefined,

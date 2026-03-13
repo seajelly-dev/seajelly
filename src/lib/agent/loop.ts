@@ -118,6 +118,159 @@ function extractToolInputPath(toolCalls: unknown[]): string | null {
   return null;
 }
 
+type DeployCheckState = "BUILDING" | "READY" | "ERROR" | "QUEUED" | "CANCELED" | "NOT_FOUND";
+
+interface DeployCheckObservation {
+  commitSha: string | null;
+  success: boolean;
+  fatal: boolean;
+  state: DeployCheckState | null;
+  url: string | null;
+  error: string | null;
+  errorMessage: string | null;
+  buildLogs: string | null;
+}
+
+function readToolOutput(stepItem: unknown): Record<string, unknown> | null {
+  if (!stepItem || typeof stepItem !== "object") return null;
+  const rec = stepItem as Record<string, unknown>;
+  const output = rec.output ?? rec.result;
+  if (!output || typeof output !== "object") return null;
+  return output as Record<string, unknown>;
+}
+
+function readStringField(rec: Record<string, unknown> | null, field: string): string | null {
+  if (!rec) return null;
+  const value = rec[field];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function readBooleanField(rec: Record<string, unknown> | null, field: string): boolean | null {
+  if (!rec) return null;
+  const value = rec[field];
+  return typeof value === "boolean" ? value : null;
+}
+
+function normalizeDeployCheckState(value: string | null): DeployCheckState | null {
+  if (!value) return null;
+  switch (value) {
+    case "BUILDING":
+    case "READY":
+    case "ERROR":
+    case "QUEUED":
+    case "CANCELED":
+    case "NOT_FOUND":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function extractDeployCheckObservation(toolCalls: unknown[], toolResults: unknown[]): DeployCheckObservation | null {
+  const deployCall = toolCalls.find((call) => readToolName(call) === "github_check_deploy");
+  const deployResult = toolResults.find((result) => readToolName(result) === "github_check_deploy");
+  if (!deployCall && !deployResult) return null;
+
+  const input =
+    deployCall && typeof deployCall === "object"
+      ? (((deployCall as Record<string, unknown>).input as Record<string, unknown> | undefined) ?? null)
+      : null;
+  const output = readToolOutput(deployResult);
+
+  return {
+    commitSha: readStringField(output, "commitSha") ?? readStringField(input, "commit_sha"),
+    success: readBooleanField(output, "success") ?? false,
+    fatal: readBooleanField(output, "fatal") ?? false,
+    state: normalizeDeployCheckState(readStringField(output, "state")),
+    url: readStringField(output, "url"),
+    error: readStringField(output, "error"),
+    errorMessage: readStringField(output, "errorMessage"),
+    buildLogs: readStringField(output, "buildLogs"),
+  };
+}
+
+function summarizeDeployLogs(buildLogs: string | null): string | null {
+  if (!buildLogs) return null;
+  const lines = buildLogs
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+    .slice(-12);
+  if (lines.length === 0) return null;
+  const summary = lines.join("\n");
+  return summary.length > 1200 ? `${summary.slice(summary.length - 1200)}` : summary;
+}
+
+function formatDeployCheckReply(params: {
+  locale: Locale;
+  observation: DeployCheckObservation;
+  pollCount: number;
+}): string {
+  const { locale, observation, pollCount } = params;
+  const commitLine = observation.commitSha
+    ? `\n${locale === "zh" ? "提交哈希" : "Commit SHA"}: ${observation.commitSha}`
+    : "";
+  const targetUrl = observation.url ? `\n${locale === "zh" ? "部署地址" : "Deployment URL"}: ${observation.url}` : "";
+  const detail = observation.errorMessage ?? observation.error;
+
+  if (observation.fatal || !observation.success) {
+    if (locale === "zh") {
+      return `部署检查失败。${commitLine}\n错误: ${detail ?? "未知错误"}\n请先修复 Vercel 配置或稍后重试。`.trim();
+    }
+    return `Deployment check failed.${commitLine}\nError: ${detail ?? "Unknown error"}\nPlease fix the Vercel configuration or try again later.`.trim();
+  }
+
+  switch (observation.state) {
+    case "READY":
+      if (locale === "zh") {
+        return `Vercel 部署已完成。${commitLine}\n状态: READY${targetUrl}`.trim();
+      }
+      return `The Vercel deployment is ready.${commitLine}\nStatus: READY${targetUrl}`.trim();
+    case "ERROR": {
+      const logSummary = summarizeDeployLogs(observation.buildLogs);
+      if (locale === "zh") {
+        return (
+          `Vercel 构建失败。${commitLine}\n状态: ERROR` +
+          `${detail ? `\n错误: ${detail}` : ""}` +
+          `${targetUrl}` +
+          `${logSummary ? `\n关键日志：\n${logSummary}` : ""}` +
+          "\n要我现在修复后重新推送，还是回滚到上一版？"
+        ).trim();
+      }
+      return (
+        `The Vercel build failed.${commitLine}\nStatus: ERROR` +
+        `${detail ? `\nError: ${detail}` : ""}` +
+        `${targetUrl}` +
+        `${logSummary ? `\nRelevant logs:\n${logSummary}` : ""}` +
+        "\nDo you want me to fix it and push again, or revert to the previous commit?"
+      ).trim();
+    }
+    case "NOT_FOUND":
+      if (locale === "zh") {
+        return `没有找到与该 commit 对应的 Vercel 部署。${commitLine}\n状态: NOT_FOUND\n请确认提交哈希和项目绑定是否正确。`.trim();
+      }
+      return `No Vercel deployment was found.${commitLine}\nStatus: NOT_FOUND\nPlease verify the commit SHA and project linkage.`.trim();
+    case "CANCELED":
+      if (locale === "zh") {
+        return `Vercel 部署已取消。${commitLine}\n状态: CANCELED${targetUrl}`.trim();
+      }
+      return `The Vercel deployment was canceled.${commitLine}\nStatus: CANCELED${targetUrl}`.trim();
+    case "BUILDING":
+    case "QUEUED":
+      if (locale === "zh") {
+        return `Vercel 仍在${observation.state === "QUEUED" ? "排队" : "构建"}。${commitLine}\n状态: ${observation.state}\n已检查 ${pollCount} 次。${targetUrl}\n请稍后再查。`.trim();
+      }
+      return `The Vercel deployment is still ${observation.state === "QUEUED" ? "queued" : "building"}.${commitLine}\nStatus: ${observation.state}\nChecked ${pollCount} times.${targetUrl}\nPlease check again later.`.trim();
+    default:
+      if (locale === "zh") {
+        return `部署检查已完成。${commitLine}${targetUrl}`.trim();
+      }
+      return `Deployment check completed.${commitLine}${targetUrl}`.trim();
+  }
+}
+
 const STEP_PAYLOAD_MAX_CHARS = 64 * 1024;
 const TELEGRAM_COALESCE_WAIT_MS = 1200;
 const TELEGRAM_COALESCE_WINDOW_MS = 6000;
@@ -1348,10 +1501,13 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     let result;
     let stepCounter = 0;
     let lastStepTs = Date.now();
-    let selfEvolutionLoopBreakReply: string | null = null;
+    let forcedToolLoopReply: string | null = null;
     let consecutiveSelfEvolutionReadOnlySteps = 0;
     let lastSelfEvolutionReadPath: string | null = null;
     let consecutiveSameSelfEvolutionReadPath = 0;
+    let lastDeployCheckCommitSha: string | null = null;
+    let lastDeployCheckState: string | null = null;
+    let consecutiveSameDeployCheckState = 0;
     try {
       result = await generateText({
         model,
@@ -1408,6 +1564,46 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             const latency = Math.max(0, now - lastStepTs);
             lastStepTs = now;
 
+            const deployCheckObservation = extractDeployCheckObservation(toolCalls, toolResults);
+            if (deployCheckObservation) {
+              const commitKey = deployCheckObservation.commitSha?.toLowerCase() ?? "";
+              const stateKey = deployCheckObservation.fatal
+                ? "fatal"
+                : deployCheckObservation.success
+                  ? (deployCheckObservation.state ?? "unknown")
+                  : "error";
+              if (commitKey === lastDeployCheckCommitSha && stateKey === lastDeployCheckState) {
+                consecutiveSameDeployCheckState += 1;
+              } else {
+                lastDeployCheckCommitSha = commitKey;
+                lastDeployCheckState = stateKey;
+                consecutiveSameDeployCheckState = 1;
+              }
+
+              const isTerminalDeployState =
+                deployCheckObservation.fatal ||
+                !deployCheckObservation.success ||
+                deployCheckObservation.state === "READY" ||
+                deployCheckObservation.state === "ERROR" ||
+                deployCheckObservation.state === "NOT_FOUND" ||
+                deployCheckObservation.state === "CANCELED";
+              const isQueuedTooLong =
+                (deployCheckObservation.state === "BUILDING" || deployCheckObservation.state === "QUEUED") &&
+                consecutiveSameDeployCheckState >= 3;
+
+              if (!forcedToolLoopReply && (isTerminalDeployState || isQueuedTooLong)) {
+                forcedToolLoopReply = formatDeployCheckReply({
+                  locale,
+                  observation: deployCheckObservation,
+                  pollCount: consecutiveSameDeployCheckState,
+                });
+                console.warn(
+                  `[agent-loop] trace=${traceId} deploy monitor guard triggered commit=${deployCheckObservation.commitSha ?? ""} state=${deployCheckObservation.state ?? "unknown"} repeats=${consecutiveSameDeployCheckState}`,
+                );
+                abortController.abort();
+              }
+            }
+
             const onlyReadOnlySelfEvolutionTools =
               callNames.length > 0 &&
               callNames.every((name) => SELF_EVOLUTION_READ_ONLY_TOOL_NAME_SET.has(name));
@@ -1422,12 +1618,12 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
               }
 
               if (
-                !selfEvolutionLoopBreakReply &&
+                !forcedToolLoopReply &&
                 (consecutiveSameSelfEvolutionReadPath >= 4 || consecutiveSelfEvolutionReadOnlySteps >= 24)
               ) {
                 const repeatedPathHint =
                   readPath && readPath.length > 0 ? `（当前反复读取：${readPath}）` : "";
-                selfEvolutionLoopBreakReply =
+                forcedToolLoopReply =
                   locale === "zh"
                     ? `我已经完成仓库初步扫描，但你的需求还不够具体 ${repeatedPathHint}`.trim() +
                       "。请直接告诉我要改什么功能、哪个页面、文件或报错，我再继续执行。"
@@ -1468,9 +1664,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     } catch (genErr) {
       clearInterval(typingInterval);
       clearTimeout(timer);
-      if (selfEvolutionLoopBreakReply && /abort/i.test(genErr instanceof Error ? genErr.message : String(genErr))) {
+      if (forcedToolLoopReply && /abort/i.test(genErr instanceof Error ? genErr.message : String(genErr))) {
         result = {
-          text: selfEvolutionLoopBreakReply,
+          text: forcedToolLoopReply,
           steps: [],
         };
       } else {

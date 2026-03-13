@@ -125,6 +125,14 @@ const SELF_EVOLUTION_VAGUE_START_PATTERNS = [
   /\b(prepare|planning|plan|later|next)\b.{0,20}\b(add|change|fix|refactor|implement)\b/i,
 ];
 
+const SELF_EVOLUTION_DEPLOY_STATUS_PATTERNS = [
+  /github_check_deploy/i,
+  /\b(check|monitor|query|inspect|see|confirm|follow(?:\s|-)?up)\b.{0,24}\b(vercel|deploy(?:ment)?|build)\b/i,
+  /\b(vercel|deploy(?:ment)?|build)\b.{0,24}\b(status|progress|ready|done|complete|completed|finished|success|failed?|error|check|monitor)\b/i,
+  /(查|查询|检查|看看|确认|跟进).{0,16}(部署|构建|vercel)/,
+  /(部署|构建|vercel).{0,16}(状态|进度|好了|完成|成功|失败|报错|怎么样|如何|查一下|看一下|跟进)/,
+];
+
 const SELF_EVOLUTION_FILE_HINT_PATTERN =
   /(?:^|[\s"'`(])(?:src\/|app\/|lib\/|supabase\/|scripts\/|skills\/|public\/|README(?:\.zh-CN)?\.md|package\.json|tsconfig\.json|vercel\.json|next\.config\.ts|[^/\s]+\.(?:ts|tsx|js|jsx|mjs|json|md|sql))(?:$|[\s"'`),.:])/i;
 
@@ -149,6 +157,12 @@ function hasSelfEvolutionActivationOnlyIntent(messageText: string): boolean {
 
 function hasSelfEvolutionVagueStartIntent(messageText: string): boolean {
   return SELF_EVOLUTION_VAGUE_START_PATTERNS.some((pattern) => pattern.test(messageText));
+}
+
+function hasSelfEvolutionDeployStatusIntent(messageText: string): boolean {
+  const text = normalizeSelfEvolutionText(messageText);
+  if (!text.trim()) return false;
+  return SELF_EVOLUTION_DEPLOY_STATUS_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 function shouldForceSelfEvolutionToolUse(messageText: string): boolean {
@@ -215,16 +229,25 @@ export const SELF_EVOLUTION_TOOLKIT: ToolkitRuntimeDefinition = {
       "- NEVER call `github_commit_push` or `github_patch_files` without prior user consent in the conversation.\n" +
       "- NEVER call `github_revert_commit` without explicit user request.\n" +
       "- If the user only says to activate/enable self-evolution or says they are about to start, do NOT begin repository exploration yet. Ask what feature, bug, file, or page they want changed.\n" +
+      "- If the user asks about Vercel/build/deploy status, or explicitly mentions `github_check_deploy`, do NOT inspect repository files first. Call `github_check_deploy` directly using the commit SHA from the conversation context.\n" +
+      "- After `github_check_deploy` returns `READY`, `NOT_FOUND`, `CANCELED`, `ERROR`, or `fatal: true`, answer immediately and stop. Only continue polling while the state is `BUILDING` or `QUEUED`, and cap it at 2-3 checks total.\n" +
       "- If `github_patch_files` fails (context mismatch), re-read the file with `github_read_file` and retry with corrected context lines.\n" +
       "- If any tool returns `fatal: true`, NEVER call that tool again in this session.\n" +
       "- After receiving ERROR from `github_check_deploy`, do NOT poll again — present logs and wait for user decision.\n" +
       "- Be efficient: plan reads upfront, minimize tool calls. Budget: ~25 steps total.\n" +
-      "- Always include the commit SHA in your reply after pushing, so the user can reference it for revert."
+      "- Always include the full commit SHA in your reply after pushing, deploy checking, or reverting. Do NOT shorten it."
     );
   },
   getGenerateTextDirective: ({ availableToolNames, messageText }) => {
     const activeToolNames = SELF_EVOLUTION_TOOL_NAMES.filter((toolName) => availableToolNames.has(toolName));
     if (activeToolNames.length === 0) return null;
+
+    if (availableToolNames.has("github_check_deploy") && hasSelfEvolutionDeployStatusIntent(messageText)) {
+      return {
+        activeTools: ["github_check_deploy"],
+        toolChoice: "required",
+      };
+    }
 
     if (!hasSelfEvolutionWorkflowIntent(messageText)) {
       return null;

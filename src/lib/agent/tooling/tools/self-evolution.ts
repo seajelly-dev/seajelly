@@ -273,7 +273,11 @@ export function createSelfEvolutionToolkitTools({
             success: true,
             commitSha: result.commitSha,
             commitUrl: result.commitUrl,
-            message: `Committed and pushed to ${branch}: ${result.commitUrl}. Vercel will auto-deploy. Use github_check_deploy to monitor.`,
+            message:
+              `Committed and pushed to ${branch}. ` +
+              `Commit SHA: ${result.commitSha}. ` +
+              `Commit URL: ${result.commitUrl}. ` +
+              "Vercel will auto-deploy. Use github_check_deploy to monitor.",
           };
         } catch (err) {
           await writePipelineAudit({
@@ -378,7 +382,11 @@ export function createSelfEvolutionToolkitTools({
             commitSha: result.commitSha,
             commitUrl: result.commitUrl,
             patchedFiles: result.patchedFiles,
-            message: `Patched ${result.patchedFiles.length} file(s) and pushed to ${branch}: ${result.commitUrl}. Vercel will auto-deploy. Use github_check_deploy to monitor.`,
+            message:
+              `Patched ${result.patchedFiles.length} file(s) and pushed to ${branch}. ` +
+              `Commit SHA: ${result.commitSha}. ` +
+              `Commit URL: ${result.commitUrl}. ` +
+              "Vercel will auto-deploy. Use github_check_deploy to monitor.",
           };
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : "Patch failed";
@@ -405,9 +413,11 @@ export function createSelfEvolutionToolkitTools({
     github_check_deploy: tool({
       description:
         "Check the Vercel deployment status for a specific git commit. " +
-        "Call this after github_commit_push to monitor whether the deployment succeeded. " +
-        "Poll 2-3 times with a few seconds between calls. If still BUILDING, tell the user to check back. " +
-        "IMPORTANT: If the result contains `fatal: true`, do NOT retry — stop immediately and relay the error to the user. " +
+        "Use this directly when the user asks whether a deploy/build has finished. " +
+        "If the result is READY, reply with the deployment URL and STOP. " +
+        "If the result is NOT_FOUND, CANCELED, or contains `fatal: true`, STOP immediately and report it. " +
+        "Only poll again while the state is BUILDING or QUEUED, and even then cap it at 2-3 total checks. " +
+        "Do NOT inspect repository files or call unrelated GitHub tools unless the user separately asks about code changes. " +
         "When state is ERROR, the result includes `buildLogs` with the actual build error output. " +
         "Present the build logs to the user and ask whether they want to: (a) fix the code and push again, or (b) revert to the previous commit.",
       inputSchema: z.object({
@@ -478,7 +488,11 @@ export function createSelfEvolutionToolkitTools({
             success: true,
             revertCommitSha: result.commitSha,
             revertCommitUrl: result.commitUrl,
-            message: `Reverted commit ${commit_sha.slice(0, 8)}. New commit: ${result.commitUrl}. Vercel will redeploy.`,
+            message:
+              `Reverted commit ${commit_sha}. ` +
+              `New commit SHA: ${result.commitSha}. ` +
+              `New commit URL: ${result.commitUrl}. ` +
+              "Vercel will redeploy.",
           };
         } catch (err) {
           await writePipelineAudit({
