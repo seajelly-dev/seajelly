@@ -112,6 +112,13 @@ interface EventMessageSnapshot {
   fileName: string | null;
 }
 
+function readEventPlatformUid(payload: Record<string, unknown>): string | null {
+  const uid = payload.platform_uid;
+  if (typeof uid !== "string") return null;
+  const trimmed = uid.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function readEventMessageSnapshot(payload: Record<string, unknown>): EventMessageSnapshot {
   const message = (payload.message as Record<string, unknown> | undefined) ?? {};
   return {
@@ -151,8 +158,9 @@ async function claimTelegramCompanionFileEvent(params: {
   baseEvent: AgentEvent;
   agentId: string;
   platformChatId: string;
+  platformUid: string;
 }): Promise<ClaimedCompanionFileEvent | null> {
-  const { supabase, baseEvent, agentId, platformChatId } = params;
+  const { supabase, baseEvent, agentId, platformChatId, platformUid } = params;
   const baseCreatedAtMs = Date.parse(baseEvent.created_at);
   if (!Number.isFinite(baseCreatedAtMs)) return null;
   const windowEnd = new Date(baseCreatedAtMs + TELEGRAM_COALESCE_WINDOW_MS).toISOString();
@@ -171,6 +179,8 @@ async function claimTelegramCompanionFileEvent(params: {
 
   for (const row of candidates ?? []) {
     const rowPayload = (row.payload ?? {}) as Record<string, unknown>;
+    const rowUid = readEventPlatformUid(rowPayload);
+    if (rowUid !== platformUid) continue;
     const snapshot = readEventMessageSnapshot(rowPayload);
     if (!snapshot.fileId) continue;
 
@@ -339,7 +349,12 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const platformChatId = event.platform_chat_id;
     if (!platformChatId) throw new Error("No platform_chat_id on event");
 
-    const msgPayload = (event.payload as Record<string, unknown>).message as
+    const eventPayload = event.payload as Record<string, unknown>;
+    const platformUid = readEventPlatformUid(eventPayload);
+    const displayName =
+      (typeof eventPayload.display_name === "string" && eventPayload.display_name) || null;
+
+    const msgPayload = (eventPayload).message as
       | Record<string, unknown>
       | undefined;
     let messageText = (msgPayload?.text as string) || "";
@@ -360,13 +375,14 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     // Telegram often sends "text then image" as two close events.
     // Coalesce them into one turn to avoid the text being interpreted independently.
-    if (platform === "telegram" && messageText.trim() && !fileId && !command) {
+    if (platform === "telegram" && platformUid && messageText.trim() && !fileId && !command) {
       await sleep(TELEGRAM_COALESCE_WAIT_MS);
       const companion = await claimTelegramCompanionFileEvent({
         supabase,
         baseEvent: event,
         agentId: typedAgent.id,
         platformChatId,
+        platformUid,
       });
       if (companion) {
         messageText = mergePromptText(messageText, companion.text);
@@ -381,12 +397,6 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     // ── Resolve channel from event payload ──
-    const platformUid =
-      ((event.payload as Record<string, unknown>).platform_uid as string) ||
-      null;
-    const displayName =
-      ((event.payload as Record<string, unknown>).display_name as string) || null;
-
     let channel: Channel | null = null;
     if (platformUid) {
       const { data: existingChannel } = await supabase
