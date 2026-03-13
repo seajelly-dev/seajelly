@@ -198,7 +198,7 @@ You have persistent memory across conversations. Use it wisely:
         }
         setCurrentStep(Math.min(data.currentStep ?? 0, 3));
         if (data.configuredKeys) {
-          loadAvailableModels(data.configuredKeys);
+          loadAvailableModels();
         }
         setChecking(false);
       })
