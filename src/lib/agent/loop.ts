@@ -661,6 +661,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     // Build multimodal user message if file is present
     let fileHandled = false;
+    let imageBase64ForMediaSearch: string | null = null;
+    let imageMimeForMediaSearch: string | null = null;
     if (fileId && event.agent_id) {
       const fileDownloader = getFileDownloader(platform);
       const file = await fileDownloader.download(event.agent_id, fileId, fileMime, fileName);
@@ -672,6 +674,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         const textPrompt = messageText || "";
 
         if (isImageMime(mime)) {
+          imageBase64ForMediaSearch = file.base64;
+          imageMimeForMediaSearch = mime;
           messages.push({
             role: "user" as const,
             content: [
@@ -975,10 +979,16 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         "3. **Wait for confirmation**: Only proceed when the user explicitly approves (e.g. 'ok', 'go ahead', '同意', '推送', '继续').\n" +
         "4. **Commit**: Call `github_commit_push` with the approved changes. Use conventional commit messages (feat/fix/docs/refactor).\n" +
         "5. **Monitor**: Call `github_check_deploy` 2-3 times to check Vercel deployment status. If still BUILDING, tell the user to wait.\n" +
+        "   - **CRITICAL**: If `github_check_deploy` returns `fatal: true`, STOP immediately. Do NOT retry. Report the error to the user and end the monitoring.\n" +
+        "   - **ON ERROR**: When state is `ERROR`, the result includes `buildLogs` with the actual build error output. " +
+        "Present the key error lines to the user and ask: (a) fix the code and push a new commit, or (b) revert via `github_revert_commit`. " +
+        "Do NOT keep polling after receiving ERROR — the build has already failed.\n" +
         "6. **Revert if needed**: If the user requests a rollback, use `github_revert_commit` with the commit SHA.\n\n" +
         "### Rules\n" +
         "- NEVER call `github_commit_push` without prior user consent in the conversation.\n" +
         "- NEVER call `github_revert_commit` without explicit user request.\n" +
+        "- If any tool returns `fatal: true`, NEVER call that tool again in this session.\n" +
+        "- After receiving ERROR from `github_check_deploy`, do NOT poll again — present logs and wait for user decision.\n" +
         "- Be efficient: plan reads upfront, minimize tool calls. Budget: ~25 steps total.\n" +
         "- Always include the commit SHA in your reply after pushing, so the user can reference it for revert.\n";
     }
@@ -998,6 +1008,38 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         "- The generated/edited image will be automatically sent to the user — do NOT embed base64 strings in your text reply.\n" +
         "- NEVER fabricate image URLs or claim images were generated without calling the tool.\n" +
         "- If the tool call fails, report the error honestly instead of faking a result.";
+    }
+
+    // ── Multimodal knowledge search bypass ──
+    if (imageBase64ForMediaSearch && imageMimeForMediaSearch) {
+      try {
+        const { hasAgentMediaEmbeddings, searchArticleByMedia, getAgentKnowledgeBaseIds } = await import("@/lib/knowledge/search");
+        const hasMedia = await hasAgentMediaEmbeddings(typedAgent.id);
+        if (hasMedia) {
+          const { embedContent } = await import("@/lib/memory/embedding");
+          const queryVec = await embedContent(
+            [{ inlineData: { mimeType: imageMimeForMediaSearch, data: imageBase64ForMediaSearch } }],
+            "gemini-embedding-2-preview",
+            "RETRIEVAL_QUERY",
+          );
+          if (queryVec) {
+            const agentKbIds = await getAgentKnowledgeBaseIds(typedAgent.id);
+            const topArticle = await searchArticleByMedia(queryVec, agentKbIds, 1);
+            if (topArticle) {
+              console.log(`[agent-loop] trace=${traceId} media-search hit: "${topArticle.title}" sim=${topArticle.similarity.toFixed(3)}`);
+              systemPrompt += "\n\n## Image Search Result\n";
+              systemPrompt += "The user's image was matched against the knowledge base via vector similarity. ";
+              systemPrompt += `Top match: "${topArticle.title}" (similarity: ${topArticle.similarity.toFixed(3)}).\n\n`;
+              systemPrompt += "**Your task**: Compare what you see in the image with the article below. ";
+              systemPrompt += "If they clearly refer to the same subject, use the article as your PRIMARY source to answer. ";
+              systemPrompt += "If the image does NOT match (false positive), IGNORE this section entirely and respond based on the image alone.\n\n";
+              systemPrompt += `### ${topArticle.title}\n${topArticle.content}\n`;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[agent-loop] media search bypass error (non-blocking):", err);
+      }
     }
 
     if (event.id) {

@@ -61,9 +61,21 @@ export async function embedText(
   model = "gemini-embedding-001",
   taskType: EmbedTaskType = "RETRIEVAL_QUERY",
 ): Promise<number[] | null> {
+  return embedContent([{ text }], model, taskType);
+}
+
+export type EmbedContentPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } };
+
+export async function embedContent(
+  parts: EmbedContentPart[],
+  model = "gemini-embedding-2-preview",
+  taskType: EmbedTaskType = "RETRIEVAL_DOCUMENT",
+): Promise<number[] | null> {
   const apiKey = await resolveEmbeddingApiKey();
   if (!apiKey) {
-    console.error("[embedText] No embedding API key found. Set EMBEDDING_API_KEY in secrets or add a Google provider key.");
+    console.error("[embedContent] No embedding API key found. Set EMBEDDING_API_KEY in secrets or add a Google provider key.");
     return null;
   }
 
@@ -74,7 +86,7 @@ export async function embedText(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          content: { parts: [{ text }] },
+          content: { parts },
           taskType,
           outputDimensionality: 1536,
         }),
@@ -83,13 +95,13 @@ export async function embedText(
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      console.error(`[embedText] Gemini API error ${res.status}: ${errText}`);
+      console.error(`[embedContent] Gemini API error ${res.status}: ${errText}`);
       return null;
     }
     const data = await res.json();
     return data.embedding?.values ?? null;
   } catch (err) {
-    console.error("[embedText] Exception:", err);
+    console.error("[embedContent] Exception:", err);
     return null;
   }
 }

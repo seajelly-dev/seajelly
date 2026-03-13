@@ -200,6 +200,8 @@ export interface KnowledgeBase {
 
 export type ArticleChunkStatus = "pending" | "chunking" | "chunked" | "chunk_failed";
 
+export type MediaEmbedStatus = "none" | "embedding" | "embedded" | "failed";
+
 export interface KnowledgeArticle {
   id: string;
   knowledge_base_id: string;
@@ -210,6 +212,9 @@ export interface KnowledgeArticle {
   chunks_count: number;
   embedded_count?: number;
   total_chunks?: number;
+  media_type: string | null;
+  media_embed_model: string | null;
+  media_embed_status: MediaEmbedStatus;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;

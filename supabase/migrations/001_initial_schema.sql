@@ -257,6 +257,10 @@ CREATE TABLE IF NOT EXISTS public.knowledge_articles (
   source_url          text,
   chunk_status        text NOT NULL DEFAULT 'pending' CHECK (chunk_status IN ('pending','chunking','chunked','chunk_failed')),
   chunks_count        int NOT NULL DEFAULT 0,
+  media_type          text,
+  media_embedding     vector(1536),
+  media_embed_model   text,
+  media_embed_status  text NOT NULL DEFAULT 'none' CHECK (media_embed_status IN ('none','embedding','embedded','failed')),
   metadata            jsonb NOT NULL DEFAULT '{}',
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now()
@@ -992,6 +996,43 @@ AS $fn$
     AND 1 - (kc.embedding <=> query_embedding) > match_threshold
     AND (kb_ids IS NULL OR ka.knowledge_base_id = ANY(kb_ids))
   ORDER BY kc.embedding <=> query_embedding ASC
+  LIMIT match_count;
+$fn$;
+
+-- RPC: vector similarity search for knowledge article media embeddings
+CREATE OR REPLACE FUNCTION public.match_article_media(
+  query_embedding vector(1536),
+  match_threshold float DEFAULT 0.5,
+  match_count int DEFAULT 5,
+  kb_ids uuid[] DEFAULT NULL
+)
+RETURNS TABLE (
+  id uuid,
+  title text,
+  content text,
+  media_type text,
+  similarity float,
+  knowledge_base_name text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+  SELECT
+    ka.id,
+    ka.title,
+    ka.content,
+    ka.media_type,
+    1 - (ka.media_embedding <=> query_embedding) AS similarity,
+    kb.name AS knowledge_base_name
+  FROM public.knowledge_articles ka
+  JOIN public.knowledge_bases kb ON kb.id = ka.knowledge_base_id
+  WHERE ka.media_embed_status = 'embedded'
+    AND ka.media_embedding IS NOT NULL
+    AND 1 - (ka.media_embedding <=> query_embedding) > match_threshold
+    AND (kb_ids IS NULL OR ka.knowledge_base_id = ANY(kb_ids))
+  ORDER BY ka.media_embedding <=> query_embedding ASC
   LIMIT match_count;
 $fn$;
 

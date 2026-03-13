@@ -588,6 +588,11 @@ const en = {
     searchArticlesHit: "Matched {chunks} chunks across {articles} articles (full article content shown below)",
     searchChunkDetail: "Chunk retrieval detail ({count} chunks)",
     noSearchResults: "No results found. Try a different query.",
+    mediaEmbed: "Media",
+    mediaEmbedTooltip: "Upload an image/audio/video/PDF to embed as multimodal vector (requires gemini-embedding-2-preview)",
+    mediaEmbedSuccess: "Attachment embedded successfully",
+    mediaEmbedded: "Media embedded",
+    mediaEmbedFailed: "Media embed failed",
   },
 
   settings: {

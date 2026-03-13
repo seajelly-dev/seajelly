@@ -590,6 +590,11 @@ const zh: TranslationKeys = {
     searchArticlesHit: "命中 {chunks} 个片段，关联 {articles} 篇文章（下方展示完整文章内容）",
     searchChunkDetail: "片段检索明细（{count} 个片段）",
     noSearchResults: "未找到结果，请尝试其他查询。",
+    mediaEmbed: "附件嵌入",
+    mediaEmbedTooltip: "上传图片/音频/视频/PDF 进行多模态向量嵌入（需选用 gemini-embedding-2-preview）",
+    mediaEmbedSuccess: "附件嵌入成功",
+    mediaEmbedded: "已嵌入附件",
+    mediaEmbedFailed: "附件嵌入失败",
   },
 
   settings: {

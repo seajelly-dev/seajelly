@@ -47,6 +47,7 @@ import {
   Info,
   Settings2,
   AlertCircle,
+  ImagePlus,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import type { KnowledgeBase, KnowledgeArticle, Provider } from "@/types/database";
@@ -137,13 +138,14 @@ export default function KnowledgePage() {
   // Processing states
   const [chunkingIds, setChunkingIds] = useState<Set<string>>(new Set());
   const [vectorizingIds, setVectorizingIds] = useState<Set<string>>(new Set());
+  const [mediaEmbeddingIds, setMediaEmbeddingIds] = useState<Set<string>>(new Set());
 
   // Model config — global
   const [allProviders, setAllProviders] = useState<Provider[]>([]);
   const [allModels, setAllModels] = useState<ModelItem[]>([]);
   const [chunkProviderId, setChunkProviderId] = useState("");
   const [chunkModelId, setChunkModelId] = useState("");
-  const [embedModelId, setEmbedModelId] = useState(EMBED_MODELS[0].id);
+  const [embedModelId, setEmbedModelId] = useState<string>(EMBED_MODELS[0].id);
 
   // Embedding key config
   const [customEmbedKey, setCustomEmbedKey] = useState("");
@@ -345,6 +347,46 @@ export default function KnowledgePage() {
     }
     setVectorizingIds((prev) => { const s = new Set(prev); s.delete(articleId); return s; });
     if (selectedBase) fetchArticles(selectedBase);
+  };
+
+  const handleMediaEmbed = async (articleId: string) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*,audio/*,video/*,application/pdf";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      setMediaEmbeddingIds((prev) => new Set(prev).add(articleId));
+      try {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(",")[1]);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const res = await fetch("/api/admin/knowledge/articles/embed-media", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            article_id: articleId,
+            media_base64: base64,
+            media_type: file.type,
+            embed_model: embedModelId,
+          }),
+        });
+        const data = await res.json();
+        if (data.error) toast.error(data.error);
+        else toast.success(t("knowledge.mediaEmbedSuccess"));
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Media embed failed");
+      }
+      setMediaEmbeddingIds((prev) => { const s = new Set(prev); s.delete(articleId); return s; });
+      if (selectedBase) fetchArticles(selectedBase);
+    };
+    input.click();
   };
 
   // ─── Search ───
@@ -587,6 +629,18 @@ export default function KnowledgePage() {
                               </Badge>
                             );
                           })()}
+                          {article.media_embed_status === "embedded" && (
+                            <Badge variant="outline" className="text-xs bg-violet-100 text-violet-700 border-violet-300">
+                              <ImagePlus className="size-3 mr-0.5" />
+                              {t("knowledge.mediaEmbedded")}
+                            </Badge>
+                          )}
+                          {article.media_embed_status === "failed" && (
+                            <Badge variant="outline" className="text-xs bg-red-100 text-red-700 border-red-300">
+                              <ImagePlus className="size-3 mr-0.5" />
+                              {t("knowledge.mediaEmbedFailed")}
+                            </Badge>
+                          )}
                         </div>
                         {article.source_url && (
                           <p className="text-xs text-muted-foreground truncate">{article.source_url}</p>
@@ -612,6 +666,18 @@ export default function KnowledgePage() {
                           {vectorizingIds.has(article.id) ? <Loader2 className="size-3.5 animate-spin" /> : <Zap className="size-3.5" />}
                           <span className="ml-1">{t("knowledge.vectorize")}</span>
                         </Button>
+                        {embedModelId === "gemini-embedding-2-preview" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={mediaEmbeddingIds.has(article.id)}
+                            onClick={() => handleMediaEmbed(article.id)}
+                            title={t("knowledge.mediaEmbedTooltip")}
+                          >
+                            {mediaEmbeddingIds.has(article.id) ? <Loader2 className="size-3.5 animate-spin" /> : <ImagePlus className="size-3.5" />}
+                            <span className="ml-1">{t("knowledge.mediaEmbed")}</span>
+                          </Button>
+                        )}
                         <Button size="sm" variant="ghost" className="text-destructive" onClick={() => handleDeleteArticle(article.id)}>
                           <Trash2 className="size-3.5" />
                         </Button>

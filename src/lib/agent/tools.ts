@@ -70,13 +70,19 @@ interface ToolsOptions {
 }
 
 async function getSecret(key: string): Promise<string | null> {
+  const { decrypt } = await import("@/lib/crypto/encrypt");
   const supabase = getSupabase();
   const { data } = await supabase
     .from("secrets")
-    .select("value")
-    .eq("key", key)
+    .select("encrypted_value")
+    .eq("key_name", key)
     .single();
-  return data?.value ?? null;
+  if (!data?.encrypted_value) return null;
+  try {
+    return decrypt(data.encrypted_value);
+  } catch {
+    return null;
+  }
 }
 
 export function createAgentTools({ agentId, channelId, isOwner, sender, platformChatId, platform, traceId }: ToolsOptions) {
@@ -968,7 +974,10 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
       description:
         "Check the Vercel deployment status for a specific git commit. " +
         "Call this after github_commit_push to monitor whether the deployment succeeded. " +
-        "Poll 2-3 times with a few seconds between calls. If still BUILDING, tell the user to check back.",
+        "Poll 2-3 times with a few seconds between calls. If still BUILDING, tell the user to check back. " +
+        "IMPORTANT: If the result contains `fatal: true`, do NOT retry — stop immediately and relay the error to the user. " +
+        "When state is ERROR, the result includes `buildLogs` with the actual build error output. " +
+        "Present the build logs to the user and ask whether they want to: (a) fix the code and push again, or (b) revert to the previous commit.",
       inputSchema: z.object({
         commit_sha: z.string().describe("The git commit SHA to check deployment for"),
       }),
@@ -978,7 +987,11 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           const vercelToken = await getSecret("VERCEL_TOKEN");
           const projectId = await getSecret("VERCEL_PROJECT_ID");
           if (!vercelToken || !projectId) {
-            return { success: false, error: "VERCEL_TOKEN or VERCEL_PROJECT_ID not configured. Ask the user to set them in Dashboard > Coding > Vercel." };
+            return {
+              success: false,
+              fatal: true,
+              error: "VERCEL_TOKEN or VERCEL_PROJECT_ID not configured. Tell the user to set them in Dashboard > Coding > Vercel. DO NOT call this tool again.",
+            };
           }
           const deployment = await checkVercelDeployment(vercelToken, projectId, commit_sha);
           return { success: true, ...deployment };

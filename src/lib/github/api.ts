@@ -269,15 +269,46 @@ export async function revertCommit(
   };
 }
 
+export async function getVercelBuildLogs(
+  vercelToken: string,
+  deploymentId: string,
+  maxLines = 80
+): Promise<string> {
+  const res = await fetch(
+    `https://api.vercel.com/v3/deployments/${deploymentId}/events?limit=-1&direction=backward`,
+    { headers: { Authorization: `Bearer ${vercelToken}` } }
+  );
+  if (!res.ok) return `[Failed to fetch build logs: ${res.status}]`;
+
+  const events: { type?: string; text?: string; payload?: { text?: string } }[] = await res.json();
+
+  const errorLines = events
+    .filter((e) => e.type === "stderr" || e.type === "error" || e.type === "fatal")
+    .map((e) => e.text ?? e.payload?.text ?? "")
+    .filter(Boolean);
+
+  if (errorLines.length === 0) {
+    const allLines = events
+      .filter((e) => e.type === "stdout" || e.type === "stderr" || e.type === "command")
+      .map((e) => e.text ?? e.payload?.text ?? "")
+      .filter(Boolean);
+    return allLines.slice(-maxLines).join("\n") || "[No log output found]";
+  }
+
+  return errorLines.slice(-maxLines).join("\n");
+}
+
 export async function checkVercelDeployment(
   vercelToken: string,
   projectId: string,
   commitSha: string
 ): Promise<{
   state: "BUILDING" | "READY" | "ERROR" | "QUEUED" | "CANCELED" | "NOT_FOUND";
+  deploymentId?: string;
   url?: string;
   createdAt?: string;
   errorMessage?: string;
+  buildLogs?: string;
 }> {
   const res = await fetch(
     `https://api.vercel.com/v6/deployments?projectId=${projectId}&limit=10`,
@@ -313,10 +344,32 @@ export async function checkVercelDeployment(
     INITIALIZING: "QUEUED",
   };
 
-  return {
-    state: (stateMap[match.state ?? match.readyState] ?? "BUILDING") as "BUILDING" | "READY" | "ERROR" | "QUEUED" | "CANCELED",
+  const state = (stateMap[match.state ?? match.readyState] ?? "BUILDING") as
+    "BUILDING" | "READY" | "ERROR" | "QUEUED" | "CANCELED";
+  const deploymentId = match.uid as string | undefined;
+
+  const result: {
+    state: typeof state;
+    deploymentId?: string;
+    url?: string;
+    createdAt?: string;
+    errorMessage?: string;
+    buildLogs?: string;
+  } = {
+    state,
+    deploymentId,
     url: match.url ? `https://${match.url}` : undefined,
     createdAt: match.createdAt ? new Date(match.createdAt).toISOString() : undefined,
-    errorMessage: match.state === "ERROR" ? (match.errorMessage ?? "Build failed") : undefined,
+    errorMessage: state === "ERROR" ? ((match.errorMessage as string) ?? "Build failed") : undefined,
   };
+
+  if (state === "ERROR" && deploymentId) {
+    try {
+      result.buildLogs = await getVercelBuildLogs(vercelToken, deploymentId);
+    } catch {
+      result.buildLogs = "[Failed to retrieve build logs]";
+    }
+  }
+
+  return result;
 }

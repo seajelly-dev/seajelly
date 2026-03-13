@@ -161,3 +161,94 @@ export async function searchKnowledgeForAgent(
 
   return searchKnowledgeWithArticles({ query, topK, kbIds: allKbIds });
 }
+
+// ── Multimodal media search ──
+
+export interface MediaSearchResult {
+  id: string;
+  title: string;
+  content: string;
+  media_type: string;
+  similarity: number;
+  knowledge_base_name: string;
+}
+
+export async function hasAgentMediaEmbeddings(agentId: string): Promise<boolean> {
+  const supabase = getSupabase();
+
+  const { data: kbRows } = await supabase
+    .from("agent_knowledge_bases")
+    .select("knowledge_base_id")
+    .eq("agent_id", agentId);
+
+  const boundIds = (kbRows ?? []).map((r) => r.knowledge_base_id as string);
+  if (boundIds.length === 0) return false;
+
+  const { data: childKbs } = await supabase
+    .from("knowledge_bases")
+    .select("id")
+    .in("parent_id", boundIds);
+  const allKbIds = [...new Set([...boundIds, ...(childKbs ?? []).map((r) => r.id as string)])];
+
+  const { count } = await supabase
+    .from("knowledge_articles")
+    .select("id", { count: "exact", head: true })
+    .in("knowledge_base_id", allKbIds)
+    .eq("media_embed_status", "embedded");
+
+  return (count ?? 0) > 0;
+}
+
+export async function searchArticleByMedia(
+  embedding: number[],
+  kbIds: string[],
+  topK = 1,
+  threshold = 0.3,
+): Promise<MediaSearchResult | null> {
+  const supabase = getSupabase();
+
+  const embeddingStr = `[${embedding.join(",")}]`;
+  const { data, error } = await supabase.rpc("match_article_media", {
+    query_embedding: embeddingStr,
+    match_threshold: threshold,
+    match_count: topK,
+    kb_ids: kbIds.length > 0 ? kbIds : null,
+  });
+
+  if (error) {
+    console.error("[searchArticleByMedia] RPC error:", error.message);
+    return null;
+  }
+
+  const rows = data as Record<string, unknown>[] | null;
+  if (!rows || rows.length === 0) return null;
+
+  const row = rows[0];
+  return {
+    id: row.id as string,
+    title: row.title as string,
+    content: row.content as string,
+    media_type: row.media_type as string,
+    similarity: row.similarity as number,
+    knowledge_base_name: row.knowledge_base_name as string,
+  };
+}
+
+export async function getAgentKnowledgeBaseIds(agentId: string): Promise<string[]> {
+  const supabase = getSupabase();
+
+  const { data: kbRows } = await supabase
+    .from("agent_knowledge_bases")
+    .select("knowledge_base_id")
+    .eq("agent_id", agentId);
+
+  const boundIds = (kbRows ?? []).map((r) => r.knowledge_base_id as string);
+  if (boundIds.length === 0) return [];
+
+  const { data: childKbs } = await supabase
+    .from("knowledge_bases")
+    .select("id")
+    .in("parent_id", boundIds);
+
+  return [...new Set([...boundIds, ...(childKbs ?? []).map((r) => r.id as string)])];
+}

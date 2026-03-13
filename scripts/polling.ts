@@ -444,6 +444,8 @@ async function startBotForAgent(agent: AgentRow) {
       ];
 
       let fileHandled = false;
+      let imageBase64ForMediaSearch: string | null = null;
+      let imageMimeForMediaSearch: string | null = null;
       if (fileId) {
         try {
           const botToken = decrypt(agent.telegram_bot_token);
@@ -473,10 +475,12 @@ async function startBotForAgent(agent: AgentRow) {
               const isText = mime.startsWith("text/") || mime === "application/json";
 
               if (isImage) {
+                imageBase64ForMediaSearch = buf.toString("base64");
+                imageMimeForMediaSearch = mime;
                 messages.push({
                   role: "user" as const,
                   content: [
-                    { type: "image", image: buf.toString("base64"), mediaType: mime },
+                    { type: "image", image: imageBase64ForMediaSearch, mediaType: mime },
                     { type: "text", text: text || "Please describe or analyze this image." },
                   ],
                 } as never);
@@ -650,6 +654,38 @@ async function startBotForAgent(agent: AgentRow) {
           if (skill) {
             systemPrompt += `\n### ${skill.name}\n${skill.content}\n`;
           }
+        }
+      }
+
+      // ── Multimodal knowledge search bypass ──
+      if (imageBase64ForMediaSearch && imageMimeForMediaSearch) {
+        try {
+          const { hasAgentMediaEmbeddings, searchArticleByMedia, getAgentKnowledgeBaseIds } = await import("@/lib/knowledge/search");
+          const hasMedia = await hasAgentMediaEmbeddings(agent.id);
+          if (hasMedia) {
+            const { embedContent } = await import("@/lib/memory/embedding");
+            const queryVec = await embedContent(
+              [{ inlineData: { mimeType: imageMimeForMediaSearch, data: imageBase64ForMediaSearch } }],
+              "gemini-embedding-2-preview",
+              "RETRIEVAL_QUERY",
+            );
+            if (queryVec) {
+              const agentKbIds = await getAgentKnowledgeBaseIds(agent.id);
+              const topArticle = await searchArticleByMedia(queryVec, agentKbIds, 1);
+              if (topArticle) {
+                console.log(`  [media-search] hit: "${topArticle.title}" sim=${topArticle.similarity.toFixed(3)}`);
+                systemPrompt += "\n\n## Image Search Result\n";
+                systemPrompt += "The user's image was matched against the knowledge base via vector similarity. ";
+                systemPrompt += `Top match: "${topArticle.title}" (similarity: ${topArticle.similarity.toFixed(3)}).\n\n`;
+                systemPrompt += "**Your task**: Compare what you see in the image with the article below. ";
+                systemPrompt += "If they clearly refer to the same subject, use the article as your PRIMARY source to answer. ";
+                systemPrompt += "If the image does NOT match (false positive), IGNORE this section entirely and respond based on the image alone.\n\n";
+                systemPrompt += `### ${topArticle.title}\n${topArticle.content}\n`;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("[polling] media search bypass error (non-blocking):", err);
         }
       }
 
