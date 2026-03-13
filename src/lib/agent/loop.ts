@@ -154,13 +154,16 @@ interface ClaimedCompanionFileEvent {
 }
 
 async function claimTelegramCompanionFileEvent(params: {
-  supabase: ReturnType<typeof createClient>;
   baseEvent: AgentEvent;
   agentId: string;
   platformChatId: string;
   platformUid: string;
 }): Promise<ClaimedCompanionFileEvent | null> {
-  const { supabase, baseEvent, agentId, platformChatId, platformUid } = params;
+  const { baseEvent, agentId, platformChatId, platformUid } = params;
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
   const baseCreatedAtMs = Date.parse(baseEvent.created_at);
   if (!Number.isFinite(baseCreatedAtMs)) return null;
   const windowEnd = new Date(baseCreatedAtMs + TELEGRAM_COALESCE_WINDOW_MS).toISOString();
@@ -177,7 +180,13 @@ async function claimTelegramCompanionFileEvent(params: {
     .order("created_at", { ascending: true })
     .limit(TELEGRAM_COALESCE_SCAN_LIMIT);
 
-  for (const row of candidates ?? []) {
+  const candidateRows = (candidates ?? []) as Array<{
+    id: string;
+    payload: Record<string, unknown> | null;
+    created_at: string;
+  }>;
+
+  for (const row of candidateRows) {
     const rowPayload = (row.payload ?? {}) as Record<string, unknown>;
     const rowUid = readEventPlatformUid(rowPayload);
     if (rowUid !== platformUid) continue;
@@ -198,12 +207,13 @@ async function claimTelegramCompanionFileEvent(params: {
 
     if (!claimed) continue;
 
-    const claimedPayload = (claimed.payload ?? {}) as Record<string, unknown>;
+    const claimedRow = claimed as { id: string; payload: Record<string, unknown> | null };
+    const claimedPayload = (claimedRow.payload ?? {}) as Record<string, unknown>;
     const claimedSnapshot = readEventMessageSnapshot(claimedPayload);
     if (!claimedSnapshot.fileId) continue;
 
     return {
-      eventId: claimed.id as string,
+      eventId: claimedRow.id,
       text: claimedSnapshot.text,
       fileId: claimedSnapshot.fileId,
       fileMime: claimedSnapshot.fileMime,
@@ -378,7 +388,6 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     if (platform === "telegram" && platformUid && messageText.trim() && !fileId && !command) {
       await sleep(TELEGRAM_COALESCE_WAIT_MS);
       const companion = await claimTelegramCompanionFileEvent({
-        supabase,
         baseEvent: event,
         agentId: typedAgent.id,
         platformChatId,
