@@ -545,7 +545,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     // ── Handle bot commands (no AI needed) ──
     const locale: Locale = getBotLocaleOrDefault(typedAgent.bot_locale);
     const t = (k: Parameters<typeof botT>[1], p?: Parameters<typeof botT>[2]) => botT(locale, k, p);
-    const prefix = platform === "telegram" ? "/" : "!";
+    const prefix = "/";
 
     if (command) {
       if (command === "/new") {
@@ -567,6 +567,39 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         const msg = t("newSession");
         await sender.sendText(platformChatId, msg);
         return { success: true, reply: msg, traceId };
+      }
+
+      if (command === "/skill") {
+        const { data: skillRows } = await supabase
+          .from("agent_skills")
+          .select("skill_id, skills(id, name, description)")
+          .eq("agent_id", typedAgent.id);
+        const skills = (skillRows ?? [])
+          .map((r) => r.skills as unknown as { id: string; name: string; description: string })
+          .filter(Boolean);
+        if (skills.length === 0) {
+          await sender.sendMarkdown(platformChatId, t("skillNone"));
+          return { success: true, reply: "no_skills", traceId };
+        }
+        const activeIds: string[] = Array.isArray(session.active_skill_ids)
+          ? (session.active_skill_ids as string[])
+          : [];
+        const active = skills.filter((s) => activeIds.includes(s.id));
+        const available = skills.filter((s) => !activeIds.includes(s.id));
+        let text = t("skillTitle") + "\n\n";
+        if (active.length > 0) {
+          text += t("skillActive", { count: active.length }) + "\n";
+          for (const s of active) text += `  • *${s.name}*${s.description ? ` — ${s.description}` : ""}\n`;
+          text += "\n";
+        }
+        if (available.length > 0) {
+          text += t("skillAvailable", { count: available.length }) + "\n";
+          for (const s of available) text += `  • ${s.name}${s.description ? ` — ${s.description}` : ""}\n`;
+          text += "\n";
+        }
+        text += t("skillAutoHint");
+        await sender.sendMarkdown(platformChatId, text);
+        return { success: true, reply: text, traceId };
       }
 
       if (command === "/help") {

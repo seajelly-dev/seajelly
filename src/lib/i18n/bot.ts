@@ -15,6 +15,7 @@ const botStrings = {
 
     helpTitle: "📋 *{agentName} — Commands*",
     helpNew: "{prefix}new — Start a new session",
+    helpSkill: "{prefix}skill — Show available skills",
     helpWhoami: "{prefix}whoami — Show your identity profile",
     helpStatus: "{prefix}status — Show session status",
     helpTts: "{prefix}tts — Toggle TTS (owner only)",
@@ -23,6 +24,13 @@ const botStrings = {
     helpRoom: "{prefix}room — Create a cross-platform chatroom (owner only)",
     helpHelp: "{prefix}help — Show this message",
     helpFooter: "Send any text to chat.",
+    helpSlackTip: "💡 _Slack tip: type a space before `/` if commands don't trigger, or use `!` as prefix (e.g. `!new`)._",
+
+    skillTitle: "🧩 *Skills*",
+    skillActive: "✅ *Active ({count})*",
+    skillAvailable: "💤 *Available ({count})*",
+    skillNone: "No skills configured for this agent.",
+    skillAutoHint: "Skills auto-activate when you discuss related topics.",
 
     statusTitle: "📊 *Status*",
     statusAgent: "*Agent:* {agentName}",
@@ -114,7 +122,7 @@ const botStrings = {
     welcomeBody: "Your access is now active. Here are the available commands to get started:",
 
     cmdDescNew: "Start a new session (clear history)",
-    cmdDescSwitch: "Switch to a different agent",
+    cmdDescSkill: "Show skills available in this session",
     cmdDescWhoami: "Show your channel info and soul",
     cmdDescStatus: "Show current agent and session status",
     cmdDescTts: "Toggle TTS text-to-speech (owner only)",
@@ -161,6 +169,7 @@ const botStrings = {
 
     helpTitle: "📋 *{agentName} — 命令列表*",
     helpNew: "{prefix}new — 开始新会话",
+    helpSkill: "{prefix}skill — 查看可用技能",
     helpWhoami: "{prefix}whoami — 查看你的身份档案",
     helpStatus: "{prefix}status — 查看会话状态",
     helpTts: "{prefix}tts — 开关 TTS 语音（仅实控人）",
@@ -169,6 +178,7 @@ const botStrings = {
     helpRoom: "{prefix}room — 创建跨平台聊天室（仅实控人）",
     helpHelp: "{prefix}help — 显示此帮助信息",
     helpFooter: "直接发送文字即可开始聊天。",
+    helpSlackTip: "💡 _Slack 提示：如果 `/` 命令未触发，请在 `/` 前加一个空格，或使用 `!` 前缀（如 `!new`）。_",
 
     statusTitle: "📊 *状态*",
     statusAgent: "*Agent：* {agentName}",
@@ -259,7 +269,7 @@ const botStrings = {
     welcomeBody: "你的访问已激活。以下是可用的命令，帮助你快速上手：",
 
     cmdDescNew: "开始新会话（清除历史）",
-    cmdDescSwitch: "切换到其他 Agent",
+    cmdDescSkill: "查看本会话可用的技能",
     cmdDescWhoami: "查看你的频道信息和灵魂档案",
     cmdDescStatus: "查看当前 Agent 和会话状态",
     cmdDescTts: "开关 TTS 文字转语音（仅实控人）",
@@ -290,6 +300,12 @@ const botStrings = {
     imgeditNoApiKey: "⛔ 未配置图片生成的 API Key。",
     cmdDescImgedit: "进入图片编辑模式",
     helpImgedit: "{prefix}imgedit <提示词> — 进入图片编辑模式",
+
+    skillTitle: "🧩 *技能列表*",
+    skillActive: "✅ *已激活 ({count})*",
+    skillAvailable: "💤 *可用 ({count})*",
+    skillNone: "当前 Agent 未配置任何技能。",
+    skillAutoHint: "技能会在讨论相关话题时自动激活。",
   },
 } as const;
 
@@ -371,11 +387,12 @@ export function buildHelpText(
   agentName: string,
   platform: string,
 ): string {
-  const prefix = platform === "telegram" ? "/" : "!";
+  const prefix = "/";
   const t = (k: BotStringKey, p?: Record<string, string | number>) => botT(locale, k, p);
-  return (
+  let text =
     t("helpTitle", { agentName }) + "\n\n" +
     t("helpNew", { prefix }) + "\n" +
+    t("helpSkill", { prefix }) + "\n" +
     t("helpWhoami", { prefix }) + "\n" +
     t("helpStatus", { prefix }) + "\n" +
     t("helpTts", { prefix }) + "\n" +
@@ -384,8 +401,11 @@ export function buildHelpText(
     t("helpRoom", { prefix }) + "\n" +
     t("helpImgedit", { prefix }) + "\n" +
     t("helpHelp", { prefix }) + "\n\n" +
-    t("helpFooter")
-  );
+    t("helpFooter");
+  if (platform === "slack") {
+    text += "\n\n" + t("helpSlackTip");
+  }
+  return text;
 }
 
 export function buildWelcomeText(
@@ -393,12 +413,13 @@ export function buildWelcomeText(
   agentName: string,
   platform: string,
 ): string {
-  const prefix = platform === "telegram" ? "/" : "!";
+  const prefix = "/";
   const t = (k: BotStringKey, p?: Record<string, string | number>) => botT(locale, k, p);
-  return (
+  let text =
     t("welcomeTitle") + "\n" +
     t("welcomeBody") + "\n\n" +
     t("helpNew", { prefix }) + "\n" +
+    t("helpSkill", { prefix }) + "\n" +
     t("helpWhoami", { prefix }) + "\n" +
     t("helpStatus", { prefix }) + "\n" +
     t("helpTts", { prefix }) + "\n" +
@@ -407,15 +428,18 @@ export function buildWelcomeText(
     t("helpRoom", { prefix }) + "\n" +
     t("helpImgedit", { prefix }) + "\n" +
     t("helpHelp", { prefix }) + "\n\n" +
-    t("helpFooter")
-  );
+    t("helpFooter");
+  if (platform === "slack") {
+    text += "\n\n" + t("helpSlackTip");
+  }
+  return text;
 }
 
 export function getBotCommands(locale: Locale) {
   const t = (k: BotStringKey) => botT(locale, k);
   return [
     { command: "new", description: t("cmdDescNew") },
-    { command: "switch", description: t("cmdDescSwitch") },
+    { command: "skill", description: t("cmdDescSkill") },
     { command: "whoami", description: t("cmdDescWhoami") },
     { command: "status", description: t("cmdDescStatus") },
     { command: "tts", description: t("cmdDescTts") },
