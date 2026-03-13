@@ -607,6 +607,9 @@ export default function SubscriptionsPage() {
                       {subs.map((sub) => {
                         const plat = PLATFORM_MAP[sub.channels?.platform ?? ""];
                         const PlatIcon = plat?.icon;
+                        const isTimeExpired = sub.type === "time" && sub.status === "active" && sub.expires_at && new Date(sub.expires_at) <= new Date();
+                        const isQuotaExpired = sub.type === "quota" && sub.status === "active" && sub.quota_total != null && sub.quota_used >= sub.quota_total;
+                        const effectiveStatus = (isTimeExpired || isQuotaExpired) ? "expired" : sub.status;
                         return (
                           <div key={sub.id} className="flex items-center gap-4 rounded-lg border px-4 py-3 transition-colors hover:bg-muted/40">
                             <div className="flex-1 min-w-0">
@@ -618,8 +621,8 @@ export default function SubscriptionsPage() {
                                   {PlatIcon && <PlatIcon className="size-3" />}
                                   {plat?.label ?? sub.channels?.platform ?? "—"}
                                 </Badge>
-                                <Badge variant={sub.status === "active" ? "secondary" : sub.status === "expired" ? "outline" : "destructive"} className="text-xs">
-                                  {sub.status === "active" ? t("subscriptions.statusActive") : sub.status === "expired" ? t("subscriptions.statusExpired") : t("subscriptions.statusCancelled")}
+                                <Badge variant={effectiveStatus === "active" ? "secondary" : effectiveStatus === "expired" ? "outline" : "destructive"} className="text-xs">
+                                  {effectiveStatus === "active" ? t("subscriptions.statusActive") : effectiveStatus === "expired" ? t("subscriptions.statusExpired") : t("subscriptions.statusCancelled")}
                                 </Badge>
                                 {sub.payment_provider === "manual" && (
                                   <Badge variant="outline" className="text-xs">{t("subscriptions.grantedManually")}</Badge>
@@ -635,7 +638,7 @@ export default function SubscriptionsPage() {
                                 {sub.type === "quota" && <span>{t("subscriptions.quotaUsed")}: {sub.quota_used}/{sub.quota_total}</span>}
                               </div>
                             </div>
-                            {sub.status === "active" && (
+                            {effectiveStatus === "active" && (
                               <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => cancelSub(sub)}>
                                 {t("subscriptions.cancelSubscription")}
                               </Button>
