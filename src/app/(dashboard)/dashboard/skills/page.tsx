@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { CodeEditor } from "@/components/ui/code-textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -263,8 +263,8 @@ export default function SkillsPage() {
             {t("skills.addSkill")}
           </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
+            <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+              <DialogHeader className="shrink-0 border-b pb-3">
                 <DialogTitle>
                   {editing
                     ? t("skills.editSkill")
@@ -272,132 +272,133 @@ export default function SkillsPage() {
                 </DialogTitle>
               </DialogHeader>
 
-              {!editing && (
-                <Tabs
-                  value={createMode}
-                  onValueChange={(v) =>
-                    setCreateMode(v as "manual" | "url")
-                  }
-                >
-                  <TabsList className="w-full">
-                    <TabsTrigger value="manual" className="flex-1">
-                      {t("skills.manual")}
-                    </TabsTrigger>
-                    <TabsTrigger value="url" className="flex-1">
-                      {t("skills.importUrl")}
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="manual">
-                    <div className="grid gap-4 pt-2">
-                      <div>
-                        <Label>{t("skills.name")}</Label>
-                        <Input
-                          value={form.name}
-                          onChange={(e) =>
-                            setForm({ ...form, name: e.target.value })
-                          }
-                          placeholder={t("skills.namePlaceholder")}
-                        />
+              <div className="flex-1 min-h-0 overflow-y-auto py-1 pr-1">
+                {!editing && (
+                  <Tabs
+                    className="min-w-0"
+                    value={createMode}
+                    onValueChange={(v) =>
+                      setCreateMode(v as "manual" | "url")
+                    }
+                  >
+                    <TabsList className="w-full">
+                      <TabsTrigger value="manual" className="flex-1">
+                        {t("skills.manual")}
+                      </TabsTrigger>
+                      <TabsTrigger value="url" className="flex-1">
+                        {t("skills.importUrl")}
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="manual" className="min-w-0">
+                      <div className="grid min-w-0 gap-4 pt-2">
+                        <div className="flex flex-col gap-1.5">
+                          <Label>{t("skills.name")}</Label>
+                          <Input
+                            value={form.name}
+                            onChange={(e) =>
+                              setForm({ ...form, name: e.target.value })
+                            }
+                            placeholder={t("skills.namePlaceholder")}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <Label>{t("skills.description")}</Label>
+                          <Input
+                            value={form.description}
+                            onChange={(e) =>
+                              setForm({ ...form, description: e.target.value })
+                            }
+                            placeholder={t("skills.descPlaceholder")}
+                          />
+                        </div>
+                        <div className="flex min-w-0 flex-col gap-1.5">
+                          <Label>{t("skills.content")}</Label>
+                          <CodeEditor
+                            language="markdown"
+                            value={form.content}
+                            onChange={(v) => setForm({ ...form, content: v })}
+                            rows={24}
+                            showLineNumbers
+                            placeholder={t("skills.contentPlaceholder")}
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <Label>{t("skills.description")}</Label>
-                        <Input
-                          value={form.description}
-                          onChange={(e) =>
-                            setForm({ ...form, description: e.target.value })
-                          }
-                          placeholder={t("skills.descPlaceholder")}
-                        />
+                    </TabsContent>
+                    <TabsContent value="url" className="min-w-0">
+                      <div className="grid min-w-0 gap-4 pt-2">
+                        <div className="flex flex-col gap-1.5">
+                          <Label>{t("skills.name")}</Label>
+                          <Input
+                            value={form.name}
+                            onChange={(e) =>
+                              setForm({ ...form, name: e.target.value })
+                            }
+                            placeholder={t("skills.namePlaceholder")}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <Label>{t("skills.description")}</Label>
+                          <Input
+                            value={form.description}
+                            onChange={(e) =>
+                              setForm({ ...form, description: e.target.value })
+                            }
+                            placeholder={t("skills.descPlaceholder")}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <Label>{t("skills.sourceUrl")}</Label>
+                          <Input
+                            value={form.source_url}
+                            onChange={(e) =>
+                              setForm({ ...form, source_url: e.target.value })
+                            }
+                            placeholder={t("skills.sourceUrlPlaceholder")}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {t("skills.sourceUrlHint")}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <Label>{t("skills.content")}</Label>
-                        <Textarea
-                          value={form.content}
-                          onChange={(e) =>
-                            setForm({ ...form, content: e.target.value })
-                          }
-                          rows={12}
-                          className="max-h-80 resize-y font-mono text-sm"
-                          placeholder={t("skills.contentPlaceholder")}
-                        />
-                      </div>
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="url">
-                    <div className="grid gap-4 pt-2">
-                      <div>
-                        <Label>{t("skills.name")}</Label>
-                        <Input
-                          value={form.name}
-                          onChange={(e) =>
-                            setForm({ ...form, name: e.target.value })
-                          }
-                          placeholder={t("skills.namePlaceholder")}
-                        />
-                      </div>
-                      <div>
-                        <Label>{t("skills.description")}</Label>
-                        <Input
-                          value={form.description}
-                          onChange={(e) =>
-                            setForm({ ...form, description: e.target.value })
-                          }
-                          placeholder={t("skills.descPlaceholder")}
-                        />
-                      </div>
-                      <div>
-                        <Label>{t("skills.sourceUrl")}</Label>
-                        <Input
-                          value={form.source_url}
-                          onChange={(e) =>
-                            setForm({ ...form, source_url: e.target.value })
-                          }
-                          placeholder={t("skills.sourceUrlPlaceholder")}
-                        />
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {t("skills.sourceUrlHint")}
-                        </p>
-                      </div>
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              )}
+                    </TabsContent>
+                  </Tabs>
+                )}
 
-              {editing && (
-                <div className="grid gap-4 py-4">
-                  <div>
-                    <Label>{t("skills.name")}</Label>
-                    <Input
-                      value={form.name}
-                      onChange={(e) =>
-                        setForm({ ...form, name: e.target.value })
-                      }
-                    />
+                {editing && (
+                  <div className="grid min-w-0 gap-4 py-4">
+                    <div className="flex flex-col gap-1.5">
+                      <Label>{t("skills.name")}</Label>
+                      <Input
+                        value={form.name}
+                        onChange={(e) =>
+                          setForm({ ...form, name: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label>{t("skills.description")}</Label>
+                      <Input
+                        value={form.description}
+                        onChange={(e) =>
+                          setForm({ ...form, description: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-1.5">
+                      <Label>{t("skills.content")}</Label>
+                      <CodeEditor
+                        language="markdown"
+                        value={form.content}
+                        onChange={(v) => setForm({ ...form, content: v })}
+                        rows={24}
+                        showLineNumbers
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <Label>{t("skills.description")}</Label>
-                    <Input
-                      value={form.description}
-                      onChange={(e) =>
-                        setForm({ ...form, description: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label>{t("skills.content")}</Label>
-                    <Textarea
-                      value={form.content}
-                      onChange={(e) =>
-                        setForm({ ...form, content: e.target.value })
-                      }
-                      rows={12}
-                      className="max-h-80 resize-y font-mono text-sm"
-                    />
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
 
-              <DialogFooter>
+              <DialogFooter className="shrink-0 border-t pt-3">
                 <Button variant="ghost" onClick={() => setDialogOpen(false)}>
                   {t("common.cancel")}
                 </Button>

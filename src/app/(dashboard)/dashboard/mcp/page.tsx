@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { CodeEditor } from "@/components/ui/code-textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -337,12 +337,11 @@ export default function McpPage() {
                 </div>
                 <div>
                   <Label>{t("mcp.headers")}</Label>
-                  <Textarea
+                  <CodeEditor
+                    language="json"
                     value={form.headers}
-                    onChange={(e) =>
-                      setForm({ ...form, headers: e.target.value })
-                    }
-                    rows={3}
+                    onChange={(v) => setForm({ ...form, headers: v })}
+                    rows={4}
                     placeholder={t("mcp.headersPlaceholder")}
                   />
                 </div>
