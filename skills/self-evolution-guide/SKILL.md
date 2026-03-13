@@ -4,6 +4,8 @@
 
 This skill guides an AI Agent through the self-evolution pipeline — modifying the project's own codebase via GitHub, triggering Vercel auto-deployment, and rolling back if needed.
 
+The runtime source of truth is the in-code `self_evolution_toolkit` policy and tool wiring. Treat this skill as supplementary guidance and examples, not the primary authority for permission or tool-use behavior.
+
 ## Available Tools
 
 | Tool | Purpose | When to Use |

@@ -64,6 +64,7 @@ function DevGuideEn() {
 Backend API:    src/app/api/app/{slug}/route.ts     →  /api/app/{slug}
 Database:       {slug}_* tables                     →  e.g., chat_rooms, chat_room_messages
 Agent tools:    src/lib/agent/tools.ts              →  createSubAppTools()
+Shared tooling: src/lib/agent/tooling/*             →  policy, toolkit, runtime resolution
 Token utils:    src/lib/room-token.ts               →  signRoomToken(), verifyRoomToken(), buildRoomUrl()`}</CodeBlock>
       <p>The <code>slug</code> is a short, URL-safe identifier registered in the <code>sub_apps</code> table (e.g., <code>room</code>, <code>poll</code>, <code>board</code>).</p>
 
@@ -165,13 +166,17 @@ END $$;`}</CodeBlock>
       <h4>Rule 4: Use Markdown explicit link syntax for IM messages</h4>
       <p>Long URLs with query parameters are often not auto-linked by IM platforms. Always use <code>[Link Text](url)</code> in bot messages.</p>
 
-      <h3>6. Configure AI behavior in agent loop</h3>
-      <p>In <code>src/lib/agent/loop.ts</code>, add a <strong>Tool Policy</strong> to the system prompt to prevent AI from bypassing tools:</p>
-      <CodeBlock>{`if (enabledToolNames.has("create_something")) {
-  systemPrompt += "\\n\\n## Your-App Tool Policy\\n" +
+      <h3>6. Configure AI behavior in shared tooling runtime</h3>
+      <p>
+        Add Sub-App tool policy to <code>src/lib/agent/tooling/runtime.ts</code> via <code>buildToolPolicySections()</code>. Do not hardcode new policy text directly in <code>src/lib/agent/loop.ts</code>. If you are creating a builtin toolkit rather than a Sub-App tool, put the policy in <code>src/lib/agent/tooling/toolkits/&#123;name&#125;.ts</code> instead. See <code>src/lib/agent/tooling/README.md</code> for the architecture rules.
+      </p>
+      <CodeBlock>{`if (toolNames.has("create_something")) {
+  sections.push(
+    "## Your-App Tool Policy\\n" +
     "- If user asks to create/open/start an instance, you MUST call \`create_something\`.\\n" +
     "- Never generate HTML prototypes or fake links.\\n" +
-    "- After a tool succeeds, do not invent additional links or duplicate messages.";
+    "- After a tool succeeds, do not invent additional links or duplicate messages.",
+  );
 }`}</CodeBlock>
       <p><strong>Suppress AI output</strong> when tools handle communication directly:</p>
       <CodeBlock>{`const calledToolNames = extractToolNamesFromResult(result);
@@ -334,6 +339,7 @@ function DevGuideZh() {
 后端 API:    src/app/api/app/{slug}/route.ts     →  /api/app/{slug}
 数据表:      {slug}_* 表                         →  如 chat_rooms, chat_room_messages
 Agent 工具:  src/lib/agent/tools.ts              →  createSubAppTools()
+Shared tooling: src/lib/agent/tooling/*          →  策略、toolkit、运行时解析
 Token 工具:  src/lib/room-token.ts               →  signRoomToken(), verifyRoomToken(), buildRoomUrl()`}</CodeBlock>
       <p><code>slug</code> 是注册在 <code>sub_apps</code> 表中的短标识符，需 URL 安全（如 <code>room</code>、<code>poll</code>、<code>board</code>）。</p>
 
@@ -435,13 +441,17 @@ END $$;`}</CodeBlock>
       <h4>规则四：IM 消息中使用 Markdown 显式链接语法</h4>
       <p>带查询参数的长 URL 在 IM 平台（Telegram、飞书等）中经常无法自动识别为可点击链接。必须使用 <code>[链接文本](url)</code>。</p>
 
-      <h3>6. 在 Agent Loop 中配置 AI 行为</h3>
-      <p>在 <code>src/lib/agent/loop.ts</code> 中，必须在系统提示词中添加 <strong>Tool Policy（工具策略）</strong>，防止 AI 绕过工具：</p>
-      <CodeBlock>{`if (enabledToolNames.has("create_something")) {
-  systemPrompt += "\\n\\n## Your-App Tool Policy\\n" +
+      <h3>6. 在共享 tooling runtime 中配置 AI 行为</h3>
+      <p>
+        Sub-App 的工具策略应添加到 <code>src/lib/agent/tooling/runtime.ts</code> 的 <code>buildToolPolicySections()</code> 中，不要再把新的策略文案直接硬编码进 <code>src/lib/agent/loop.ts</code>。如果你做的是 builtin toolkit，而不是 Sub-App 工具，则把策略写到 <code>src/lib/agent/tooling/toolkits/&#123;name&#125;.ts</code>。整体架构说明见 <code>src/lib/agent/tooling/README.md</code>。
+      </p>
+      <CodeBlock>{`if (toolNames.has("create_something")) {
+  sections.push(
+    "## Your-App Tool Policy\\n" +
     "- If user asks to create/open/start an instance, you MUST call \`create_something\`.\\n" +
     "- Never generate HTML prototypes or fake links.\\n" +
-    "- After a tool succeeds, do not invent additional links or duplicate messages.";
+    "- After a tool succeeds, do not invent additional links or duplicate messages.",
+  );
 }`}</CodeBlock>
       <p><strong>工具直接发送消息后，抑制 AI 的默认输出：</strong></p>
       <CodeBlock>{`const calledToolNames = extractToolNamesFromResult(result);

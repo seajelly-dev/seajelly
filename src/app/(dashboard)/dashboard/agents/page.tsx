@@ -59,27 +59,19 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
 import type { Agent, McpServer, Skill, Provider, KnowledgeBase } from "@/types/database";
 import type { ModelDef } from "@/lib/models";
+import {
+  BUILTIN_TOOL_CATALOG,
+  BUILTIN_TOOLKIT_CATALOG,
+  TOOLKIT_MEMBER_KEY_SET,
+  buildInitialToolsConfig,
+  countEnabledBuiltinTools,
+  resolveBuiltinToolEnabled,
+  resolveToolkitEnabled,
+} from "@/lib/agent/tooling/catalog";
 
-const PRIVILEGED_TOOLS = [
-  { key: "knowledge_search", label: "knowledge_search", desc: "agents.toolKnowledgeSearch", defaultOn: false },
-  { key: "run_sql", label: "run_sql", desc: "agents.toolRunSql", defaultOn: false },
-  { key: "schedule_task", label: "schedule_task", desc: "agents.toolScheduleTask", defaultOn: true },
-  { key: "cancel_scheduled_job", label: "cancel_scheduled_job", desc: "agents.toolCancelJob", defaultOn: true },
-  { key: "list_scheduled_jobs", label: "list_scheduled_jobs", desc: "agents.toolListJobs", defaultOn: true },
-  { key: "run_python_code", label: "run_python_code", desc: "coding.toolRunPython", defaultOn: false },
-  { key: "run_javascript_code", label: "run_javascript_code", desc: "coding.toolRunJS", defaultOn: false },
-  { key: "run_html_preview", label: "run_html_preview", desc: "coding.toolRunHTML", defaultOn: false },
-  { key: "github_read_file", label: "github_read_file", desc: "coding.toolGitHubReadFile", defaultOn: false },
-  { key: "github_list_files", label: "github_list_files", desc: "coding.toolGitHubListFiles", defaultOn: false },
-  { key: "github_commit_push", label: "github_commit_push", desc: "coding.toolGitHubCommitPush", defaultOn: false },
-  { key: "github_patch_files", label: "github_patch_files", desc: "coding.toolGitHubPatchFiles", defaultOn: false },
-  { key: "github_check_deploy", label: "github_check_deploy", desc: "coding.toolGitHubCheckDeploy", defaultOn: false },
-  { key: "github_revert_commit", label: "github_revert_commit", desc: "coding.toolGitHubRevertCommit", defaultOn: false },
-  { key: "github_compare_commits", label: "github_compare_commits", desc: "coding.toolGitHubCompareCommits", defaultOn: false },
-  { key: "github_search_code", label: "github_search_code", desc: "coding.toolGitHubSearchCode", defaultOn: false },
-  { key: "tts_speak", label: "tts_speak", desc: "coding.toolTtsSpeak", defaultOn: false },
-  { key: "image_generate", label: "image_generate", desc: "coding.toolImageGenerate", defaultOn: false },
-] as const;
+const PRIVILEGED_TOOLS = BUILTIN_TOOL_CATALOG.filter((tool) => !TOOLKIT_MEMBER_KEY_SET.has(tool.key));
+const PRIVILEGED_TOOLKITS = BUILTIN_TOOLKIT_CATALOG;
+const SELF_EVOLUTION_MEMBER_TOOLS = BUILTIN_TOOL_CATALOG.filter((tool) => TOOLKIT_MEMBER_KEY_SET.has(tool.key));
 
 type PlatformKey = "telegram" | "feishu" | "wecom" | "slack" | "qqbot" | "whatsapp";
 
@@ -159,8 +151,7 @@ const PLATFORM_HINT_KEYS: Record<PlatformKey, string> = {
 };
 
 function useOrigin() {
-  const [origin, setOrigin] = useState("");
-  useEffect(() => { setOrigin(window.location.origin); }, []);
+  const [origin] = useState(() => (typeof window === "undefined" ? "" : window.location.origin));
   return origin;
 }
 
@@ -234,13 +225,13 @@ export default function AgentsPage() {
   const [boundSubAppNames, setBoundSubAppNames] = useState<string[]>([]);
   const [allKnowledgeBases, setAllKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [boundKbIds, setBoundKbIds] = useState<Set<string>>(new Set());
-  const [boundKbNames, setBoundKbNames] = useState<string[]>([]);
 
   // Sub-dialogs
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [channelExpanded, setChannelExpanded] = useState<PlatformKey | null>(null);
   const [testingPlatform, setTestingPlatform] = useState<string | null>(null);
+  const [showToolkitOverrides, setShowToolkitOverrides] = useState<Record<string, boolean>>({});
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -282,7 +273,6 @@ export default function AgentsPage() {
     setBoundSkillNames([]);
     setBoundSubAppNames([]);
     setBoundKbIds(new Set());
-    setBoundKbNames([]);
     const [mcpRes, skillRes, kbRes, mcpListRes, skillListRes, kbListRes, subAppRes, subAppListRes] = await Promise.all([
       fetch(`/api/admin/agents/mcps?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
       fetch(`/api/admin/agents/skills?agent_id=${agentId}`).then((r) => r.json()).catch(() => ({})),
@@ -306,7 +296,6 @@ export default function AgentsPage() {
     setBoundSubAppNames(allSubApps.filter((a) => subAppIds.has(a.id)).map((a) => a.name));
     setAllKnowledgeBases(allKbs);
     setBoundKbIds(kbIdSet);
-    setBoundKbNames(allKbs.filter((kb) => kbIdSet.has(kb.id)).map((kb) => kb.name));
   }, []);
 
   useEffect(() => {
@@ -325,7 +314,7 @@ export default function AgentsPage() {
     ?? allModels.find((m) => m.model_id === form.model)?.label
     ?? form.model;
 
-  const enabledToolCount = PRIVILEGED_TOOLS.filter((t) => form.tools_config[t.key]).length;
+  const enabledToolCount = countEnabledBuiltinTools(form.tools_config);
   const configuredPlatformCount = (() => {
     let count = 0;
     if (form.telegram_bot_token || (editingAgent as AgentExt)?.has_bot_token) count++;
@@ -341,10 +330,6 @@ export default function AgentsPage() {
   })();
 
   function initEmptyForm() {
-    const defaultToolsConfig: Record<string, boolean> = {};
-    for (const tool of PRIVILEGED_TOOLS) {
-      defaultToolsConfig[tool.key] = tool.defaultOn;
-    }
     const firstProvider = allProviders[0];
     const firstModel = firstProvider
       ? allModels.find((m) => m.provider_id === firstProvider.id)
@@ -358,7 +343,7 @@ export default function AgentsPage() {
       bot_locale: "en" as const,
       ai_soul: "",
       telegram_bot_token: "",
-      tools_config: defaultToolsConfig,
+      tools_config: buildInitialToolsConfig(),
       platform_credentials: {},
       subscription_trial_count: 3,
       subscription_fallback: "require_approval" as const,
@@ -368,6 +353,7 @@ export default function AgentsPage() {
   const openCreate = () => {
     setEditingAgent(null);
     setForm(initEmptyForm());
+    setShowToolkitOverrides({});
     setBoundMcpNames([]);
     setBoundSkillNames([]);
     setDialogOpen(true);
@@ -376,6 +362,7 @@ export default function AgentsPage() {
   const openEdit = async (agent: Agent) => {
     setEditingAgent(agent);
     const tc = (agent.tools_config ?? {}) as Record<string, boolean>;
+    setShowToolkitOverrides({});
     let trialCount = 3;
     let fallback: "require_approval" | "require_payment" = "require_approval";
     if (agent.access_mode === "subscription") {
@@ -779,6 +766,20 @@ export default function AgentsPage() {
     );
   }
 
+  function setToolEnabled(toolKey: string, checked: boolean) {
+    setForm((current) => ({
+      ...current,
+      tools_config: { ...current.tools_config, [toolKey]: checked },
+    }));
+  }
+
+  function setToolkitEnabled(toolkitKey: string, checked: boolean) {
+    setForm((current) => ({
+      ...current,
+      tools_config: { ...current.tools_config, [toolkitKey]: checked },
+    }));
+  }
+
   // ── Tools sub-dialog content ──
   function renderToolsDialog() {
     return (
@@ -788,25 +789,89 @@ export default function AgentsPage() {
           <DialogDescription>{t("agents.toolsDesc")}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2 py-2 overflow-y-auto flex-1 min-h-0">
-          {PRIVILEGED_TOOLS.map(({ key, label, desc }) => (
+          {PRIVILEGED_TOOLKITS.map((toolkit) => {
+            const toolkitEnabled = resolveToolkitEnabled(form.tools_config, toolkit.key);
+            const advancedOpen = !!showToolkitOverrides[toolkit.key];
+            const memberToolKeySet = new Set<string>(toolkit.memberToolKeys);
+            const memberTools = SELF_EVOLUTION_MEMBER_TOOLS.filter((tool) => memberToolKeySet.has(tool.key));
+
+            return (
+              <div key={toolkit.key} className="rounded-md border px-3 py-3">
+                <div className="flex items-start gap-3">
+                  <Switch
+                    className="mt-0.5 shrink-0"
+                    checked={toolkitEnabled}
+                    onCheckedChange={(checked) => setToolkitEnabled(toolkit.key, checked)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <code className="text-xs font-medium">{toolkit.label}</code>
+                    <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+                      {t(toolkit.descKey)}
+                    </p>
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium">{t("agents.toolkitAdvancedOverrides")}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {t("agents.toolkitAdvancedOverridesDesc")}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setShowToolkitOverrides((current) => ({
+                            ...current,
+                            [toolkit.key]: !current[toolkit.key],
+                          }))
+                        }
+                      >
+                        {advancedOpen ? t("agents.hideAdvancedOverrides") : t("agents.showAdvancedOverrides")}
+                      </Button>
+                    </div>
+                    {advancedOpen && (
+                      <div className="mt-3 flex flex-col gap-2">
+                        {memberTools.map(({ key, label, descKey }) => (
+                          <div
+                            key={key}
+                            className="flex items-start gap-3 rounded-md border px-3 py-2.5 transition-colors"
+                          >
+                            <Switch
+                              className="mt-0.5 shrink-0"
+                              checked={resolveBuiltinToolEnabled(form.tools_config, key)}
+                              disabled={!toolkitEnabled}
+                              onCheckedChange={(checked) => setToolEnabled(key, checked)}
+                            />
+                            <div className="min-w-0">
+                              <code className="text-xs font-medium">{label}</code>
+                              <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+                                {t(descKey)}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          {PRIVILEGED_TOOLS.map(({ key, label, descKey }) => (
             <div
               key={key}
               className="flex items-start gap-3 rounded-md border px-3 py-2.5 hover:bg-muted/50 transition-colors"
             >
               <Switch
                 className="mt-0.5 shrink-0"
-                checked={!!form.tools_config[key]}
-                onCheckedChange={(checked) =>
-                  setForm((f) => ({
-                    ...f,
-                    tools_config: { ...f.tools_config, [key]: checked },
-                  }))
-                }
+                checked={resolveBuiltinToolEnabled(form.tools_config, key)}
+                onCheckedChange={(checked) => setToolEnabled(key, checked)}
               />
               <div className="min-w-0">
                 <code className="text-xs font-medium">{label}</code>
                 <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-                  {t(desc)}
+                  {t(descKey)}
                 </p>
               </div>
             </div>
@@ -1077,7 +1142,7 @@ export default function AgentsPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium">{t("agents.configureTools")}</p>
                       <p className="text-xs text-muted-foreground">
-                        {enabledToolCount}/{PRIVILEGED_TOOLS.length}
+                        {enabledToolCount}/{BUILTIN_TOOL_CATALOG.length}
                       </p>
                     </div>
                     <Badge variant={enabledToolCount > 0 ? "secondary" : "outline"} className="text-xs">
@@ -1137,7 +1202,6 @@ export default function AgentsPage() {
                               const next = new Set(boundKbIds);
                               if (next.has(kb.id)) next.delete(kb.id); else next.add(kb.id);
                               setBoundKbIds(next);
-                              setBoundKbNames(allKnowledgeBases.filter((k) => next.has(k.id)).map((k) => k.name));
                               await fetch("/api/admin/agents/knowledge", {
                                 method: "PUT",
                                 headers: { "Content-Type": "application/json" },
@@ -1249,7 +1313,7 @@ export default function AgentsPage() {
               </CardHeader>
               <CardContent className="flex flex-col gap-4 pt-0">
                 <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground border border-border/40 relative">
-                  <div className="absolute top-2 left-2 text-muted-foreground/20 font-serif text-2xl leading-none">"</div>
+                  <div className="absolute top-2 left-2 text-muted-foreground/20 font-serif text-2xl leading-none">&quot;</div>
                   <p className="line-clamp-2 relative z-10 pl-4 italic text-xs/relaxed">
                     {agent.system_prompt || t("agents.noSystemPrompt")}
                   </p>

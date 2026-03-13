@@ -3,6 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown } from "./provider";
 import { createAgentTools, createSubAppTools } from "./tools";
 import { AGENT_LIMITS } from "./limits";
+import {
+  buildToolPolicySections,
+  resolveEnabledBuiltinTools,
+  resolveGenerateTextToolDirective,
+} from "./tooling/runtime";
 import { getSenderForAgent, getFileDownloader } from "@/lib/platform/sender";
 import { isImageMime, isTextMime, detectImageMimeFromBuffer } from "@/lib/platform/file-utils";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
@@ -90,17 +95,6 @@ function extractToolNamesFromResult(result: unknown): Set<string> {
 
   return names;
 }
-
-const GITHUB_WORKFLOW_TOOLS = [
-  "github_read_file",
-  "github_list_files",
-  "github_commit_push",
-  "github_patch_files",
-  "github_check_deploy",
-  "github_revert_commit",
-  "github_compare_commits",
-  "github_search_code",
-] as const;
 
 const STEP_PAYLOAD_MAX_CHARS = 64 * 1024;
 const TELEGRAM_COALESCE_WAIT_MS = 1200;
@@ -225,33 +219,6 @@ async function claimTelegramCompanionFileEvent(params: {
   }
 
   return null;
-}
-
-function hasGithubWorkflowIntent(messageText: string): boolean {
-  const t = messageText.toLowerCase();
-  if (!t.trim()) return false;
-  const keywords = [
-    "github",
-    "repo",
-    "repository",
-    "commit",
-    "push",
-    "deploy",
-    "pipeline",
-    "revert",
-    "rollback",
-    "patch",
-    "diff",
-    "部署",
-    "仓库",
-    "代码修改",
-    "提交",
-    "自进化",
-    "回退",
-    "回滚",
-    "补丁",
-  ];
-  return keywords.some((k) => t.includes(k));
 }
 
 function redactSecrets(input: unknown): unknown {
@@ -978,50 +945,16 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     });
 
     // ── Filter tools by tools_config (least-privilege enforcement) ──
-    const TOOL_DEFAULTS: Record<string, boolean> = {
-      knowledge_search: false,
-      run_sql: false,
-      schedule_task: true,
-      cancel_scheduled_job: true,
-      list_scheduled_jobs: true,
-      run_python_code: false,
-      run_javascript_code: false,
-      run_html_preview: false,
-      github_read_file: false,
-      github_list_files: false,
-      github_commit_push: false,
-      github_patch_files: false,
-      github_check_deploy: false,
-      github_revert_commit: false,
-      github_compare_commits: false,
-      github_search_code: false,
-      image_generate: false,
-    };
-    const toolsConfig = (typedAgent.tools_config ?? {}) as Record<string, boolean>;
-    const filteredBuiltin: typeof builtinTools = {} as typeof builtinTools;
-    for (const [name, def] of Object.entries(builtinTools)) {
-      if (name in TOOL_DEFAULTS) {
-        const enabled = toolsConfig[name] ?? TOOL_DEFAULTS[name];
-        if (enabled) {
-          (filteredBuiltin as Record<string, unknown>)[name] = def;
-        }
-      } else {
-        (filteredBuiltin as Record<string, unknown>)[name] = def;
-      }
-    }
-    if (!hasEmbeddingApiKey && "knowledge_search" in (filteredBuiltin as Record<string, unknown>)) {
-      delete (filteredBuiltin as Record<string, unknown>).knowledge_search;
-      console.log(
-        `[agent-loop] trace=${traceId} knowledge_search tool disabled: missing EMBEDDING_API_KEY`
-      );
-    }
+    const toolsConfig = (typedAgent.tools_config ?? {}) as Record<string, unknown>;
+    const filteredBuiltin = resolveEnabledBuiltinTools({
+      builtinTools,
+      toolsConfig,
+      hasEmbeddingApiKey,
+      hasImageInput,
+      configuredKnowledgeEmbedModel,
+      logger: (message) => console.log(`[agent-loop] trace=${traceId} ${message}`),
+    });
     const canImageKnowledgeSearchByModel = configuredKnowledgeEmbedModel === "gemini-embedding-2-preview";
-    if (hasImageInput && !canImageKnowledgeSearchByModel && "knowledge_search" in (filteredBuiltin as Record<string, unknown>)) {
-      delete (filteredBuiltin as Record<string, unknown>).knowledge_search;
-      console.log(
-        `[agent-loop] trace=${traceId} knowledge_search tool disabled for image input (knowledge_embed_model=${configuredKnowledgeEmbedModel ?? "unset"})`
-      );
-    }
 
     // ── MCP tools (from agent_mcps junction table) ──
     let tools = filteredBuiltin;
@@ -1224,131 +1157,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
 
-    if (
-      enabledToolNames.has("create_chat_room") ||
-      enabledToolNames.has("close_chat_room") ||
-      enabledToolNames.has("reopen_chat_room")
-    ) {
-      systemPrompt +=
-        "\n\n## Chatroom Tool Policy\n" +
-        "- If user asks to create/open/start a room/chatroom, you MUST call `create_chat_room`.\n" +
-        "- If user asks to close a room/chatroom, you MUST call `close_chat_room`.\n" +
-        "- If user asks to reopen/restart a closed room/chatroom, you MUST call `reopen_chat_room`.\n" +
-        "- Never generate HTML prototypes or fake links for chatroom requests.\n" +
-        "- Never call `run_html_preview` for chatroom creation requests.\n" +
-        "- After a room tool succeeds, do not invent additional links or duplicate invitations.";
-    }
-
-    const allCodingToolKeys = ["run_python_code", "run_javascript_code", "run_html_preview"];
-    const codingToolNames = Object.keys(tools).filter((n) => allCodingToolKeys.includes(n));
-    if (codingToolNames.length > 0) {
-      systemPrompt +=
-        "\n\n## Code Execution Tool Policy\n" +
-        "You have access to secure cloud sandboxes for running code. Follow these rules:\n" +
-        (codingToolNames.includes("run_python_code")
-          ? "- When the user asks you to run/execute Python code, generate charts, do data analysis, " +
-            "or anything that requires Python execution, you MUST call `run_python_code` to actually " +
-            "run the code. NEVER just paste code as text — the user expects real execution results.\n" +
-            "- Charts generated by matplotlib/seaborn are returned as base64 PNG in the tool result. " +
-            "Images are automatically sent to the user — do NOT embed base64 strings in your text reply. " +
-            "Just describe the chart and reference the execution results.\n"
-          : "") +
-        (codingToolNames.includes("run_javascript_code")
-          ? "- When the user asks you to run/execute JavaScript or Node.js code, you MUST call `run_javascript_code`.\n"
-          : "") +
-        (codingToolNames.includes("run_html_preview")
-          ? "- When the user asks you to create/preview HTML pages, landing pages, or web UI, " +
-            "you MUST call `run_html_preview` to generate a shareable preview link. " +
-            "NEVER output raw HTML as text — the user needs a clickable URL.\n"
-          : "") +
-        "- NEVER fabricate URLs, image links, or file paths. Only return URLs that tools actually provide.\n" +
-        "- If a tool call fails, report the error honestly instead of faking a result.";
-    } else {
-      systemPrompt +=
-        "\n\n## Important: No Code Execution Capability\n" +
-        "You do NOT have code execution tools enabled. " +
-        "If the user asks you to run code, generate charts, execute scripts, or create HTML previews, " +
-        "you MUST honestly tell them that the code execution feature is not enabled for this agent, " +
-        "and suggest the admin enable it in Dashboard > Agents > Tool Settings. " +
-        "NEVER pretend you have executed code. NEVER fabricate execution results, images, charts, or URLs. " +
-        "You may still write code snippets as text for the user to run themselves.";
-    }
-
-    const allGithubToolKeys = [
-      "github_read_file",
-      "github_list_files",
-      "github_commit_push",
-      "github_patch_files",
-      "github_check_deploy",
-      "github_revert_commit",
-      "github_compare_commits",
-      "github_search_code",
-    ];
-    const githubToolNames = Object.keys(tools).filter((n) => allGithubToolKeys.includes(n));
-    if (githubToolNames.length > 0) {
-      systemPrompt +=
-        "\n\n## GitHub Self-Evolution Pipeline\n" +
-        "You can read and modify the project's GitHub repository, triggering Vercel auto-deployment.\n\n" +
-        "### Diff-Based Editing (Preferred)\n" +
-        "When modifying existing files, ALWAYS prefer `github_patch_files` over `github_commit_push`.\n" +
-        "Use V4A diff format in each operation's `diff` field:\n" +
-        "- Start with `@@ <context>` header containing a recognizable line (e.g. function signature) to anchor the change location.\n" +
-        "- Use space prefix (` `) for context lines that must match the original file — include 2-3 lines before and after each change.\n" +
-        "- Use `-` prefix for lines to remove.\n" +
-        "- Use `+` prefix for lines to add.\n" +
-        "- Multiple `@@ ` sections in one diff for changes in different parts of the same file.\n\n" +
-        "Example diff for update_file:\n" +
-        "```\n" +
-        "@@ export async function myFunc\n" +
-        " export async function myFunc() {\n" +
-        "-  const old = true;\n" +
-        "+  const fixed = false;\n" +
-        "   return fixed;\n" +
-        "```\n\n" +
-        "For **new files** (create_file), every content line starts with `+`.\n" +
-        "Only use `github_commit_push` when creating entirely new files from scratch or when the file is very short (< 30 lines).\n\n" +
-        "### Code Search\n" +
-        "Use `github_search_code` to find where a function, variable, or pattern is used across the codebase. " +
-        "This is much faster than reading files one by one. Use it before refactoring to find all usage sites.\n\n" +
-        "### Compare Commits\n" +
-        "Use `github_compare_commits` to see what changed between two commits. " +
-        "Useful after pushing to review changes, or before reverting to preview what will be undone.\n\n" +
-        "### Workflow\n" +
-        "1. **Understand**: Call `github_list_files` ONCE (empty path = full recursive tree). Use `github_search_code` to locate specific symbols. Then `github_read_file` for files you need.\n" +
-        "2. **Propose**: Present a clear modification plan with full code diffs to the user. NEVER skip this step.\n" +
-        "3. **Wait for confirmation**: Only proceed when the user explicitly approves (e.g. 'ok', 'go ahead', '同意', '推送', '继续').\n" +
-        "4. **Commit**: Call `github_patch_files` (preferred for edits) or `github_commit_push` (new files only). Use conventional commit messages.\n" +
-        "5. **Monitor**: Call `github_check_deploy` 2-3 times to check Vercel deployment status. If still BUILDING, tell the user to wait.\n" +
-        "   - **CRITICAL**: If `github_check_deploy` returns `fatal: true`, STOP immediately. Do NOT retry. Report the error to the user and end the monitoring.\n" +
-        "   - **ON ERROR**: When state is `ERROR`, the result includes `buildLogs` with the actual build error output. " +
-        "Present the key error lines to the user and ask: (a) fix the code and push a new commit, or (b) revert via `github_revert_commit`. " +
-        "Do NOT keep polling after receiving ERROR — the build has already failed.\n" +
-        "6. **Revert if needed**: If the user requests a rollback, use `github_revert_commit` with the commit SHA.\n\n" +
-        "### Rules\n" +
-        "- NEVER call `github_commit_push` or `github_patch_files` without prior user consent in the conversation.\n" +
-        "- NEVER call `github_revert_commit` without explicit user request.\n" +
-        "- If `github_patch_files` fails (context mismatch), re-read the file with `github_read_file` and retry with corrected context lines.\n" +
-        "- If any tool returns `fatal: true`, NEVER call that tool again in this session.\n" +
-        "- After receiving ERROR from `github_check_deploy`, do NOT poll again — present logs and wait for user decision.\n" +
-        "- Be efficient: plan reads upfront, minimize tool calls. Budget: ~25 steps total.\n" +
-        "- Always include the commit SHA in your reply after pushing, so the user can reference it for revert.\n";
-    }
-
-    if (Object.keys(tools).includes("image_generate")) {
-      systemPrompt +=
-        "\n\n## Image Generation & Editing Tool Policy\n" +
-        "You have access to `image_generate` which supports two modes:\n" +
-        "### Text-to-Image\n" +
-        "- When the user asks to generate, create, draw, or design an image, call `image_generate` with only `prompt`.\n" +
-        "### Image Editing\n" +
-        "- When the user sends an image AND asks to modify/edit it (add elements, remove objects, change style, adjust colors, etc.), " +
-        "call `image_generate` with `prompt` describing the desired edit, plus `source_image_base64` containing the user's image data.\n" +
-        "- If the user's image was provided in the conversation as a base64 image, extract its data for `source_image_base64` and set `source_mime_type` accordingly.\n" +
-        "### General Rules\n" +
-        "- Always craft detailed, descriptive prompts in English for best results, even if the user writes in another language.\n" +
-        "- The generated/edited image will be automatically sent to the user — do NOT embed base64 strings in your text reply.\n" +
-        "- NEVER fabricate image URLs or claim images were generated without calling the tool.\n" +
-        "- If the tool call fails, report the error honestly instead of faking a result.";
+    for (const section of buildToolPolicySections({ availableToolNames: Object.keys(tools) })) {
+      systemPrompt += `\n\n${section}`;
     }
 
     // ── Multimodal knowledge search bypass ──
@@ -1490,10 +1300,11 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }, 60_000);
     }
 
-    const githubWorkflowIntent = hasGithubWorkflowIntent(messageText);
-    const githubActiveTools = GITHUB_WORKFLOW_TOOLS.filter((name) => Object.keys(tools).includes(name));
-    const isFollowUpQuery = /查询|状态|继续|progress|status|check|poll|go ahead|proceed|确认|同意|推送|部署/i.test(messageText);
-    const runWithGithubFocus = githubWorkflowIntent && githubActiveTools.length > 0 && !isFollowUpQuery;
+    const toolDirective = resolveGenerateTextToolDirective({
+      availableToolNames: Object.keys(tools),
+      messageText,
+    });
+    const runWithToolDirective = !!toolDirective;
 
     const deadline = startTime + AGENT_LIMITS.MAX_WALL_TIME_MS;
     const abortController = new AbortController();
@@ -1509,7 +1320,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     const toolNames = Object.keys(tools);
     console.log(
-      `[agent-loop] trace=${traceId} agent=${typedAgent.name} model=${typedAgent.model} tools=[${toolNames.join(",")}] toolCount=${toolNames.length} systemPromptLen=${systemPrompt.length} githubFocus=${runWithGithubFocus}`,
+      `[agent-loop] trace=${traceId} agent=${typedAgent.name} model=${typedAgent.model} tools=[${toolNames.join(",")}] toolCount=${toolNames.length} systemPromptLen=${systemPrompt.length} toolDirective=${runWithToolDirective}`,
     );
 
     let result;
@@ -1521,10 +1332,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         system: systemPrompt || undefined,
         messages,
         tools,
-        ...(runWithGithubFocus
+        ...(toolDirective
           ? {
-              activeTools: githubActiveTools as never,
-              toolChoice: "required" as const,
+              activeTools: toolDirective.activeTools as never,
+              ...(toolDirective.toolChoice ? { toolChoice: toolDirective.toolChoice } : {}),
             }
           : {}),
         stopWhen: stepCountIs(AGENT_LIMITS.MAX_STEPS),

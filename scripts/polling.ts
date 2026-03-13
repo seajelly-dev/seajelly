@@ -14,6 +14,11 @@ import { decrypt } from "@/lib/crypto/encrypt";
 import { getModel, isRateLimitError, getCooldownDuration, markKeyCooldown } from "@/lib/agent/provider";
 import { createAgentTools } from "@/lib/agent/tools";
 import { AGENT_LIMITS } from "@/lib/agent/limits";
+import {
+  buildToolPolicySections,
+  resolveEnabledBuiltinTools,
+  resolveGenerateTextToolDirective,
+} from "@/lib/agent/tooling/runtime";
 import { TelegramAdapter } from "@/lib/platform/adapters/telegram";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText, getBotCommands, humanizeAgentError } from "@/lib/i18n/bot";
@@ -576,36 +581,16 @@ async function startBotForAgent(agent: AgentRow) {
         platform: "telegram",
       });
 
-      const TOOL_DEFAULTS: Record<string, boolean> = {
-        run_sql: false,
-        schedule_task: true,
-        cancel_scheduled_job: true,
-        list_scheduled_jobs: true,
-        image_generate: false,
-      };
-      const toolsConfig = (agent.tools_config ?? {}) as Record<string, boolean>;
-      const filteredBuiltin: typeof builtinTools = {} as typeof builtinTools;
-      for (const [name, def] of Object.entries(builtinTools)) {
-        if (name in TOOL_DEFAULTS) {
-          const enabled = toolsConfig[name] ?? TOOL_DEFAULTS[name];
-          if (enabled) {
-            (filteredBuiltin as Record<string, unknown>)[name] = def;
-          }
-        } else {
-          (filteredBuiltin as Record<string, unknown>)[name] = def;
-        }
-      }
-      if (!hasEmbeddingApiKey && "knowledge_search" in (filteredBuiltin as Record<string, unknown>)) {
-        delete (filteredBuiltin as Record<string, unknown>).knowledge_search;
-        console.log("  [polling] knowledge_search tool disabled: missing EMBEDDING_API_KEY");
-      }
+      const toolsConfig = (agent.tools_config ?? {}) as Record<string, unknown>;
+      const filteredBuiltin = resolveEnabledBuiltinTools({
+        builtinTools,
+        toolsConfig,
+        hasEmbeddingApiKey,
+        hasImageInput,
+        configuredKnowledgeEmbedModel,
+        logger: (message) => console.log(`  [polling] ${message}`),
+      });
       const canImageKnowledgeSearchByModel = configuredKnowledgeEmbedModel === "gemini-embedding-2-preview";
-      if (hasImageInput && !canImageKnowledgeSearchByModel && "knowledge_search" in (filteredBuiltin as Record<string, unknown>)) {
-        delete (filteredBuiltin as Record<string, unknown>).knowledge_search;
-        console.log(
-          `  [polling] knowledge_search tool disabled for image input (knowledge_embed_model=${configuredKnowledgeEmbedModel ?? "unset"})`
-        );
-      }
 
       let mcpResult: MCPResult | null = null;
       let tools = filteredBuiltin;
@@ -698,6 +683,10 @@ async function startBotForAgent(agent: AgentRow) {
         }
       }
 
+      for (const section of buildToolPolicySections({ availableToolNames: Object.keys(tools) })) {
+        systemPrompt += `\n\n${section}`;
+      }
+
       // ── Multimodal knowledge search bypass ──
       const canImageKnowledgeSearchThisTurn =
         hasImageInput &&
@@ -762,6 +751,11 @@ async function startBotForAgent(agent: AgentRow) {
         ctx.replyWithChatAction("typing").catch(() => {});
       }, 4000);
 
+      const toolDirective = resolveGenerateTextToolDirective({
+        availableToolNames: Object.keys(tools),
+        messageText: text,
+      });
+
       let result;
       try {
         result = await generateText({
@@ -769,6 +763,12 @@ async function startBotForAgent(agent: AgentRow) {
           system: systemPrompt || undefined,
           messages,
           tools,
+          ...(toolDirective
+            ? {
+                activeTools: toolDirective.activeTools as never,
+                ...(toolDirective.toolChoice ? { toolChoice: toolDirective.toolChoice } : {}),
+              }
+            : {}),
           stopWhen: stepCountIs(AGENT_LIMITS.MAX_STEPS),
           maxOutputTokens: AGENT_LIMITS.MAX_TOKENS,
         });
