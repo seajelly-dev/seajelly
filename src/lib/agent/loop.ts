@@ -1107,37 +1107,66 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       .map((r) => r.skills as unknown as { id: string; name: string; description: string; content: string })
       .filter(Boolean);
 
-    const sessionActiveSkillIds: string[] = Array.isArray(session.active_skill_ids)
+    const rawSessionSkillIds: string[] = Array.isArray(session.active_skill_ids)
       ? (session.active_skill_ids as string[])
       : [];
+
+    // Back-fill: legacy sessions created before this feature have empty active_skill_ids.
+    // If the session already has conversation history, activate all bound skills to stay compatible.
+    const isLegacySession = rawSessionSkillIds.length === 0 && history.length > 0 && allAgentSkills.length > 0;
+    const sessionActiveSkillIds = isLegacySession
+      ? allAgentSkills.map((s) => s.id)
+      : rawSessionSkillIds;
+
+    if (isLegacySession) {
+      console.log(
+        `[agent-loop] trace=${traceId} legacy session back-fill: activating all ${allAgentSkills.length} skills`
+      );
+    }
 
     const newlyActivatedIds: string[] = [];
     if (allAgentSkills.length > 0) {
       const inactiveSkills = allAgentSkills.filter((s) => !sessionActiveSkillIds.includes(s.id));
-      const lowerMsg = messageText.toLowerCase();
-      for (const skill of inactiveSkills) {
-        const nameWords = skill.name.toLowerCase().split(/[\s_\-/]+/).filter((w) => w.length >= 2);
-        const descWords = (skill.description || "").toLowerCase().split(/[\s_\-/,;.]+/).filter((w) => w.length >= 3);
-        const matchWords = [...nameWords, ...descWords];
-        if (matchWords.some((w) => lowerMsg.includes(w))) {
-          newlyActivatedIds.push(skill.id);
+      if (inactiveSkills.length > 0) {
+        const lowerMsg = messageText.toLowerCase();
+        for (const skill of inactiveSkills) {
+          const nameTokens = skill.name.toLowerCase().split(/[\s_\-/]+/).filter((w) => w.length >= 2);
+          const desc = (skill.description || "").toLowerCase();
+          // For CJK-heavy descriptions, use sliding 2-char windows instead of whitespace splitting
+          const descTokens: string[] = [];
+          const asciiWords = desc.split(/[\s_\-/,;.!?，。；：、]+/).filter((w) => w.length >= 2);
+          descTokens.push(...asciiWords);
+          // Extract CJK substrings (2+ chars) as match candidates
+          const cjkMatches = desc.match(/[\u4e00-\u9fff\u3400-\u4dbf]{2,}/g);
+          if (cjkMatches) descTokens.push(...cjkMatches);
+
+          const allTokens = [...nameTokens, ...descTokens];
+          if (allTokens.some((w) => lowerMsg.includes(w))) {
+            newlyActivatedIds.push(skill.id);
+          }
         }
       }
     }
 
     const effectiveActiveIds = [...new Set([...sessionActiveSkillIds, ...newlyActivatedIds])];
 
-    if (newlyActivatedIds.length > 0) {
+    const skillIdsChanged =
+      isLegacySession ||
+      newlyActivatedIds.length > 0;
+
+    if (skillIdsChanged) {
       await supabase
         .from("sessions")
         .update({ active_skill_ids: effectiveActiveIds })
         .eq("id", session.id);
-      const activatedNames = allAgentSkills
-        .filter((s) => newlyActivatedIds.includes(s.id))
-        .map((s) => s.name);
-      console.log(
-        `[agent-loop] trace=${traceId} skills activated: [${activatedNames.join(",")}] total_active=${effectiveActiveIds.length}`
-      );
+      if (newlyActivatedIds.length > 0) {
+        const activatedNames = allAgentSkills
+          .filter((s) => newlyActivatedIds.includes(s.id))
+          .map((s) => s.name);
+        console.log(
+          `[agent-loop] trace=${traceId} skills activated: [${activatedNames.join(",")}] total_active=${effectiveActiveIds.length}`
+        );
+      }
     }
 
     const activeSkills = allAgentSkills.filter((s) => effectiveActiveIds.includes(s.id));

@@ -25,7 +25,18 @@ export async function GET(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ session: data });
+
+    let active_skills: { id: string; name: string }[] = [];
+    const skillIds = data?.active_skill_ids as string[] | undefined;
+    if (skillIds?.length) {
+      const { data: skillRows } = await db
+        .from("skills")
+        .select("id, name")
+        .in("id", skillIds);
+      active_skills = (skillRows ?? []) as { id: string; name: string }[];
+    }
+
+    return NextResponse.json({ session: data, active_skills });
   }
 
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));

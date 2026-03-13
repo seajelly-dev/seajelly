@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TablePagination } from "@/components/table-pagination";
 import { toast } from "sonner";
-import { MessageSquare, Bot, User, RefreshCw, Loader2 } from "lucide-react";
+import { MessageSquare, Bot, User, RefreshCw, Loader2, Copy, Check } from "lucide-react";
 import {
   TelegramIcon,
   FeishuIcon,
@@ -80,6 +80,7 @@ export default function SessionsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<SessionRow | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [activeSkillNames, setActiveSkillNames] = useState<{ id: string; name: string }[]>([]);
 
   const fetchSessions = useCallback(
     async (p: number) => {
@@ -107,6 +108,7 @@ export default function SessionsPage() {
   const fetchDetail = useCallback(
     async (id: string) => {
       setDetailLoading(true);
+      setActiveSkillNames([]);
       try {
         const res = await fetch(`/api/admin/sessions?id=${id}`);
         const data = await res.json();
@@ -116,6 +118,9 @@ export default function SessionsPage() {
             ...s,
             messages: Array.isArray(s.messages) ? s.messages : [],
           });
+          if (Array.isArray(data.active_skills)) {
+            setActiveSkillNames(data.active_skills);
+          }
         }
       } catch {
         toast.error(t("sessions.loadFailed"));
@@ -178,6 +183,7 @@ export default function SessionsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10">ID</TableHead>
                     <TableHead>{t("sessions.chatId")}</TableHead>
                     <TableHead>{t("sessions.agent")}</TableHead>
                     <TableHead>{t("sessions.messages")}</TableHead>
@@ -192,6 +198,9 @@ export default function SessionsPage() {
                       className="cursor-pointer transition-colors hover:bg-muted/50"
                       onClick={() => setSelectedId(s.id)}
                     >
+                      <TableCell>
+                        <CopyIdButton id={s.id} />
+                      </TableCell>
                       <TableCell>
                         <ChatIdCell session={s} />
                       </TableCell>
@@ -272,14 +281,14 @@ export default function SessionsPage() {
               </div>
             ) : selectedDetail ? (
               <div className="flex flex-col gap-4">
-                {selectedDetail.active_skill_ids?.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 rounded-lg border bg-muted/30 px-3 py-2">
+                {activeSkillNames.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-lg border bg-muted/30 px-3 py-2">
                     <span className="mr-1 text-xs font-medium text-muted-foreground">
                       {t("sessions.activeSkills")}:
                     </span>
-                    {selectedDetail.active_skill_ids.map((id) => (
-                      <Badge key={id} variant="secondary" className="text-xs">
-                        {id.slice(0, 8)}
+                    {activeSkillNames.map((skill) => (
+                      <Badge key={skill.id} variant="secondary" className="text-xs">
+                        {skill.name}
                       </Badge>
                     ))}
                   </div>
@@ -305,6 +314,27 @@ export default function SessionsPage() {
         </SheetContent>
       </Sheet>
     </div>
+  );
+}
+
+function CopyIdButton({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      title={id}
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(id).then(() => {
+          setCopied(true);
+          toast.success(`Copied: ${id.slice(0, 8)}...`);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+    >
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    </button>
   );
 }
 
