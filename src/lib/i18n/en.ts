@@ -229,6 +229,7 @@ const en = {
     noOwner: "No owner",
     deleteAgent: "Delete Agent",
     deleteAgentConfirm: "Delete agent \"{name}\"?",
+    deleteAgentWithChannelsError: "Cannot delete agent with associated channels. Please delete channels first.",
     agentNameRequired: "Agent name is required",
     agentUpdated: "Agent updated",
     agentCreated: "Agent created",

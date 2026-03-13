@@ -469,7 +469,13 @@ export default function AgentsPage() {
     if (!deleteTarget) return;
     try {
       const res = await fetch(`/api/admin/agents?id=${deleteTarget.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Delete failed");
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === "Cannot delete agent with associated channels. Please delete channels first.") {
+          throw new Error(t("agents.deleteAgentWithChannelsError"));
+        }
+        throw new Error(data.error || "Delete failed");
+      }
       toast.success(t("agents.agentDeleted"));
       setDeleteTarget(null);
       fetchAgents();

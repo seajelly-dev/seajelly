@@ -266,6 +266,19 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
+  // Check for associated channels before deleting
+  const { count } = await db
+    .from("channels")
+    .select("*", { count: "exact", head: true })
+    .eq("agent_id", id);
+
+  if (count && count > 0) {
+    return NextResponse.json(
+      { error: "Cannot delete agent with associated channels. Please delete channels first." },
+      { status: 400 }
+    );
+  }
+
   const { error } = await db.from("agents").delete().eq("id", id);
 
   if (error) {

@@ -231,6 +231,7 @@ const zh: TranslationKeys = {
     noOwner: "无实控人",
     deleteAgent: "删除 Agent",
     deleteAgentConfirm: "确定删除 Agent「{name}」？",
+    deleteAgentWithChannelsError: "无法删除有关联频道的 Agent。请先前往「频道」页面删除相关记录。",
     agentNameRequired: "Agent 名称不能为空",
     agentUpdated: "Agent 已更新",
     agentCreated: "Agent 已创建",
