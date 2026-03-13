@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -69,6 +69,26 @@ const NAV_ITEMS: { titleKey: string; href: string; icon: LucideIcon }[] = [
   { titleKey: "sidebar.settings", href: "/dashboard/settings", icon: Settings },
 ];
 
+function LocalTime() {
+  const [time, setTime] = useState<string | null>(null);
+
+  useEffect(() => {
+    const update = () => setTime(new Date().toLocaleTimeString());
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  if (!time) return <div className="h-4 mt-2" />;
+
+  return (
+    <div className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/60">
+      <Clock className="size-3" />
+      <span>{time}</span>
+    </div>
+  );
+}
+
 /**
  * 隔离 useSearchParams —— 该 hook 会触发 Suspense 边界，
  * 如果放在 DashboardSidebar 顶层，可能导致整个 sidebar 被 Suspense
@@ -116,6 +136,7 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
           </div>
           <LanguageSwitcher variant="ghost" size="icon-sm" />
         </div>
+        <LocalTime />
       </SidebarHeader>
       <SidebarContent className="px-2 py-4">
         <SidebarGroup>
