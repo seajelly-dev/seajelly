@@ -1,4 +1,4 @@
-import type { Model, Provider } from "@/types/database";
+import type { Model } from "@/types/database";
 
 export interface ModelDef {
   id: string;

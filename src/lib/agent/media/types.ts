@@ -10,9 +10,9 @@ export interface ResolvedInboundFile extends PlatformFile {
 }
 
 export interface MediaMessageBuildResult {
-  messagesToAppend: ModelMessage[];
+  userMessages: ModelMessage[];
   fileHandled: boolean;
-  warningText: string | null;
+  userWarning: string | null;
   imageBase64ForMediaSearch: string | null;
   imageMimeForMediaSearch: string | null;
 }
@@ -55,5 +55,5 @@ export interface HandlePendingImageEditParams {
 
 export interface ImageEditInterceptResult {
   handled: boolean;
-  loopResult?: LoopResult;
+  result?: LoopResult;
 }

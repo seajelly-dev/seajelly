@@ -6,7 +6,7 @@ This folder is the control plane for builtin agent tools and toolkits.
 
 - Keep LLM-facing tools atomic and explicit.
 - Let the UI grant a grouped capability through a single toolkit switch.
-- Centralize policy injection and tool-focus behavior so `loop.ts` and `scripts/polling.ts` do not drift.
+- Centralize policy injection and tool-focus behavior so `loop.ts` does not drift.
 - Keep runtime code as the source of truth. Skills are supplementary.
 
 ## File Map
@@ -88,6 +88,6 @@ Before merging a new tool or toolkit, verify:
 
 - `pnpm exec tsc --noEmit`
 - `pnpm exec eslint <changed files>`
-- Both `runAgentLoop` and `scripts/polling.ts` are picking up the new behavior through `runtime.ts`
+- `runAgentLoop` is picking up the new behavior through `runtime.ts`
 - The dashboard shows the expected switch or tool row
 - Legacy agents without the new toolkit key still behave correctly

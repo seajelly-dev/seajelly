@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto/encrypt";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
@@ -41,27 +40,6 @@ async function getAccessToken(agentId: string): Promise<string | null> {
   return data?.encrypted_value ? decrypt(data.encrypted_value) : null;
 }
 
-function verifyPayloadSignature(
-  rawBody: string,
-  signature: string | null,
-  appSecret: string,
-): boolean {
-  if (!signature) return false;
-  const expected = crypto
-    .createHmac("sha256", appSecret)
-    .update(rawBody)
-    .digest("hex");
-  const provided = signature.replace("sha256=", "");
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(expected, "hex"),
-      Buffer.from(provided, "hex"),
-    );
-  } catch {
-    return false;
-  }
-}
-
 // GET: Webhook verification (Meta sends GET to verify endpoint)
 export async function GET(
   request: Request,
@@ -97,7 +75,6 @@ export async function POST(
     const body = JSON.parse(rawBody);
 
     // Signature verification (optional but recommended)
-    const sig = request.headers.get("x-hub-signature-256");
     const accessToken = await getAccessToken(agentId);
     // Meta signs with app secret, but we store access_token;
     // If verify_token is configured we trust the webhook is valid

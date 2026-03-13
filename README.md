@@ -245,12 +245,7 @@ openssl rand -base64 32
 
 # Start dev server (http://localhost:3000)
 pnpm dev
-
-# In another terminal — start Telegram Bot (long polling)
-pnpm run dev:bot
 ```
-
-> 💡 Local dev uses polling mode — no public URL needed. Run `pnpm dev` and `pnpm run dev:bot` side by side.
 
 ---
 
@@ -283,7 +278,7 @@ User
 |---|---|
 | Frontend | Next.js 16 (App Router) + shadcn/ui + Tailwind CSS |
 | AI Engine | Vercel AI SDK (`generateText` + tools) |
-| Telegram | grammY (Webhook + Polling) |
+| Telegram | grammY (Webhook) |
 | Database | Supabase PostgreSQL + pgvector |
 | Auth | Supabase Auth + Row Level Security |
 | Scheduling | pg_cron + pg_net |

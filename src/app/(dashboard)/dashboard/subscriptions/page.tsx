@@ -161,7 +161,6 @@ export default function SubscriptionsPage() {
   const [stripeSecretConfigured, setStripeSecretConfigured] = useState(false);
   const [stripeWebhookConfigured, setStripeWebhookConfigured] = useState(false);
   const [stripeSaving, setStripeSaving] = useState<string | null>(null);
-  const [stripeGuideOpen, setStripeGuideOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"plans" | "stripe">("plans");
 
   const webhookUrl = typeof window !== "undefined"

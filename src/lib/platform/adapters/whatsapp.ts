@@ -188,7 +188,8 @@ export class WhatsAppAdapter implements PlatformSender {
     this.agentId = agentId;
   }
 
-  async sendText(chatId: string, text: string, _options?: SendOptions): Promise<void> {
+  async sendText(chatId: string, text: string, options?: SendOptions): Promise<void> {
+    void options;
     const creds = await resolveWhatsAppCredentials(this.agentId);
     await graphPost(creds, "/messages", {
       messaging_product: "whatsapp",
@@ -259,8 +260,9 @@ export class WhatsAppAdapter implements PlatformSender {
     chatId: string,
     text: string,
     buttons: ButtonRow[][],
-    _options?: SendOptions,
+    options?: SendOptions,
   ): Promise<void> {
+    void options;
     const creds = await resolveWhatsAppCredentials(this.agentId);
     const flat = buttons.flat().slice(0, 3); // WhatsApp max 3 buttons
     await graphPost(creds, "/messages", {
@@ -271,7 +273,7 @@ export class WhatsAppAdapter implements PlatformSender {
         type: "button",
         body: { text: text.replace(/[*_`\[\]]/g, "").substring(0, 1024) },
         action: {
-          buttons: flat.map((btn, i) => ({
+          buttons: flat.map((btn) => ({
             type: "reply",
             reply: {
               id: btn.callbackData.substring(0, 256),

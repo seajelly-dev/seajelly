@@ -84,8 +84,8 @@ test("buildInboundUserMessages creates image+text content for images", () => {
   assert.equal(result.fileHandled, true);
   assert.equal(result.imageBase64ForMediaSearch, "abc123");
   assert.equal(result.imageMimeForMediaSearch, "image/png");
-  assert.equal(result.messagesToAppend.length, 1);
-  const content = result.messagesToAppend[0]?.content as Array<Record<string, string>>;
+  assert.equal(result.userMessages.length, 1);
+  const content = result.userMessages[0]?.content as Array<Record<string, string>>;
   assert.equal(content[0]?.type, "image");
   assert.equal(content[0]?.mediaType, "image/png");
 });
@@ -105,7 +105,7 @@ test("buildInboundUserMessages truncates text files and preserves labels", () =>
   });
 
   assert.equal(result.fileHandled, true);
-  const content = String(result.messagesToAppend[0]?.content);
+  const content = String(result.userMessages[0]?.content);
   assert.match(content, /\[File: doc\.txt\]/);
   assert.ok(content.length < longText.length);
 });
@@ -122,7 +122,7 @@ test("buildInboundUserMessages creates file+text content for pdf", () => {
     messageText: "",
   });
 
-  const content = result.messagesToAppend[0]?.content as Array<Record<string, string>>;
+  const content = result.userMessages[0]?.content as Array<Record<string, string>>;
   assert.equal(content[0]?.type, "file");
   assert.match(content[1]?.text ?? "", /PDF/i);
 });
@@ -139,7 +139,7 @@ test("buildInboundUserMessages creates binary description for unknown mime", () 
     messageText: "",
   });
 
-  assert.match(String(result.messagesToAppend[0]?.content), /Binary file/);
+  assert.match(String(result.userMessages[0]?.content), /Binary file/);
   assert.equal(result.fileHandled, true);
 });
 
@@ -151,9 +151,9 @@ test("buildInboundUserMessages falls back to text with warning when file downloa
   });
 
   assert.equal(result.fileHandled, false);
-  assert.equal(result.warningText, "⚠️ File could not be loaded. Responding to your text only.");
-  assert.equal(result.messagesToAppend.length, 1);
-  assert.equal(result.messagesToAppend[0]?.content, "hello");
+  assert.equal(result.userWarning, "⚠️ File could not be loaded. Responding to your text only.");
+  assert.equal(result.userMessages.length, 1);
+  assert.equal(result.userMessages[0]?.content, "hello");
 });
 
 test("buildInboundUserMessages returns early warning when file download failed and no text", () => {
@@ -164,8 +164,8 @@ test("buildInboundUserMessages returns early warning when file download failed a
   });
 
   assert.equal(result.fileHandled, false);
-  assert.equal(result.messagesToAppend.length, 0);
-  assert.match(result.warningText ?? "", /Failed to process/);
+  assert.equal(result.userMessages.length, 0);
+  assert.match(result.userWarning ?? "", /Failed to process/);
 });
 
 test("handlePendingImageEdit completes image edit and clears pending state", async () => {
@@ -210,7 +210,7 @@ test("handlePendingImageEdit completes image edit and clears pending state", asy
   });
 
   assert.equal(result?.handled, true);
-  assert.equal(result?.loopResult?.reply, "imgedit_done");
+  assert.equal(result?.result?.reply, "imgedit_done");
   assert.ok(sent.some((entry) => entry.kind === "typing"));
   assert.ok(sent.some((entry) => entry.kind === "photo"));
   assert.ok(sent.some((entry) => entry.text?.includes("imgeditSuccess")));
@@ -253,7 +253,7 @@ test("handlePendingImageEdit returns no-prompt without clearing pending", async 
   });
 
   assert.equal(result?.handled, true);
-  assert.equal(result?.loopResult?.reply, "imgedit_no_prompt");
+  assert.equal(result?.result?.reply, "imgedit_no_prompt");
   assert.ok(sent.some((entry) => entry.text?.includes("imgeditNoPrompt")));
   assert.equal(updates.length, 0);
 });

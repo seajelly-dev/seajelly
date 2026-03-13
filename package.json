@@ -4,11 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:bot": "tsx scripts/polling.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:unit": "node --import tsx --test src/lib/memory/session.test.ts src/lib/agent/commands/commands.test.ts src/lib/agent/media/media.test.ts"
+    "test:unit": "node --import tsx --test src/lib/memory/session.test.ts src/lib/agent/commands/commands.test.ts src/lib/agent/media/media.test.ts src/lib/agent/channel-session.test.ts src/lib/agent/runtime-context.test.ts src/lib/agent/execution.test.ts src/lib/agent/media-search.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.58",

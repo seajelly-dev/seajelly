@@ -25,7 +25,7 @@ export async function handlePendingImageEdit(
     await sender.sendText(platformChatId, t("imgeditNoPrompt"));
     return {
       handled: true,
-      loopResult: { success: true, reply: "imgedit_no_prompt", traceId },
+      result: { success: true, reply: "imgedit_no_prompt", traceId },
     };
   }
 
@@ -59,6 +59,6 @@ export async function handlePendingImageEdit(
 
   return {
     handled: true,
-    loopResult: { success: true, reply: "imgedit_done", traceId },
+    result: { success: true, reply: "imgedit_done", traceId },
   };
 }

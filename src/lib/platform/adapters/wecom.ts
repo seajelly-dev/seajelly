@@ -167,7 +167,8 @@ export class WeComAdapter implements PlatformSender {
     this.agentId = agentId;
   }
 
-  async sendText(chatId: string, text: string, _options?: SendOptions): Promise<void> {
+  async sendText(chatId: string, text: string, options?: SendOptions): Promise<void> {
+    void options;
     await wecomSendMsg(this.agentId, chatId, {
       msgtype: "text",
       text: { content: text },
@@ -181,7 +182,8 @@ export class WeComAdapter implements PlatformSender {
     });
   }
 
-  async sendTyping(_chatId: string): Promise<void> {
+  async sendTyping(chatId: string): Promise<void> {
+    void chatId;
     // WeCom does not have a reliable public typing indicator API
   }
 
@@ -265,8 +267,9 @@ export class WeComAdapter implements PlatformSender {
     chatId: string,
     text: string,
     buttons: ButtonRow[][],
-    _options?: SendOptions,
+    options?: SendOptions,
   ): Promise<void> {
+    void options;
     const btnList = buttons.flat().map((btn) => ({
       type: 0,
       text: btn.label,

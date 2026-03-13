@@ -252,12 +252,7 @@ openssl rand -base64 32
 
 # 启动开发服务器 (http://localhost:3000)
 pnpm dev
-
-# 在另一个终端启动 Telegram Bot（长轮询模式）
-pnpm run dev:bot
 ```
-
-> 💡 本地开发使用 polling 模式，不需要公网 URL。`pnpm dev` 和 `pnpm run dev:bot` 同时运行即可。
 
 ---
 
@@ -297,7 +292,7 @@ pnpm run dev:bot
 |---|---|
 | 前端 | Next.js 16 (App Router) + shadcn/ui + Tailwind CSS |
 | AI 引擎 | Vercel AI SDK (`generateText` + tools) |
-| Telegram | grammY (Webhook + Polling) |
+| Telegram | grammY (Webhook) |
 | 数据库 | Supabase PostgreSQL + pgvector |
 | 认证 | Supabase Auth + Row Level Security |
 | 定时任务 | pg_cron + pg_net |

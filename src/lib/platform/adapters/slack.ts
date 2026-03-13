@@ -53,7 +53,8 @@ export class SlackAdapter implements PlatformSender {
     this.agentId = agentId;
   }
 
-  async sendText(chatId: string, text: string, _options?: SendOptions): Promise<void> {
+  async sendText(chatId: string, text: string, options?: SendOptions): Promise<void> {
+    void options;
     const client = await getClient(this.agentId);
     await client.chat.postMessage({ channel: chatId, text });
   }
@@ -72,7 +73,8 @@ export class SlackAdapter implements PlatformSender {
     });
   }
 
-  async sendTyping(_chatId: string): Promise<void> {
+  async sendTyping(chatId: string): Promise<void> {
+    void chatId;
     // Slack has no public typing indicator API for bots
   }
 
@@ -108,8 +110,9 @@ export class SlackAdapter implements PlatformSender {
     chatId: string,
     text: string,
     buttons: ButtonRow[][],
-    _options?: SendOptions,
+    options?: SendOptions,
   ): Promise<void> {
+    void options;
     const client = await getClient(this.agentId);
     const elements = buttons.flat().map((btn) => ({
       type: "button" as const,

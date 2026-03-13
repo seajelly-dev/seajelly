@@ -134,7 +134,8 @@ export class QQBotAdapter implements PlatformSender {
     this.replyCtx = { msgId, eventId };
   }
 
-  async sendText(chatId: string, text: string, _options?: SendOptions): Promise<void> {
+  async sendText(chatId: string, text: string, options?: SendOptions): Promise<void> {
+    void options;
     const target = parseChatId(chatId);
     const payload: Record<string, unknown> = { content: text, msg_type: 0 };
     if (this.replyCtx.msgId) {
@@ -163,15 +164,19 @@ export class QQBotAdapter implements PlatformSender {
     }
   }
 
-  async sendTyping(_chatId: string): Promise<void> {
+  async sendTyping(chatId: string): Promise<void> {
+    void chatId;
     // QQ Bot API does not support typing indicators
   }
 
-  async sendVoice(chatId: string, _audio: Buffer, _filename?: string): Promise<void> {
+  async sendVoice(chatId: string, audio: Buffer, filename?: string): Promise<void> {
+    void audio;
+    void filename;
     await this.sendText(chatId, "[语音消息暂不支持]");
   }
 
-  async sendPhoto(chatId: string, _photo: Buffer, caption?: string): Promise<void> {
+  async sendPhoto(chatId: string, photo: Buffer, caption?: string): Promise<void> {
+    void photo;
     await this.sendText(chatId, caption || "[Image]");
   }
 
@@ -179,8 +184,9 @@ export class QQBotAdapter implements PlatformSender {
     chatId: string,
     text: string,
     buttons: ButtonRow[][],
-    _options?: SendOptions,
+    options?: SendOptions,
   ): Promise<void> {
+    void options;
     const target = parseChatId(chatId);
     const rows = buttons.map((row) => ({
       buttons: row.map((btn) => ({

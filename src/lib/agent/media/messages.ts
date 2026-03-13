@@ -12,7 +12,7 @@ export function buildInboundUserMessages(
 
     if (isImageMime(mime)) {
       return {
-        messagesToAppend: [
+        userMessages: [
           {
             role: "user",
             content: [
@@ -22,7 +22,7 @@ export function buildInboundUserMessages(
           },
         ],
         fileHandled: true,
-        warningText: null,
+        userWarning: null,
         imageBase64ForMediaSearch: resolvedFile.base64,
         imageMimeForMediaSearch: resolvedFile.effectiveImageMime,
       };
@@ -32,14 +32,14 @@ export function buildInboundUserMessages(
       const decoded = Buffer.from(resolvedFile.base64, "base64").toString("utf-8");
       const label = resolvedFile.fileName ? `[File: ${resolvedFile.fileName}]` : "[Text file]";
       return {
-        messagesToAppend: [
+        userMessages: [
           {
             role: "user",
             content: `${label}\n\`\`\`\n${decoded.slice(0, 50_000)}\n\`\`\`\n\n${textPrompt || "Please analyze this file."}`,
           },
         ],
         fileHandled: true,
-        warningText: null,
+        userWarning: null,
         imageBase64ForMediaSearch: null,
         imageMimeForMediaSearch: null,
       };
@@ -53,7 +53,7 @@ export function buildInboundUserMessages(
             ? "Please analyze this video."
             : "Please analyze this audio.";
       return {
-        messagesToAppend: [
+        userMessages: [
           {
             role: "user",
             content: [
@@ -63,7 +63,7 @@ export function buildInboundUserMessages(
           },
         ],
         fileHandled: true,
-        warningText: null,
+        userWarning: null,
         imageBase64ForMediaSearch: null,
         imageMimeForMediaSearch: null,
       };
@@ -73,14 +73,14 @@ export function buildInboundUserMessages(
       ? `[File: ${resolvedFile.fileName}, type: ${mime}]`
       : `[File: ${mime}]`;
     return {
-      messagesToAppend: [
+      userMessages: [
         {
           role: "user",
           content: `${label}\n(Binary file — ${resolvedFile.sizeBytes} bytes)\n\n${textPrompt || "I sent you a file. What can you help me with?"}`,
         },
       ],
       fileHandled: true,
-      warningText: null,
+      userWarning: null,
       imageBase64ForMediaSearch: null,
       imageMimeForMediaSearch: null,
     };
@@ -90,26 +90,26 @@ export function buildInboundUserMessages(
     logger?.(`file not handled: messageText=${Boolean(messageText)}`);
     if (!messageText) {
       return {
-        messagesToAppend: [],
+        userMessages: [],
         fileHandled: false,
-        warningText: "⚠️ Failed to process the file you sent. Please try again or send as a different format.",
+        userWarning: "⚠️ Failed to process the file you sent. Please try again or send as a different format.",
         imageBase64ForMediaSearch: null,
         imageMimeForMediaSearch: null,
       };
     }
     return {
-      messagesToAppend: [{ role: "user", content: messageText }],
+      userMessages: [{ role: "user", content: messageText }],
       fileHandled: false,
-      warningText: "⚠️ File could not be loaded. Responding to your text only.",
+      userWarning: "⚠️ File could not be loaded. Responding to your text only.",
       imageBase64ForMediaSearch: null,
       imageMimeForMediaSearch: null,
     };
   }
 
   return {
-    messagesToAppend: [{ role: "user", content: messageText }],
+    userMessages: [{ role: "user", content: messageText }],
     fileHandled: false,
-    warningText: null,
+    userWarning: null,
     imageBase64ForMediaSearch: null,
     imageMimeForMediaSearch: null,
   };

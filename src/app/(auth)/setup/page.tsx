@@ -168,7 +168,7 @@ You have persistent memory across conversations. Use it wisely:
 
   const STEPS_KEYS = ["connect", "register", "secrets", "agent"] as const;
 
-  const loadAvailableModels = async (_keys?: string[]) => {
+  const loadAvailableModels = async () => {
     try {
       const res = await fetch("/api/admin/models");
       if (res.ok) {

@@ -143,7 +143,8 @@ export class FeishuAdapter implements PlatformSender {
     return chatId.startsWith("oc_") ? "chat_id" : "open_id";
   }
 
-  async sendText(chatId: string, text: string, _options?: SendOptions): Promise<void> {
+  async sendText(chatId: string, text: string, options?: SendOptions): Promise<void> {
+    void options;
     await feishuAPI(this.agentId, "/im/v1/messages", {
       receive_id: chatId,
       msg_type: "text",
@@ -165,7 +166,8 @@ export class FeishuAdapter implements PlatformSender {
     }, { receive_id_type: this.ridType(chatId) });
   }
 
-  async sendTyping(_chatId: string): Promise<void> {
+  async sendTyping(chatId: string): Promise<void> {
+    void chatId;
     // Feishu has no typing indicator API
   }
 
@@ -220,8 +222,9 @@ export class FeishuAdapter implements PlatformSender {
     chatId: string,
     text: string,
     buttons: ButtonRow[][],
-    _options?: SendOptions,
+    options?: SendOptions,
   ): Promise<void> {
+    void options;
     const actions = buttons.flat().map((btn) => ({
       tag: "button",
       text: { tag: "plain_text", content: btn.label },
