@@ -110,7 +110,7 @@ export async function POST(request: Request) {
       fileMime = message.audio.mime_type || "audio/mpeg";
     }
 
-    await supabase.from("events").insert({
+    const { error: insertErr } = await supabase.from("events").insert({
       source: "telegram",
       agent_id: agentId,
       platform_chat_id: String(chatId),
@@ -132,11 +132,18 @@ export async function POST(request: Request) {
       status: "pending",
     });
 
+    if (insertErr) {
+      console.error(`[tg-webhook] event insert failed: agent=${agentId} err=${insertErr.message}`);
+    }
+
+    console.log(`[tg-webhook] event created: agent=${agentId} chat=${chatId} hasFile=${!!fileId} fileMime=${fileMime} textLen=${text.length}`);
+
     after(async () => {
       try {
         const { claimPendingEvents, markProcessed, markFailed } = await import("@/lib/events/queue");
         const { runAgentLoop } = await import("@/lib/agent/loop");
         const events = await claimPendingEvents();
+        console.log(`[tg-webhook] after() claimed ${events.length} events`);
         for (const event of events) {
           try {
             const result = await runAgentLoop(event);
@@ -150,7 +157,7 @@ export async function POST(request: Request) {
           }
         }
       } catch (err) {
-        console.error("after() worker error:", err);
+        console.error("[tg-webhook] after() worker error:", err);
       }
     });
 

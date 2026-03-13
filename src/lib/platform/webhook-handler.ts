@@ -74,7 +74,7 @@ export async function handleInboundMessage(params: InboundMessageParams): Promis
     }
   }
 
-  await supabase.from("events").insert({
+  const { error: insertErr } = await supabase.from("events").insert({
     source: platform,
     agent_id: agentId,
     platform_chat_id: platformChatId,
@@ -95,11 +95,19 @@ export async function handleInboundMessage(params: InboundMessageParams): Promis
     status: "pending",
   });
 
+  if (insertErr) {
+    console.error(`[webhook-handler] event insert failed: platform=${platform} agent=${agentId} err=${insertErr.message}`);
+    return NextResponse.json({ ok: false, error: insertErr.message }, { status: 500 });
+  }
+
+  console.log(`[webhook-handler] event created: platform=${platform} agent=${agentId} chat=${platformChatId} hasFile=${!!fileRef} fileMime=${fileMime}`);
+
   after(async () => {
     try {
       const { claimPendingEvents, markProcessed, markFailed } = await import("@/lib/events/queue");
       const { runAgentLoop } = await import("@/lib/agent/loop");
       const events = await claimPendingEvents();
+      console.log(`[webhook-handler] after() claimed ${events.length} events`);
       for (const event of events) {
         try {
           const result = await runAgentLoop(event);
@@ -113,7 +121,7 @@ export async function handleInboundMessage(params: InboundMessageParams): Promis
         }
       }
     } catch (err) {
-      console.error("after() worker error:", err);
+      console.error("[webhook-handler] after() worker error:", err);
     }
   });
 

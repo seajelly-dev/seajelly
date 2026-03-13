@@ -721,9 +721,13 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
     if (!fileHandled) {
-      if (fileId && !messageText) {
-        await sender.sendText(platformChatId, "⚠️ Failed to process the file you sent. Please try again or send as a different format.");
-        return { success: true, traceId };
+      if (fileId) {
+        console.warn(`[agent-loop] trace=${traceId} file not handled: fileId=${fileId} fileMime=${fileMime} messageText=${!!messageText}`);
+        if (!messageText) {
+          await sender.sendText(platformChatId, "⚠️ Failed to process the file you sent. Please try again or send as a different format.");
+          return { success: true, traceId };
+        }
+        await sender.sendText(platformChatId, "⚠️ File could not be loaded. Responding to your text only.");
       }
       messages.push({ role: "user" as const, content: messageText });
     }
