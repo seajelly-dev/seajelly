@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto/encrypt";
-
-function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-}
+import { createStrictServiceClient } from "@/lib/supabase/server";
+import { loadValidVoiceTempLink } from "@/lib/voice/temp-links";
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,18 +10,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Token required" }, { status: 400 });
     }
 
-    const supabase = getSupabase();
-
-    const { data: link } = await supabase
-      .from("voice_temp_links")
-      .select("*")
-      .eq("id", token)
-      .eq("type", "asr")
-      .single();
-
-    if (!link || new Date(link.expires_at) < new Date()) {
+    const link = await loadValidVoiceTempLink(token, "asr");
+    if (!link) {
       return NextResponse.json({ error: "Invalid or expired link" }, { status: 403 });
     }
+
+    const supabase = createStrictServiceClient();
 
     const { data: settingsRows } = await supabase
       .from("voice_settings")

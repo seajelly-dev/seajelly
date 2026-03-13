@@ -50,6 +50,7 @@ const SETUP_PLATFORMS = [
     fields: [
       { name: "app_id", label: "App ID", secret: true },
       { name: "app_secret", label: "App Secret", secret: true },
+      { name: "verification_token", label: "Verification Token", secret: true },
     ],
   },
   {
@@ -90,6 +91,7 @@ const SETUP_PLATFORMS = [
       { name: "access_token", label: "Access Token", secret: true },
       { name: "phone_number_id", label: "Phone Number ID", secret: false },
       { name: "verify_token", label: "Verify Token", secret: true },
+      { name: "app_secret", label: "App Secret", secret: true },
     ],
   },
 ];

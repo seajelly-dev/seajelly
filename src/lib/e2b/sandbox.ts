@@ -1,17 +1,9 @@
 import { Sandbox } from "@e2b/code-interpreter";
-import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto/encrypt";
-
-function getSupabase() {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-}
+import { createStrictServiceClient } from "@/lib/supabase/server";
 
 export async function getE2BApiKey(): Promise<string | null> {
-  const supabase = getSupabase();
+  const supabase = createStrictServiceClient();
   const { data } = await supabase
     .from("secrets")
     .select("encrypted_value")
@@ -127,7 +119,7 @@ export async function saveHTMLPreview(
   html: string,
   title?: string
 ): Promise<{ id: string; previewUrl: string }> {
-  const supabase = getSupabase();
+  const supabase = createStrictServiceClient();
   const { data, error } = await supabase
     .from("html_previews")
     .insert({ html, title: title || "Untitled" })

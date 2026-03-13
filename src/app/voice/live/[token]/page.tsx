@@ -7,7 +7,6 @@ import { Mic, MicOff, Loader2, Wifi, AlertTriangle, X } from "lucide-react";
 interface LinkConfig {
   type: string;
   config: Record<string, string>;
-  agentId: string;
   expiresAt: string;
 }
 

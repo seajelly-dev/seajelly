@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { notFound, redirect } from "next/navigation";
+import { createClient, createStrictServiceClient } from "@/lib/supabase/server";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import Image from "next/image";
@@ -16,6 +16,17 @@ export default async function DashboardLayout({
 
   if (!user) {
     redirect("/login");
+  }
+
+  const db = createStrictServiceClient();
+  const { data: admin } = await db
+    .from("admins")
+    .select("id")
+    .eq("auth_uid", user.id)
+    .maybeSingle();
+
+  if (!admin) {
+    notFound();
   }
 
   return (

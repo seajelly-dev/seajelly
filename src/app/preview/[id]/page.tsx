@@ -1,13 +1,10 @@
-import { createClient } from "@supabase/supabase-js";
 import { notFound } from "next/navigation";
+import { createStrictServiceClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 async function getPreview(id: string) {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const supabase = createStrictServiceClient();
 
   const { data, error } = await supabase
     .from("html_previews")
@@ -49,7 +46,7 @@ export default async function PreviewPage({
       <body>
         <iframe
           srcDoc={preview.html}
-          sandbox="allow-scripts allow-same-origin"
+          sandbox="allow-scripts"
           title={preview.title}
         />
       </body>

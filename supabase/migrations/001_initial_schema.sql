@@ -1000,6 +1000,40 @@ AS $fn$
   LIMIT match_count;
 $fn$;
 
+-- Legacy RPC overload retained for production parity
+CREATE OR REPLACE FUNCTION public.match_knowledge_chunks(
+  query_embedding vector(1536),
+  match_count int DEFAULT 10,
+  filter_knowledge_base_ids uuid[] DEFAULT NULL
+)
+RETURNS TABLE (
+  id uuid,
+  article_id uuid,
+  chunk_text text,
+  similarity float
+)
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+  RETURN QUERY
+  SELECT
+    kc.id,
+    kc.article_id,
+    kc.chunk_text,
+    1 - (kc.embedding <=> query_embedding) AS similarity
+  FROM public.knowledge_chunks kc
+  JOIN public.knowledge_articles ka ON ka.id = kc.article_id
+  WHERE kc.embed_status = 'embedded'
+    AND kc.embedding IS NOT NULL
+    AND (
+      filter_knowledge_base_ids IS NULL
+      OR ka.knowledge_base_id = ANY(filter_knowledge_base_ids)
+    )
+  ORDER BY kc.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$fn$;
+
 -- RPC: vector similarity search for knowledge article media embeddings
 CREATE OR REPLACE FUNCTION public.match_article_media(
   query_embedding vector(1536),
@@ -1122,6 +1156,77 @@ CREATE POLICY "chat_room_messages_service_all" ON public.chat_room_messages FOR 
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 GRANT ALL ON public.chat_room_messages TO service_role, authenticated;
 GRANT SELECT, INSERT ON public.chat_room_messages TO anon;
+
+-- Room-scoped private Realtime access for bearer-link sessions
+DROP POLICY IF EXISTS "room_realtime_authenticated_select" ON realtime.messages;
+CREATE POLICY "room_realtime_authenticated_select" ON realtime.messages FOR SELECT TO authenticated
+  USING (
+    extension IN ('broadcast', 'presence')
+    AND coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'room_id' IS NOT NULL
+    AND realtime.topic() = 'room:' || (coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'room_id')
+  );
+
+DROP POLICY IF EXISTS "room_realtime_authenticated_insert" ON realtime.messages;
+CREATE POLICY "room_realtime_authenticated_insert" ON realtime.messages FOR INSERT TO authenticated
+  WITH CHECK (
+    extension = 'presence'
+    AND coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'room_id' IS NOT NULL
+    AND realtime.topic() = 'room:' || (coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'room_id')
+  );
+
+CREATE OR REPLACE FUNCTION public.chat_room_messages_broadcast()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, realtime
+AS $fn$
+DECLARE
+  target_room_id text := coalesce(NEW.room_id, OLD.room_id);
+BEGIN
+  PERFORM realtime.broadcast_changes(
+    'room:' || target_room_id,
+    TG_OP,
+    TG_OP,
+    TG_TABLE_NAME,
+    TG_TABLE_SCHEMA,
+    NEW,
+    OLD
+  );
+  RETURN NULL;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS chat_room_messages_broadcast_trigger ON public.chat_room_messages;
+CREATE TRIGGER chat_room_messages_broadcast_trigger
+AFTER INSERT OR UPDATE OR DELETE ON public.chat_room_messages
+FOR EACH ROW EXECUTE FUNCTION public.chat_room_messages_broadcast();
+
+CREATE OR REPLACE FUNCTION public.chat_rooms_broadcast()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, realtime
+AS $fn$
+DECLARE
+  target_room_id text := coalesce(NEW.id, OLD.id);
+BEGIN
+  PERFORM realtime.broadcast_changes(
+    'room:' || target_room_id,
+    TG_OP,
+    TG_OP,
+    TG_TABLE_NAME,
+    TG_TABLE_SCHEMA,
+    NEW,
+    OLD
+  );
+  RETURN NULL;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS chat_rooms_broadcast_trigger ON public.chat_rooms;
+CREATE TRIGGER chat_rooms_broadcast_trigger
+AFTER UPDATE ON public.chat_rooms
+FOR EACH ROW EXECUTE FUNCTION public.chat_rooms_broadcast();
 
 -- Enable Realtime for chat_room_messages
 DO $$

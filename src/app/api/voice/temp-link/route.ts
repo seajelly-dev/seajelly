@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-}
+import { authErrorResponse, createStrictServiceClient, requireAdmin } from "@/lib/supabase/server";
+import { loadValidVoiceTempLink } from "@/lib/voice/temp-links";
 
 export async function GET(req: NextRequest) {
   try {
@@ -15,26 +9,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Token required" }, { status: 400 });
     }
 
-    const supabase = getSupabase();
-    const { data, error } = await supabase
-      .from("voice_temp_links")
-      .select("*")
-      .eq("id", token)
-      .single();
-
-    if (error || !data) {
+    const link = await loadValidVoiceTempLink(token);
+    if (!link) {
       return NextResponse.json({ error: "Invalid link" }, { status: 404 });
     }
 
-    if (new Date(data.expires_at) < new Date()) {
-      return NextResponse.json({ error: "Link expired" }, { status: 410 });
-    }
-
     return NextResponse.json({
-      type: data.type,
-      config: data.config,
-      agentId: data.agent_id,
-      expiresAt: data.expires_at,
+      type: link.type,
+      config: link.config,
+      expiresAt: link.expires_at,
     });
   } catch (err) {
     console.error("Temp link GET error:", err);
@@ -44,13 +27,19 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    await requireAdmin();
+  } catch (err) {
+    return authErrorResponse(err);
+  }
+
+  try {
     const { type, agentId, channelId, config } = await req.json();
 
     if (!type || !["live", "asr"].includes(type)) {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }
 
-    const supabase = getSupabase();
+    const supabase = createStrictServiceClient();
     const { data, error } = await supabase
       .from("voice_temp_links")
       .insert({

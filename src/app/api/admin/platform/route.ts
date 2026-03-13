@@ -73,7 +73,7 @@ async function handleFeishu(action: string, agentId: string, body: Record<string
       .eq("platform", "feishu");
     const types = (creds || []).map((c: { credential_type: string }) => c.credential_type);
     return NextResponse.json({
-      configured: types.includes("app_id") && types.includes("app_secret"),
+      configured: types.includes("app_id") && types.includes("app_secret") && types.includes("verification_token"),
       credentials: types,
       webhook_url: `${body.base_url || ""}/api/webhook/feishu/${agentId}`,
     });
@@ -253,7 +253,12 @@ async function handleWhatsApp(action: string, agentId: string, body: Record<stri
       .eq("platform", "whatsapp");
     const types = (creds || []).map((c: { credential_type: string }) => c.credential_type);
     return NextResponse.json({
-      configured: types.includes("access_token") && types.includes("phone_number_id"),
+      configured: (
+        types.includes("access_token")
+        && types.includes("phone_number_id")
+        && types.includes("verify_token")
+        && types.includes("app_secret")
+      ),
       credentials: types,
       webhook_url: `${body.base_url || ""}/api/webhook/whatsapp/${agentId}`,
     });

@@ -1,43 +1,51 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 import { decrypt } from "@/lib/crypto/encrypt";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
 import { processChannelApproval } from "@/lib/platform/approval-core";
 import { getSenderForAgent } from "@/lib/platform/sender";
 import { setWhatsAppTypingContext } from "@/lib/platform/adapters/whatsapp";
+import { createStrictServiceClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  );
+  return createStrictServiceClient();
 }
 
-async function getVerifyToken(agentId: string): Promise<string | null> {
+async function getWhatsAppCredentials(agentId: string) {
   const supabase = getSupabase();
   const { data } = await supabase
     .from("agent_credentials")
-    .select("encrypted_value")
+    .select("credential_type, encrypted_value")
     .eq("agent_id", agentId)
     .eq("platform", "whatsapp")
-    .eq("credential_type", "verify_token")
-    .single();
-  return data?.encrypted_value ? decrypt(data.encrypted_value) : null;
+    .in("credential_type", ["verify_token", "access_token", "app_secret"]);
+
+  const credentials: Record<string, string> = {};
+  for (const row of data || []) {
+    credentials[row.credential_type] = decrypt(row.encrypted_value);
+  }
+
+  return {
+    accessToken: credentials.access_token || null,
+    appSecret: credentials.app_secret || null,
+    verifyToken: credentials.verify_token || null,
+  };
 }
 
-async function getAccessToken(agentId: string): Promise<string | null> {
-  const supabase = getSupabase();
-  const { data } = await supabase
-    .from("agent_credentials")
-    .select("encrypted_value")
-    .eq("agent_id", agentId)
-    .eq("platform", "whatsapp")
-    .eq("credential_type", "access_token")
-    .single();
-  return data?.encrypted_value ? decrypt(data.encrypted_value) : null;
+function verifyWhatsAppSignature(rawBody: string, signatureHeader: string | null, appSecret: string | null) {
+  if (!signatureHeader || !appSecret) {
+    return false;
+  }
+
+  const expected = `sha256=${crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex")}`;
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  const actualBuffer = Buffer.from(signatureHeader, "utf8");
+
+  return expectedBuffer.length === actualBuffer.length
+    && crypto.timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
 // GET: Webhook verification (Meta sends GET to verify endpoint)
@@ -55,7 +63,7 @@ export async function GET(
     return new Response("Bad request", { status: 400 });
   }
 
-  const verifyToken = await getVerifyToken(agentId);
+  const { verifyToken } = await getWhatsAppCredentials(agentId);
   if (!verifyToken || token !== verifyToken) {
     return new Response("Forbidden", { status: 403 });
   }
@@ -72,13 +80,16 @@ export async function POST(
   try {
     const { agentId } = await params;
     const rawBody = await request.text();
+    const credentials = await getWhatsAppCredentials(agentId);
+    const signatureHeader = request.headers.get("x-hub-signature-256");
+
+    if (!verifyWhatsAppSignature(rawBody, signatureHeader, credentials.appSecret)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const body = JSON.parse(rawBody);
 
-    // Signature verification (optional but recommended)
-    const accessToken = await getAccessToken(agentId);
-    // Meta signs with app secret, but we store access_token;
-    // If verify_token is configured we trust the webhook is valid
-    // (Meta only sends to verified endpoints)
+    const accessToken = credentials.accessToken;
 
     const entry = body.entry as Array<Record<string, unknown>> | undefined;
     if (!entry?.length) return NextResponse.json({ ok: true });
@@ -240,6 +251,6 @@ export async function POST(
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("WhatsApp webhook error:", err);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ error: "Failed to handle webhook" }, { status: 500 });
   }
 }

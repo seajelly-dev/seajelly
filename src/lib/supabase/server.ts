@@ -32,6 +32,31 @@ export async function createClient() {
   );
 }
 
+function getServiceRoleConfig() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is required");
+  }
+
+  return { url, serviceRoleKey };
+}
+
+/**
+ * Strict service role client for security-sensitive server paths.
+ * This intentionally does not fall back to any lower-privilege key or secrets table lookup.
+ */
+export function createStrictServiceClient() {
+  const { url, serviceRoleKey } = getServiceRoleConfig();
+  return createSupabaseClient(url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
 /**
  * Admin client with service role key — bypasses RLS entirely.
  * Use in dashboard server components (already behind auth middleware).

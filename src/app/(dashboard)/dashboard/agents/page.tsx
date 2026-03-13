@@ -97,6 +97,7 @@ const PLATFORMS: PlatformDef[] = [
       { name: "app_id", label: "App ID", secret: true },
       { name: "app_secret", label: "App Secret", secret: true },
       { name: "encrypt_key", label: "Encrypt Key (optional)", secret: true },
+      { name: "verification_token", label: "Verification Token", secret: true },
     ],
   },
   {
@@ -137,6 +138,7 @@ const PLATFORMS: PlatformDef[] = [
       { name: "access_token", label: "Access Token", secret: true },
       { name: "phone_number_id", label: "Phone Number ID", secret: false },
       { name: "verify_token", label: "Verify Token", secret: true },
+      { name: "app_secret", label: "App Secret", secret: true },
     ],
   },
 ];

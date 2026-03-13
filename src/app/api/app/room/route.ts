@@ -1,20 +1,16 @@
 import { NextResponse, after } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { generateText } from "ai";
 import { getModel } from "@/lib/agent/provider";
 import { verifyRoomToken } from "@/lib/room-token";
 import { logApiUsage, readGenerateTextUsage } from "@/lib/usage/log";
+import { createStrictServiceClient } from "@/lib/supabase/server";
 import type { Agent } from "@/types/database";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 function getSupabase() {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  return createStrictServiceClient();
 }
 
 export async function GET(request: Request) {

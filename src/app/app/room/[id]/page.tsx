@@ -65,6 +65,65 @@ interface PresenceUser {
   joined_at: string;
 }
 
+interface RoomRealtimeSession {
+  expiresAt: string;
+  realtimeJwt: string;
+  topic: string;
+}
+
+interface RoomRealtimeBroadcastPayload<T> {
+  id: string;
+  operation: "INSERT" | "UPDATE" | "DELETE";
+  record: T | null;
+  old_record: T | null;
+  schema: string;
+  table: string;
+}
+
+function isRoomRealtimeBroadcastPayload(
+  payload: unknown
+): payload is RoomRealtimeBroadcastPayload<ChatRoomMessage | ChatRoom> {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+
+  const candidate = payload as Record<string, unknown>;
+  return (
+    typeof candidate.id === "string" &&
+    (candidate.operation === "INSERT" ||
+      candidate.operation === "UPDATE" ||
+      candidate.operation === "DELETE") &&
+    typeof candidate.schema === "string" &&
+    typeof candidate.table === "string" &&
+    "record" in candidate &&
+    "old_record" in candidate
+  );
+}
+
+function mergeMessageList(current: ChatRoomMessage[], incoming: ChatRoomMessage) {
+  const next = current.some((message) => message.id === incoming.id)
+    ? current.map((message) => (message.id === incoming.id ? incoming : message))
+    : [...current, incoming];
+
+  return next.sort(
+    (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+  );
+}
+
+function removeMessage(current: ChatRoomMessage[], messageId: string) {
+  return current.filter((message) => message.id !== messageId);
+}
+
+function flattenPresenceUsers(state: Record<string, PresenceUser[]>) {
+  const users: PresenceUser[] = [];
+  for (const key in state) {
+    for (const presence of state[key]) {
+      users.push(presence);
+    }
+  }
+  return users;
+}
+
 export default function ChatRoomPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -87,6 +146,8 @@ export default function ChatRoomPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+  const refreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!identity) return;
@@ -134,60 +195,148 @@ export default function ChatRoomPage() {
   const effectiveNickname = nicknameConfirmed ? nickname : identity?.display_name || "";
 
   useEffect(() => {
-    if (!room || !nicknameConfirmed || !effectiveNickname) return;
+    if (!room?.id || !nicknameConfirmed || !effectiveNickname) return;
 
-    const supabase = createClient();
+    const supabase = supabaseRef.current ?? createClient();
+    supabaseRef.current = supabase;
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
-    const channel = supabase
-      .channel(`room:${roomId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "chat_room_messages",
-          filter: `room_id=eq.${roomId}`,
-        },
-        (payload) => {
-          const newMsg = payload.new as ChatRoomMessage;
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
-          });
-          if (newMsg.sender_type === "system") {
-            if (newMsg.content.toLowerCase().includes("closed")) {
-              setRoom((r) => r ? { ...r, status: "closed", closed_at: new Date().toISOString() } : r);
-            } else if (newMsg.content.toLowerCase().includes("reopen")) {
-              setRoom((r) => r ? { ...r, status: "active", closed_at: null } : r);
-            }
+    const scheduleRefresh = (expiresAt: string) => {
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+
+      const refreshInMs = Math.max(
+        new Date(expiresAt).getTime() - Date.now() - 2 * 60 * 1000,
+        60 * 1000
+      );
+
+      refreshTimerRef.current = window.setTimeout(() => {
+        void connectRealtime();
+      }, refreshInMs);
+    };
+
+    const handleBroadcast = (
+      payload: RoomRealtimeBroadcastPayload<ChatRoomMessage | ChatRoom>
+    ) => {
+      if (payload.table === "chat_room_messages") {
+        if (payload.operation === "DELETE") {
+          const oldMessage = payload.old_record as ChatRoomMessage | null;
+          if (oldMessage?.id) {
+            setMessages((current) => removeMessage(current, oldMessage.id));
           }
+          return;
         }
-      )
-      .on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState<PresenceUser>();
-        const users: PresenceUser[] = [];
-        for (const key in state) {
-          for (const presence of state[key]) {
-            users.push(presence);
-          }
+
+        const message = payload.record as ChatRoomMessage | null;
+        if (message) {
+          setMessages((current) => mergeMessageList(current, message));
         }
-        setOnlineUsers(users);
-      })
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          await channel.track({
-            nickname: effectiveNickname,
-            platform: identity?.platform || "web",
-            is_owner: identity?.is_owner || false,
-            joined_at: new Date().toISOString(),
-          });
+        return;
+      }
+
+      if (payload.table === "chat_rooms") {
+        const updatedRoom = payload.record as ChatRoom | null;
+        if (updatedRoom) {
+          setRoom(updatedRoom);
         }
+      }
+    };
+
+    const connectRealtime = async () => {
+      const response = await fetch("/api/app/room/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          room_id: roomId,
+          token: tokenStr,
+        }),
       });
 
-    return () => {
-      supabase.removeChannel(channel);
+      if (cancelled) return;
+
+      const data = (await response.json()) as Partial<RoomRealtimeSession> & { error?: string };
+      if (!response.ok || !data.realtimeJwt || !data.topic || !data.expiresAt) {
+        if (response.status === 401) {
+          setError("unauthorized");
+        } else if (response.status === 404) {
+          setError("not_found");
+        } else {
+          console.error("Realtime session failed:", data.error || "Unknown error");
+        }
+        return;
+      }
+
+      await supabase.realtime.setAuth(data.realtimeJwt);
+      if (cancelled) return;
+
+      scheduleRefresh(data.expiresAt);
+
+      if (channel) {
+        return;
+      }
+
+      channel = supabase
+        .channel(data.topic, { config: { private: true } })
+        .on("broadcast", { event: "INSERT" }, (payload) => {
+          if (isRoomRealtimeBroadcastPayload(payload)) {
+            handleBroadcast(payload);
+          }
+        })
+        .on("broadcast", { event: "UPDATE" }, (payload) => {
+          if (isRoomRealtimeBroadcastPayload(payload)) {
+            handleBroadcast(payload);
+          }
+        })
+        .on("broadcast", { event: "DELETE" }, (payload) => {
+          if (isRoomRealtimeBroadcastPayload(payload)) {
+            handleBroadcast(payload);
+          }
+        })
+        .on("presence", { event: "sync" }, () => {
+          if (!channel) return;
+          setOnlineUsers(flattenPresenceUsers(channel.presenceState<PresenceUser>()));
+        })
+        .subscribe(async (status) => {
+          if (status === "SUBSCRIBED" && channel) {
+            await channel.track({
+              nickname: effectiveNickname,
+              platform: identity?.platform || "web",
+              is_owner: identity?.is_owner || false,
+              joined_at: new Date().toISOString(),
+            });
+            return;
+          }
+
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            console.error(`Room realtime status: ${status}`);
+          }
+        });
     };
-  }, [room, nicknameConfirmed, roomId, effectiveNickname, identity]);
+
+    void connectRealtime();
+
+    return () => {
+      cancelled = true;
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      setOnlineUsers([]);
+      if (channel) {
+        void supabase.removeChannel(channel);
+      }
+    };
+  }, [
+    room?.id,
+    roomId,
+    tokenStr,
+    nicknameConfirmed,
+    effectiveNickname,
+    identity?.platform,
+    identity?.is_owner,
+  ]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

@@ -443,10 +443,11 @@ async function handleAgent(body: {
 
     if (agentId && body.platform_credentials) {
       const PLATFORM_CRED_KEYS: Record<string, string[]> = {
-        feishu: ["app_id", "app_secret", "encrypt_key"],
+        feishu: ["app_id", "app_secret", "encrypt_key", "verification_token"],
         wecom: ["corp_id", "corp_secret", "agent_id", "token", "encoding_aes_key"],
         slack: ["bot_token", "signing_secret"],
         qqbot: ["app_id", "app_secret"],
+        whatsapp: ["access_token", "phone_number_id", "verify_token", "app_secret"],
       };
       for (const [platform, fields] of Object.entries(body.platform_credentials)) {
         const allowed = PLATFORM_CRED_KEYS[platform];
@@ -455,15 +456,19 @@ async function handleAgent(body: {
           if (!allowed.includes(key) || !value?.trim()) continue;
           const escapedVal = encrypt(value).replace(/'/g, "''");
           await execSQL(`
-            INSERT INTO public.agent_credentials (agent_id, platform, credential_key, credential_value)
+            INSERT INTO public.agent_credentials (agent_id, platform, credential_type, encrypted_value)
             VALUES ('${agentId}', '${platform}', '${key}', '${escapedVal}')
-            ON CONFLICT (agent_id, platform, credential_key) DO UPDATE SET credential_value = EXCLUDED.credential_value, updated_at = now();
+            ON CONFLICT (agent_id, platform, credential_type) DO UPDATE SET encrypted_value = EXCLUDED.encrypted_value;
           `);
         }
       }
       if (body.platform_credentials.qqbot) {
         const { invalidateQQBotCache } = await import("@/lib/platform/adapters/qqbot");
         invalidateQQBotCache(agentId);
+      }
+      if (body.platform_credentials.whatsapp) {
+        const { invalidateWhatsAppCache } = await import("@/lib/platform/adapters/whatsapp");
+        invalidateWhatsAppCache(agentId);
       }
     }
 
@@ -488,10 +493,16 @@ async function handleAgent(body: {
 
 // ─── Inline schema SQL (idempotent, no fs dependency) ───
 
-const SCHEMA_SQL = `
+const SCHEMA_SQL = `-- SEAJelly Complete Schema (merged from 001 + 002)
+-- This file is the single source of truth, kept in sync with SCHEMA_SQL in route.ts
+
+-- Extensions
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "vector";
 
+-- ============================================================
+-- 1. admins
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.admins (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   auth_uid      uuid UNIQUE NOT NULL,
@@ -501,7 +512,6 @@ CREATE TABLE IF NOT EXISTS public.admins (
 );
 ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;
 
--- Security definer function: checks admin status bypassing RLS on admins table
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean
 LANGUAGE sql
@@ -519,6 +529,9 @@ CREATE POLICY "admins_insert_first" ON public.admins FOR INSERT WITH CHECK (
   OR public.is_admin()
 );
 
+-- ============================================================
+-- 2. secrets
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.secrets (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   key_name        text UNIQUE NOT NULL,
@@ -530,6 +543,9 @@ ALTER TABLE public.secrets ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "secrets_admin_all" ON public.secrets;
 CREATE POLICY "secrets_admin_all" ON public.secrets FOR ALL USING (public.is_admin());
 
+-- ============================================================
+-- 3. providers
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.providers (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name        text NOT NULL,
@@ -546,6 +562,9 @@ DROP POLICY IF EXISTS "providers_service_select" ON public.providers;
 CREATE POLICY "providers_service_select" ON public.providers FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 4. provider_api_keys
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.provider_api_keys (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   provider_id     uuid NOT NULL REFERENCES public.providers(id) ON DELETE CASCADE,
@@ -565,6 +584,9 @@ DROP POLICY IF EXISTS "provider_api_keys_service_select" ON public.provider_api_
 CREATE POLICY "provider_api_keys_service_select" ON public.provider_api_keys FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 5. agents
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.agents (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name              text NOT NULL,
@@ -589,6 +611,9 @@ DROP POLICY IF EXISTS "agents_service_select" ON public.agents;
 CREATE POLICY "agents_service_select" ON public.agents FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 5b. agent_credentials (platform credentials per agent)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.agent_credentials (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id        uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
@@ -607,6 +632,9 @@ DROP POLICY IF EXISTS "agent_credentials_service_select" ON public.agent_credent
 CREATE POLICY "agent_credentials_service_select" ON public.agent_credentials FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 4. channels
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.channels (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id      uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
@@ -638,6 +666,9 @@ DROP POLICY IF EXISTS "channels_service_update" ON public.channels;
 CREATE POLICY "channels_service_update" ON public.channels FOR UPDATE
   USING (current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 5. sessions
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.sessions (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   platform_chat_id  text NOT NULL,
@@ -665,13 +696,16 @@ CREATE POLICY "sessions_service_select" ON public.sessions FOR SELECT
 DROP POLICY IF EXISTS "sessions_service_insert" ON public.sessions;
 CREATE POLICY "sessions_service_insert" ON public.sessions FOR INSERT
   WITH CHECK (current_setting('role') = 'service_role');
-	DROP POLICY IF EXISTS "sessions_service_upd" ON public.sessions;
-	CREATE POLICY "sessions_service_upd" ON public.sessions FOR UPDATE
-	  USING (current_setting('role') = 'service_role');
+DROP POLICY IF EXISTS "sessions_service_upd" ON public.sessions;
+CREATE POLICY "sessions_service_upd" ON public.sessions FOR UPDATE
+  USING (current_setting('role') = 'service_role');
 
-	CREATE TABLE IF NOT EXISTS public.memories (
-	  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-	  agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+-- ============================================================
+-- 6. memories
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.memories (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
   channel_id  uuid REFERENCES public.channels(id) ON DELETE CASCADE,
   scope       text NOT NULL DEFAULT 'channel' CHECK (scope IN ('channel','global')),
   category    text NOT NULL CHECK (category IN ('fact','preference','decision','summary','other')),
@@ -689,6 +723,9 @@ DROP POLICY IF EXISTS "memories_service_all" ON public.memories;
 CREATE POLICY "memories_service_all" ON public.memories FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 7. knowledge_bases (知识库分类，最多二级)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.knowledge_bases (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name        text NOT NULL,
@@ -705,6 +742,9 @@ DROP POLICY IF EXISTS "knowledge_bases_service_select" ON public.knowledge_bases
 CREATE POLICY "knowledge_bases_service_select" ON public.knowledge_bases FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 7b. knowledge_articles (知识库文章)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.knowledge_articles (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   knowledge_base_id   uuid NOT NULL REFERENCES public.knowledge_bases(id) ON DELETE CASCADE,
@@ -730,6 +770,9 @@ DROP POLICY IF EXISTS "knowledge_articles_service_all" ON public.knowledge_artic
 CREATE POLICY "knowledge_articles_service_all" ON public.knowledge_articles FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 7c. knowledge_chunks (向量化知识块)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.knowledge_chunks (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   article_id    uuid NOT NULL REFERENCES public.knowledge_articles(id) ON DELETE CASCADE,
@@ -752,6 +795,9 @@ DROP POLICY IF EXISTS "knowledge_chunks_service_all" ON public.knowledge_chunks;
 CREATE POLICY "knowledge_chunks_service_all" ON public.knowledge_chunks FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 7d. agent_knowledge_bases (Agent-知识库多对多)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.agent_knowledge_bases (
   agent_id          uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
   knowledge_base_id uuid NOT NULL REFERENCES public.knowledge_bases(id) ON DELETE CASCADE,
@@ -764,6 +810,9 @@ DROP POLICY IF EXISTS "agent_knowledge_bases_service_select" ON public.agent_kno
 CREATE POLICY "agent_knowledge_bases_service_select" ON public.agent_knowledge_bases FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 8. cron_jobs
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.cron_jobs (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id      uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
@@ -778,6 +827,9 @@ ALTER TABLE public.cron_jobs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "cron_jobs_admin_all" ON public.cron_jobs;
 CREATE POLICY "cron_jobs_admin_all" ON public.cron_jobs FOR ALL USING (public.is_admin());
 
+-- ============================================================
+-- 9. events
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.events (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source            text NOT NULL CHECK (source IN ('telegram','wecom','feishu','slack','qqbot','whatsapp','dingtalk','discord','cron','webhook','manual')),
@@ -812,6 +864,9 @@ DROP POLICY IF EXISTS "events_service_update" ON public.events;
 CREATE POLICY "events_service_update" ON public.events FOR UPDATE
   USING (current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 9b. agent_step_logs (full step replay logs, 7-day retention)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.agent_step_logs (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   trace_id         text NOT NULL,
@@ -841,6 +896,9 @@ DROP POLICY IF EXISTS "agent_step_logs_service_all" ON public.agent_step_logs;
 CREATE POLICY "agent_step_logs_service_all" ON public.agent_step_logs FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 10. skills
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.skills (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name        text UNIQUE NOT NULL,
@@ -858,6 +916,9 @@ DROP POLICY IF EXISTS "skills_service_select" ON public.skills;
 CREATE POLICY "skills_service_select" ON public.skills FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 11. agent_skills (many-to-many)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.agent_skills (
   agent_id  uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
   skill_id  uuid NOT NULL REFERENCES public.skills(id) ON DELETE CASCADE,
@@ -871,6 +932,9 @@ DROP POLICY IF EXISTS "agent_skills_service_select" ON public.agent_skills;
 CREATE POLICY "agent_skills_service_select" ON public.agent_skills FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 12. mcp_servers
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.mcp_servers (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name        text NOT NULL,
@@ -888,6 +952,9 @@ DROP POLICY IF EXISTS "mcp_servers_service_select" ON public.mcp_servers;
 CREATE POLICY "mcp_servers_service_select" ON public.mcp_servers FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 13. agent_mcps (many-to-many)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.agent_mcps (
   agent_id      uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
   mcp_server_id uuid NOT NULL REFERENCES public.mcp_servers(id) ON DELETE CASCADE,
@@ -901,6 +968,9 @@ DROP POLICY IF EXISTS "agent_mcps_service_select" ON public.agent_mcps;
 CREATE POLICY "agent_mcps_service_select" ON public.agent_mcps FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 14. system_settings (key-value config for dashboard)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.system_settings (
   key         text PRIMARY KEY,
   value       text NOT NULL,
@@ -923,6 +993,9 @@ INSERT INTO public.system_settings (key, value) VALUES
   ('login_gate_key_hash', '')
 ON CONFLICT (key) DO NOTHING;
 
+-- ============================================================
+-- 15. html_previews (public HTML preview storage for coding module)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.html_previews (
   id          text PRIMARY KEY DEFAULT encode(gen_random_bytes(12), 'hex'),
   html        text NOT NULL,
@@ -941,6 +1014,9 @@ DROP POLICY IF EXISTS "html_previews_anon_select" ON public.html_previews;
 CREATE POLICY "html_previews_anon_select" ON public.html_previews FOR SELECT
   USING (true);
 
+-- ============================================================
+-- 16. models
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.models (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   model_id    text NOT NULL,
@@ -958,6 +1034,9 @@ DROP POLICY IF EXISTS "models_service_select" ON public.models;
 CREATE POLICY "models_service_select" ON public.models FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 19. api_usage_logs
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.api_usage_logs (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id        uuid REFERENCES public.agents(id) ON DELETE SET NULL,
@@ -979,6 +1058,7 @@ DROP POLICY IF EXISTS "api_usage_logs_service_all" ON public.api_usage_logs;
 CREATE POLICY "api_usage_logs_service_all" ON public.api_usage_logs FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- RPC: hourly usage stats aggregation
 CREATE OR REPLACE FUNCTION public.hourly_usage_stats(hours_back int DEFAULT 24)
 RETURNS TABLE (
   hour timestamptz,
@@ -1006,6 +1086,7 @@ AS $fn$
   ORDER BY hour ASC, model_id ASC;
 $fn$;
 
+-- RPC: per-key usage stats (1h / 24h)
 CREATE OR REPLACE FUNCTION public.key_usage_stats(target_provider_id uuid)
 RETURNS TABLE (
   key_id uuid,
@@ -1027,6 +1108,7 @@ AS $fn$
   GROUP BY k.id;
 $fn$;
 
+-- RPC: dashboard all-in-one stats
 CREATE OR REPLACE FUNCTION public.dashboard_stats()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -1095,6 +1177,7 @@ BEGIN
 END;
 $fn$;
 
+-- Seed built-in providers (fixed UUIDs for idempotency)
 INSERT INTO public.providers (id, name, type, base_url, is_builtin, enabled) VALUES
   ('00000000-0000-0000-0000-000000000001', 'Anthropic', 'anthropic', NULL, true, true),
   ('00000000-0000-0000-0000-000000000002', 'OpenAI', 'openai', NULL, true, true),
@@ -1110,6 +1193,7 @@ INSERT INTO public.providers (id, name, type, base_url, is_builtin, enabled) VAL
   ('00000000-0000-0000-0000-00000000000f', 'VolcEngine', 'openai_compatible', 'https://ark.cn-beijing.volces.com/api/v3', true, true)
 ON CONFLICT (id) DO NOTHING;
 
+-- Seed built-in models
 INSERT INTO public.models (model_id, label, provider_id, is_builtin) VALUES
   ('claude-opus-4-6', 'Claude Opus 4.6', '00000000-0000-0000-0000-000000000001', true),
   ('claude-sonnet-4-6', 'Claude Sonnet 4.6', '00000000-0000-0000-0000-000000000001', true),
@@ -1133,7 +1217,7 @@ INSERT INTO public.models (model_id, label, provider_id, is_builtin) VALUES
   ('llama-3.1-8b-instant', 'Llama 3.1 8B Instant', '00000000-0000-0000-0000-000000000005', true),
   ('gemma2-9b-it', 'Gemma 2 9B', '00000000-0000-0000-0000-000000000005', true),
   ('mixtral-8x7b-32768', 'Mixtral 8x7B', '00000000-0000-0000-0000-000000000005', true),
-  -- OpenRouter
+  -- OpenRouter (popular cross-provider models)
   ('anthropic/claude-sonnet-4-6', 'Claude Sonnet 4.6 (via OR)', '00000000-0000-0000-0000-000000000006', true),
   ('google/gemini-2.5-flash', 'Gemini 2.5 Flash (via OR)', '00000000-0000-0000-0000-000000000006', true),
   ('meta-llama/llama-3.3-70b-instruct', 'Llama 3.3 70B (via OR)', '00000000-0000-0000-0000-000000000006', true),
@@ -1167,7 +1251,19 @@ GRANT ALL ON public.providers TO service_role, authenticated;
 GRANT ALL ON public.provider_api_keys TO service_role, authenticated;
 GRANT ALL ON public.models TO service_role, authenticated;
 GRANT ALL ON public.api_usage_logs TO service_role, authenticated;
-GRANT ALL ON public.agent_step_logs TO service_role, authenticated;
+GRANT ALL ON public.agent_credentials TO service_role, authenticated;
+GRANT ALL ON public.voice_api_keys TO service_role, authenticated;
+GRANT ALL ON public.voice_settings TO service_role, authenticated;
+GRANT ALL ON public.tts_usage_logs TO service_role, authenticated;
+GRANT ALL ON public.voice_temp_links TO service_role, authenticated;
+GRANT SELECT ON public.voice_temp_links TO anon;
+GRANT ALL ON public.subscription_plans TO service_role, authenticated;
+GRANT ALL ON public.subscription_rules TO service_role, authenticated;
+GRANT ALL ON public.channel_subscriptions TO service_role, authenticated;
+GRANT ALL ON public.knowledge_bases TO service_role, authenticated;
+GRANT ALL ON public.knowledge_articles TO service_role, authenticated;
+GRANT ALL ON public.knowledge_chunks TO service_role, authenticated;
+GRANT ALL ON public.agent_knowledge_bases TO service_role, authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
@@ -1175,6 +1271,9 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
 
+-- ============================================================
+-- 17. voice_api_keys (voice-specific API keys, decoupled from provider_api_keys)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.voice_api_keys (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   engine          text NOT NULL CHECK (engine IN ('aistudio','cloud-gemini','gemini-live','gemini-asr','doubao-asr','google-image-gen')),
@@ -1191,6 +1290,9 @@ DROP POLICY IF EXISTS "voice_api_keys_service_select" ON public.voice_api_keys;
 CREATE POLICY "voice_api_keys_service_select" ON public.voice_api_keys FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 18. voice_settings (global voice feature config)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.voice_settings (
   key         text PRIMARY KEY,
   value       text NOT NULL,
@@ -1215,6 +1317,9 @@ INSERT INTO public.voice_settings (key, value) VALUES
   ('image_gen_model', 'gemini-3.1-flash-image-preview')
 ON CONFLICT (key) DO NOTHING;
 
+-- ============================================================
+-- 19b. tts_usage_logs (TTS call records)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.tts_usage_logs (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id      uuid REFERENCES public.agents(id) ON DELETE SET NULL,
@@ -1236,6 +1341,9 @@ DROP POLICY IF EXISTS "tts_usage_logs_service_all" ON public.tts_usage_logs;
 CREATE POLICY "tts_usage_logs_service_all" ON public.tts_usage_logs FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 20. voice_temp_links (temporary links for live/asr)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.voice_temp_links (
   id          text PRIMARY KEY DEFAULT encode(gen_random_bytes(16), 'hex'),
   type        text NOT NULL CHECK (type IN ('live', 'asr')),
@@ -1256,13 +1364,9 @@ DROP POLICY IF EXISTS "voice_temp_links_anon_select" ON public.voice_temp_links;
 CREATE POLICY "voice_temp_links_anon_select" ON public.voice_temp_links FOR SELECT
   USING (true);
 
-GRANT ALL ON public.agent_credentials TO service_role, authenticated;
-GRANT ALL ON public.voice_api_keys TO service_role, authenticated;
-GRANT ALL ON public.voice_settings TO service_role, authenticated;
-GRANT ALL ON public.tts_usage_logs TO service_role, authenticated;
-GRANT ALL ON public.voice_temp_links TO service_role, authenticated;
-GRANT SELECT ON public.voice_temp_links TO anon;
-
+-- ============================================================
+-- 21. subscription_plans
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.subscription_plans (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id        uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
@@ -1285,6 +1389,9 @@ DROP POLICY IF EXISTS "subscription_plans_service_select" ON public.subscription
 CREATE POLICY "subscription_plans_service_select" ON public.subscription_plans FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 22. subscription_rules
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.subscription_rules (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id              uuid NOT NULL UNIQUE REFERENCES public.agents(id) ON DELETE CASCADE,
@@ -1302,6 +1409,9 @@ DROP POLICY IF EXISTS "subscription_rules_service_select" ON public.subscription
 CREATE POLICY "subscription_rules_service_select" ON public.subscription_rules FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
+-- ============================================================
+-- 23. channel_subscriptions
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.channel_subscriptions (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   channel_id        uuid NOT NULL REFERENCES public.channels(id) ON DELETE CASCADE,
@@ -1327,14 +1437,9 @@ DROP POLICY IF EXISTS "channel_subscriptions_service_all" ON public.channel_subs
 CREATE POLICY "channel_subscriptions_service_all" ON public.channel_subscriptions FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 
-GRANT ALL ON public.subscription_plans TO service_role, authenticated;
-GRANT ALL ON public.subscription_rules TO service_role, authenticated;
-GRANT ALL ON public.channel_subscriptions TO service_role, authenticated;
-GRANT ALL ON public.knowledge_bases TO service_role, authenticated;
-GRANT ALL ON public.knowledge_articles TO service_role, authenticated;
-GRANT ALL ON public.knowledge_chunks TO service_role, authenticated;
-GRANT ALL ON public.agent_knowledge_bases TO service_role, authenticated;
-
+-- ============================================================
+-- Triggers
+-- ============================================================
 CREATE OR REPLACE FUNCTION public.update_updated_at()
 RETURNS trigger AS $fn$
 BEGIN NEW.updated_at = now(); RETURN NEW; END;
@@ -1352,7 +1457,7 @@ DROP TRIGGER IF EXISTS subscription_rules_updated_at ON public.subscription_rule
 CREATE TRIGGER subscription_rules_updated_at BEFORE UPDATE ON public.subscription_rules FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 DROP TRIGGER IF EXISTS knowledge_articles_updated_at ON public.knowledge_articles;
 CREATE TRIGGER knowledge_articles_updated_at BEFORE UPDATE ON public.knowledge_articles FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
-
+-- RPC: vector similarity search for knowledge chunks
 CREATE OR REPLACE FUNCTION public.match_knowledge_chunks(
   query_embedding vector(1536),
   match_threshold float DEFAULT 0.5,
@@ -1390,6 +1495,41 @@ AS $fn$
   LIMIT match_count;
 $fn$;
 
+-- Legacy RPC overload retained for production parity
+CREATE OR REPLACE FUNCTION public.match_knowledge_chunks(
+  query_embedding vector(1536),
+  match_count int DEFAULT 10,
+  filter_knowledge_base_ids uuid[] DEFAULT NULL
+)
+RETURNS TABLE (
+  id uuid,
+  article_id uuid,
+  chunk_text text,
+  similarity float
+)
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+  RETURN QUERY
+  SELECT
+    kc.id,
+    kc.article_id,
+    kc.chunk_text,
+    1 - (kc.embedding <=> query_embedding) AS similarity
+  FROM public.knowledge_chunks kc
+  JOIN public.knowledge_articles ka ON ka.id = kc.article_id
+  WHERE kc.embed_status = 'embedded'
+    AND kc.embedding IS NOT NULL
+    AND (
+      filter_knowledge_base_ids IS NULL
+      OR ka.knowledge_base_id = ANY(filter_knowledge_base_ids)
+    )
+  ORDER BY kc.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$fn$;
+
+-- RPC: vector similarity search for knowledge article media embeddings
 CREATE OR REPLACE FUNCTION public.match_article_media(
   query_embedding vector(1536),
   match_threshold float DEFAULT 0.5,
@@ -1426,7 +1566,9 @@ AS $fn$
   LIMIT match_count;
 $fn$;
 
+-- ============================================================
 -- Sub-Apps: sub_apps (registry)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.sub_apps (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   slug        text UNIQUE NOT NULL,
@@ -1444,7 +1586,9 @@ CREATE POLICY "sub_apps_service_select" ON public.sub_apps FOR SELECT
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 GRANT ALL ON public.sub_apps TO service_role, authenticated;
 
+-- ============================================================
 -- Sub-Apps: agent_sub_apps (many-to-many)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.agent_sub_apps (
   agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
   sub_app_id  uuid NOT NULL REFERENCES public.sub_apps(id) ON DELETE CASCADE,
@@ -1458,7 +1602,9 @@ CREATE POLICY "agent_sub_apps_service_select" ON public.agent_sub_apps FOR SELEC
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 GRANT ALL ON public.agent_sub_apps TO service_role, authenticated;
 
+-- ============================================================
 -- Sub-Apps: chat_rooms
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.chat_rooms (
   id          text PRIMARY KEY DEFAULT encode(gen_random_bytes(8), 'hex'),
   agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
@@ -1479,7 +1625,9 @@ CREATE POLICY "chat_rooms_service_all" ON public.chat_rooms FOR ALL
 GRANT ALL ON public.chat_rooms TO service_role, authenticated;
 GRANT SELECT ON public.chat_rooms TO anon;
 
+-- ============================================================
 -- Sub-Apps: chat_room_messages
+-- ============================================================
 CREATE TABLE IF NOT EXISTS public.chat_room_messages (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id     text NOT NULL REFERENCES public.chat_rooms(id) ON DELETE CASCADE,
@@ -1504,6 +1652,78 @@ CREATE POLICY "chat_room_messages_service_all" ON public.chat_room_messages FOR 
 GRANT ALL ON public.chat_room_messages TO service_role, authenticated;
 GRANT SELECT, INSERT ON public.chat_room_messages TO anon;
 
+-- Room-scoped private Realtime access for bearer-link sessions
+DROP POLICY IF EXISTS "room_realtime_authenticated_select" ON realtime.messages;
+CREATE POLICY "room_realtime_authenticated_select" ON realtime.messages FOR SELECT TO authenticated
+  USING (
+    extension IN ('broadcast', 'presence')
+    AND coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'room_id' IS NOT NULL
+    AND realtime.topic() = 'room:' || (coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'room_id')
+  );
+
+DROP POLICY IF EXISTS "room_realtime_authenticated_insert" ON realtime.messages;
+CREATE POLICY "room_realtime_authenticated_insert" ON realtime.messages FOR INSERT TO authenticated
+  WITH CHECK (
+    extension = 'presence'
+    AND coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'room_id' IS NOT NULL
+    AND realtime.topic() = 'room:' || (coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'room_id')
+  );
+
+CREATE OR REPLACE FUNCTION public.chat_room_messages_broadcast()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, realtime
+AS $fn$
+DECLARE
+  target_room_id text := coalesce(NEW.room_id, OLD.room_id);
+BEGIN
+  PERFORM realtime.broadcast_changes(
+    'room:' || target_room_id,
+    TG_OP,
+    TG_OP,
+    TG_TABLE_NAME,
+    TG_TABLE_SCHEMA,
+    NEW,
+    OLD
+  );
+  RETURN NULL;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS chat_room_messages_broadcast_trigger ON public.chat_room_messages;
+CREATE TRIGGER chat_room_messages_broadcast_trigger
+AFTER INSERT OR UPDATE OR DELETE ON public.chat_room_messages
+FOR EACH ROW EXECUTE FUNCTION public.chat_room_messages_broadcast();
+
+CREATE OR REPLACE FUNCTION public.chat_rooms_broadcast()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, realtime
+AS $fn$
+DECLARE
+  target_room_id text := coalesce(NEW.id, OLD.id);
+BEGIN
+  PERFORM realtime.broadcast_changes(
+    'room:' || target_room_id,
+    TG_OP,
+    TG_OP,
+    TG_TABLE_NAME,
+    TG_TABLE_SCHEMA,
+    NEW,
+    OLD
+  );
+  RETURN NULL;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS chat_rooms_broadcast_trigger ON public.chat_rooms;
+CREATE TRIGGER chat_rooms_broadcast_trigger
+AFTER UPDATE ON public.chat_rooms
+FOR EACH ROW EXECUTE FUNCTION public.chat_rooms_broadcast();
+
+-- Enable Realtime for chat_room_messages
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -1516,6 +1736,7 @@ BEGIN
   END IF;
 END $$;
 
+-- Seed built-in Sub-App: Chatroom
 INSERT INTO public.sub_apps (slug, name, description, tool_names, enabled)
 VALUES ('room', 'Chatroom', 'Cross-platform realtime chatroom', ARRAY['create_chat_room', 'close_chat_room', 'reopen_chat_room'], true)
 ON CONFLICT (slug) DO NOTHING;

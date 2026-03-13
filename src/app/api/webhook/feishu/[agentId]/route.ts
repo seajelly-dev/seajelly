@@ -1,21 +1,18 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto/encrypt";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
 import { processChannelApproval, getAgentLocale } from "@/lib/platform/approval-core";
 import { getSenderForAgent } from "@/lib/platform/sender";
 import { getFeishuUserName } from "@/lib/platform/adapters/feishu";
 import { botT, getBotLocaleOrDefault, buildWelcomeText } from "@/lib/i18n/bot";
+import { createStrictServiceClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  );
+  return createStrictServiceClient();
 }
 
 function decryptFeishuEvent(encrypt: string, encryptKey: string): string {
@@ -28,16 +25,24 @@ function decryptFeishuEvent(encrypt: string, encryptKey: string): string {
   return decrypted.toString("utf8");
 }
 
-async function getEncryptKey(agentId: string): Promise<string | null> {
+async function getFeishuCredentials(agentId: string) {
   const supabase = getSupabase();
   const { data } = await supabase
     .from("agent_credentials")
-    .select("encrypted_value")
+    .select("credential_type, encrypted_value")
     .eq("agent_id", agentId)
     .eq("platform", "feishu")
-    .eq("credential_type", "encrypt_key")
-    .single();
-  return data?.encrypted_value ? decrypt(data.encrypted_value) : null;
+    .in("credential_type", ["encrypt_key", "verification_token"]);
+
+  const credentials: Record<string, string> = {};
+  for (const row of data || []) {
+    credentials[row.credential_type] = decrypt(row.encrypted_value);
+  }
+
+  return {
+    encryptKey: credentials.encrypt_key || null,
+    verificationToken: credentials.verification_token || null,
+  };
 }
 
 export async function POST(
@@ -47,13 +52,17 @@ export async function POST(
   try {
     const { agentId } = await params;
     let body = await request.json();
+    const { encryptKey, verificationToken } = await getFeishuCredentials(agentId);
 
     if (body.encrypt) {
-      const encryptKey = await getEncryptKey(agentId);
       if (!encryptKey) {
         return NextResponse.json({ error: "No encrypt key configured" }, { status: 500 });
       }
       body = JSON.parse(decryptFeishuEvent(body.encrypt, encryptKey));
+    }
+
+    if (!verificationToken || body.token !== verificationToken) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     if (body.challenge) {
@@ -226,6 +235,6 @@ export async function POST(
     });
   } catch (err) {
     console.error("Feishu webhook error:", err);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ error: "Failed to handle webhook" }, { status: 500 });
   }
 }

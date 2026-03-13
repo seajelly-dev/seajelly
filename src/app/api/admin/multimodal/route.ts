@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { authErrorResponse, createStrictServiceClient, requireAdmin } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/crypto/encrypt";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+    const supabase = createStrictServiceClient();
 
     const [settingsRes, keysRes] = await Promise.all([
       supabase.from("voice_settings").select("key, value"),
@@ -23,6 +22,9 @@ export async function GET() {
       keys: keysRes.data || [],
     });
   } catch (err) {
+    if (err instanceof Error && (err.message === "Unauthorized" || err.message === "Forbidden")) {
+      return authErrorResponse(err);
+    }
     console.error("Voice GET error:", err);
     return NextResponse.json({ error: "Failed to load voice config" }, { status: 500 });
   }
@@ -30,9 +32,8 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireAdmin();
+    const supabase = createStrictServiceClient();
 
     const body = await req.json();
     const { action } = body;
@@ -115,6 +116,9 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
+    if (err instanceof Error && (err.message === "Unauthorized" || err.message === "Forbidden")) {
+      return authErrorResponse(err);
+    }
     console.error("Voice PUT error:", err);
     return NextResponse.json({ error: "Failed to update voice config" }, { status: 500 });
   }

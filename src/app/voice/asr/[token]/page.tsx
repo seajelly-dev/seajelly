@@ -7,7 +7,6 @@ import { Mic, MicOff, Loader2, AlertTriangle, X, Trash2, Copy, Monitor, Check } 
 interface LinkConfig {
   type: string;
   config: Record<string, string>;
-  agentId: string;
   expiresAt: string;
 }
 

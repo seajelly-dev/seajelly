@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { authErrorResponse, createStrictServiceClient, requireAdmin } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
+  try {
+    await requireAdmin();
+  } catch (err) {
+    return authErrorResponse(err);
+  }
+
   try {
     const { html, title } = (await request.json()) as {
       html: string;
@@ -12,7 +18,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "html is required" }, { status: 400 });
     }
 
-    const supabase = await createAdminClient();
+    const supabase = createStrictServiceClient();
     const { data, error } = await supabase
       .from("html_previews")
       .insert({ html, title: title || "Untitled" })

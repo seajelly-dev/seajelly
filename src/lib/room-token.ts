@@ -16,10 +16,10 @@ export interface RoomTokenPayload {
 }
 
 function getSecret(): string {
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    "fallback-room-token-secret";
+  const key = process.env.ROOM_TOKEN_SECRET;
+  if (!key) {
+    throw new Error("ROOM_TOKEN_SECRET is required");
+  }
   return key;
 }
 

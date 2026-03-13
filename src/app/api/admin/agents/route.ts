@@ -50,11 +50,11 @@ async function upsertCredential(db: any, agentId: string, platform: string, cred
 }
 
 const PLATFORM_CRED_KEYS: Record<string, string[]> = {
-  feishu: ["app_id", "app_secret", "encrypt_key"],
+  feishu: ["app_id", "app_secret", "encrypt_key", "verification_token"],
   wecom: ["corp_id", "corp_secret", "agent_id", "token", "encoding_aes_key"],
   slack: ["bot_token", "signing_secret"],
   qqbot: ["app_id", "app_secret"],
-  whatsapp: ["access_token", "phone_number_id", "verify_token"],
+  whatsapp: ["access_token", "phone_number_id", "verify_token", "app_secret"],
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -118,11 +118,16 @@ export async function GET() {
     const hasTelegramCred = agentCreds?.has("telegram:bot_token") ?? false;
     const platforms: Record<string, boolean> = {
       telegram: !!a.telegram_bot_token || hasTelegramCred,
-      feishu: (agentCreds?.has("feishu:app_id") && agentCreds?.has("feishu:app_secret")) ?? false,
+      feishu: (agentCreds?.has("feishu:app_id") && agentCreds?.has("feishu:app_secret") && agentCreds?.has("feishu:verification_token")) ?? false,
       wecom: (agentCreds?.has("wecom:corp_id") && agentCreds?.has("wecom:corp_secret")) ?? false,
       slack: (agentCreds?.has("slack:bot_token") && agentCreds?.has("slack:signing_secret")) ?? false,
       qqbot: (agentCreds?.has("qqbot:app_id") && agentCreds?.has("qqbot:app_secret")) ?? false,
-      whatsapp: (agentCreds?.has("whatsapp:access_token") && agentCreds?.has("whatsapp:phone_number_id")) ?? false,
+      whatsapp: (
+        agentCreds?.has("whatsapp:access_token")
+        && agentCreds?.has("whatsapp:phone_number_id")
+        && agentCreds?.has("whatsapp:verify_token")
+        && agentCreds?.has("whatsapp:app_secret")
+      ) ?? false,
     };
     const owner = ownerMap.get(a.id);
     return {
