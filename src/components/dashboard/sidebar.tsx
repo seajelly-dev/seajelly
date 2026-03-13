@@ -126,7 +126,7 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
       <Suspense fallback={null}>
         <LoginGateCapture />
       </Suspense>
-      <SidebarHeader className="border-b px-4 py-4">
+      <SidebarHeader className="border-b px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Image src="/logo.svg" alt="SEAJelly Logo" width={32} height={32} />
