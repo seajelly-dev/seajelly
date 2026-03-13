@@ -402,8 +402,19 @@ export default function EventsPage() {
       <Dialog open={!!selectedTraceId} onOpenChange={(open) => !open && setSelectedTraceId(null)}>
         <DialogContent className="sm:max-w-5xl">
           <DialogHeader>
-            <DialogTitle>
-              Trace Review · {selectedTraceId?.slice(0, 12)}
+            <DialogTitle className="flex items-center gap-2">
+              <span>Trace Review</span>
+              <span className="font-mono text-xs font-normal text-muted-foreground select-all">
+                {selectedTraceId}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6 shrink-0"
+                onClick={() => selectedTraceId && handleCopyError(selectedTraceId)}
+              >
+                <Copy className="size-3" />
+              </Button>
             </DialogTitle>
           </DialogHeader>
           <div className="flex flex-wrap items-center gap-2">

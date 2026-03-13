@@ -23,33 +23,147 @@ export interface ToolkitRuntimeDefinition {
   ) => ToolkitGenerateTextDirective | null;
 }
 
+const SELF_EVOLUTION_ACTION_KEYWORDS = [
+  "fix",
+  "change",
+  "update",
+  "modify",
+  "edit",
+  "add",
+  "implement",
+  "refactor",
+  "inspect",
+  "read",
+  "search",
+  "compare",
+  "check",
+  "debug",
+  "revert",
+  "rollback",
+  "commit",
+  "push",
+  "patch",
+  "deploy",
+  "analyze",
+  "修改",
+  "改",
+  "编辑",
+  "增加",
+  "新增",
+  "加个",
+  "加上",
+  "实现",
+  "重构",
+  "查看",
+  "读取",
+  "搜索",
+  "对比",
+  "排查",
+  "修复",
+  "回退",
+  "回滚",
+  "提交",
+  "推送",
+  "补丁",
+  "部署",
+  "分析",
+  "查",
+  "查询",
+];
+
+const SELF_EVOLUTION_CONTEXT_KEYWORDS = [
+  "github",
+  "repo",
+  "repository",
+  "codebase",
+  "code",
+  "file",
+  "files",
+  "component",
+  "page",
+  "route",
+  "api",
+  "schema",
+  "migration",
+  "commit",
+  "deploy",
+  "diff",
+  "patch",
+  "pr",
+  "仓库",
+  "代码库",
+  "代码",
+  "文件",
+  "组件",
+  "页面",
+  "路由",
+  "接口",
+  "表",
+  "数据库",
+  "迁移",
+  "提交",
+  "部署",
+  "补丁",
+  "diff",
+];
+
+const SELF_EVOLUTION_FORCE_TOOL_PATTERNS = [
+  /github_(?:list_files|read_file|search_code|compare_commits|check_deploy|revert_commit|patch_files|commit_push)/i,
+  /\b(list|read|search|compare|check|revert|rollback|commit|push|patch)\b.{0,24}\b(file|files|repo|repository|code|deploy|commit)\b/i,
+  /\b(file|files|repo|repository|code|deploy|commit)\b.{0,24}\b(list|read|search|compare|check|revert|rollback|commit|push|patch)\b/i,
+  /(读取|查看|搜索|对比|检查|回滚|回退|提交|推送|补丁|部署).{0,24}(文件|仓库|代码|提交|部署)/,
+  /(文件|仓库|代码|提交|部署).{0,24}(读取|查看|搜索|对比|检查|回滚|回退|提交|推送|补丁)/,
+];
+
+const SELF_EVOLUTION_ACTIVATION_ONLY_PATTERNS = [
+  /(激活|启用|开启|打开|开通).{0,16}(自进化|github|toolkit|技能|能力)/i,
+  /\b(activate|enable|turn on)\b.{0,16}\b(self[\s_-]?evolution|github|toolkit|skill|tools?)\b/i,
+];
+
+const SELF_EVOLUTION_VAGUE_START_PATTERNS = [
+  /(准备|打算|先|稍后|等会|待会|之后).{0,20}(加功能|改功能|修改|重构|开发|处理)/,
+  /\b(prepare|planning|plan|later|next)\b.{0,20}\b(add|change|fix|refactor|implement)\b/i,
+];
+
+const SELF_EVOLUTION_FILE_HINT_PATTERN =
+  /(?:^|[\s"'`(])(?:src\/|app\/|lib\/|supabase\/|scripts\/|skills\/|public\/|README(?:\.zh-CN)?\.md|package\.json|tsconfig\.json|vercel\.json|next\.config\.ts|[^/\s]+\.(?:ts|tsx|js|jsx|mjs|json|md|sql))(?:$|[\s"'`),.:])/i;
+
+function normalizeSelfEvolutionText(messageText: string): string {
+  return messageText.trim().toLowerCase();
+}
+
+function hasSelfEvolutionActionIntent(messageText: string): boolean {
+  return SELF_EVOLUTION_ACTION_KEYWORDS.some((keyword) => messageText.includes(keyword));
+}
+
+function hasSelfEvolutionContextIntent(messageText: string): boolean {
+  return (
+    SELF_EVOLUTION_CONTEXT_KEYWORDS.some((keyword) => messageText.includes(keyword)) ||
+    SELF_EVOLUTION_FILE_HINT_PATTERN.test(messageText)
+  );
+}
+
+function hasSelfEvolutionActivationOnlyIntent(messageText: string): boolean {
+  return SELF_EVOLUTION_ACTIVATION_ONLY_PATTERNS.some((pattern) => pattern.test(messageText));
+}
+
+function hasSelfEvolutionVagueStartIntent(messageText: string): boolean {
+  return SELF_EVOLUTION_VAGUE_START_PATTERNS.some((pattern) => pattern.test(messageText));
+}
+
+function shouldForceSelfEvolutionToolUse(messageText: string): boolean {
+  return SELF_EVOLUTION_FORCE_TOOL_PATTERNS.some((pattern) => pattern.test(messageText));
+}
+
 function hasSelfEvolutionWorkflowIntent(messageText: string): boolean {
-  const text = messageText.toLowerCase();
+  const text = normalizeSelfEvolutionText(messageText);
   if (!text.trim()) return false;
 
-  const keywords = [
-    "github",
-    "repo",
-    "repository",
-    "commit",
-    "push",
-    "deploy",
-    "pipeline",
-    "revert",
-    "rollback",
-    "patch",
-    "diff",
-    "部署",
-    "仓库",
-    "代码修改",
-    "提交",
-    "自进化",
-    "回退",
-    "回滚",
-    "补丁",
-  ];
+  if (hasSelfEvolutionActivationOnlyIntent(text) || hasSelfEvolutionVagueStartIntent(text)) {
+    return false;
+  }
 
-  return keywords.some((keyword) => text.includes(keyword));
+  return hasSelfEvolutionActionIntent(text) && hasSelfEvolutionContextIntent(text);
 }
 
 export const SELF_EVOLUTION_TOOLKIT: ToolkitRuntimeDefinition = {
@@ -100,6 +214,7 @@ export const SELF_EVOLUTION_TOOLKIT: ToolkitRuntimeDefinition = {
       "### Rules\n" +
       "- NEVER call `github_commit_push` or `github_patch_files` without prior user consent in the conversation.\n" +
       "- NEVER call `github_revert_commit` without explicit user request.\n" +
+      "- If the user only says to activate/enable self-evolution or says they are about to start, do NOT begin repository exploration yet. Ask what feature, bug, file, or page they want changed.\n" +
       "- If `github_patch_files` fails (context mismatch), re-read the file with `github_read_file` and retry with corrected context lines.\n" +
       "- If any tool returns `fatal: true`, NEVER call that tool again in this session.\n" +
       "- After receiving ERROR from `github_check_deploy`, do NOT poll again — present logs and wait for user decision.\n" +
@@ -111,16 +226,13 @@ export const SELF_EVOLUTION_TOOLKIT: ToolkitRuntimeDefinition = {
     const activeToolNames = SELF_EVOLUTION_TOOL_NAMES.filter((toolName) => availableToolNames.has(toolName));
     if (activeToolNames.length === 0) return null;
 
-    const isFollowUpQuery = /查询|状态|继续|progress|status|check|poll|go ahead|proceed|确认|同意|推送|部署/i.test(
-      messageText,
-    );
-    if (!hasSelfEvolutionWorkflowIntent(messageText) || isFollowUpQuery) {
+    if (!hasSelfEvolutionWorkflowIntent(messageText)) {
       return null;
     }
 
     return {
       activeTools: [...activeToolNames],
-      toolChoice: "required",
+      ...(shouldForceSelfEvolutionToolUse(messageText) ? { toolChoice: "required" } : {}),
     };
   },
 };

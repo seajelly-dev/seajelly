@@ -8,6 +8,7 @@ import {
   resolveEnabledBuiltinTools,
   resolveGenerateTextToolDirective,
 } from "./tooling/runtime";
+import { SELF_EVOLUTION_TOOL_NAMES } from "./tooling/catalog";
 import { getSenderForAgent, getFileDownloader } from "@/lib/platform/sender";
 import { isImageMime, isTextMime, detectImageMimeFromBuffer } from "@/lib/platform/file-utils";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
@@ -39,6 +40,14 @@ interface ExtractedImage {
   toolName: string;
 }
 
+function readToolName(stepItem: unknown): string | null {
+  if (!stepItem || typeof stepItem !== "object") return null;
+  const rec = stepItem as Record<string, unknown>;
+  if (typeof rec.toolName === "string") return rec.toolName;
+  if (typeof rec.name === "string") return rec.name;
+  return null;
+}
+
 function extractImagesFromResult(result: unknown): ExtractedImage[] {
   const images: ExtractedImage[] = [];
   const root = result as Record<string, unknown>;
@@ -67,14 +76,6 @@ function extractImagesFromResult(result: unknown): ExtractedImage[] {
 function extractToolNamesFromResult(result: unknown): Set<string> {
   const names = new Set<string>();
 
-  const readToolName = (call: unknown): string | null => {
-    if (!call || typeof call !== "object") return null;
-    const rec = call as Record<string, unknown>;
-    if (typeof rec.toolName === "string") return rec.toolName;
-    if (typeof rec.name === "string") return rec.name;
-    return null;
-  };
-
   const root = result as Record<string, unknown>;
   const topToolCalls = Array.isArray(root.toolCalls) ? root.toolCalls : [];
   for (const call of topToolCalls) {
@@ -94,6 +95,27 @@ function extractToolNamesFromResult(result: unknown): Set<string> {
   }
 
   return names;
+}
+
+const SELF_EVOLUTION_TOOL_NAME_SET = new Set<string>(SELF_EVOLUTION_TOOL_NAMES);
+const SELF_EVOLUTION_READ_ONLY_TOOL_NAME_SET = new Set<string>([
+  "github_list_files",
+  "github_read_file",
+  "github_search_code",
+  "github_compare_commits",
+]);
+
+function extractToolInputPath(toolCalls: unknown[]): string | null {
+  for (const call of toolCalls) {
+    if (!call || typeof call !== "object") continue;
+    const input = (call as Record<string, unknown>).input;
+    if (!input || typeof input !== "object") continue;
+    const path = (input as Record<string, unknown>).path;
+    if (typeof path !== "string") continue;
+    const trimmed = path.trim();
+    return trimmed.length > 0 ? trimmed : "";
+  }
+  return null;
 }
 
 const STEP_PAYLOAD_MAX_CHARS = 64 * 1024;
@@ -1326,6 +1348,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     let result;
     let stepCounter = 0;
     let lastStepTs = Date.now();
+    let selfEvolutionLoopBreakReply: string | null = null;
+    let consecutiveSelfEvolutionReadOnlySteps = 0;
+    let lastSelfEvolutionReadPath: string | null = null;
+    let consecutiveSameSelfEvolutionReadPath = 0;
     try {
       result = await generateText({
         model,
@@ -1346,10 +1372,12 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             const rec = step as unknown as Record<string, unknown>;
             const toolCalls = Array.isArray(rec.toolCalls) ? rec.toolCalls : [];
             const toolResults = Array.isArray(rec.toolResults) ? rec.toolResults : [];
-            const names = [
-              ...toolCalls.map((c) => (c && typeof c === "object" ? (c as Record<string, unknown>).toolName : "")).filter((v) => typeof v === "string" && v.length > 0),
-              ...toolResults.map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>).toolName : "")).filter((v) => typeof v === "string" && v.length > 0),
-            ] as string[];
+            const callNames = toolCalls.map((call) => readToolName(call)).filter((value): value is string => !!value);
+            const resultNames = toolResults.map((call) => readToolName(call)).filter((value): value is string => !!value);
+            const names = [...new Set([
+              ...callNames,
+              ...resultNames,
+            ])] as string[];
             const phase = toolCalls.length > 0 || toolResults.length > 0 ? "tool" : "model";
             const modelText = typeof rec.text === "string" ? rec.text : "";
             const finishReason = typeof rec.finishReason === "string" ? rec.finishReason : "done";
@@ -1379,6 +1407,42 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             const now = Date.now();
             const latency = Math.max(0, now - lastStepTs);
             lastStepTs = now;
+
+            const onlyReadOnlySelfEvolutionTools =
+              callNames.length > 0 &&
+              callNames.every((name) => SELF_EVOLUTION_READ_ONLY_TOOL_NAME_SET.has(name));
+            if (onlyReadOnlySelfEvolutionTools) {
+              consecutiveSelfEvolutionReadOnlySteps += 1;
+              const readPath = extractToolInputPath(toolCalls);
+              if (readPath && readPath === lastSelfEvolutionReadPath) {
+                consecutiveSameSelfEvolutionReadPath += 1;
+              } else {
+                lastSelfEvolutionReadPath = readPath;
+                consecutiveSameSelfEvolutionReadPath = readPath ? 1 : 0;
+              }
+
+              if (
+                !selfEvolutionLoopBreakReply &&
+                (consecutiveSameSelfEvolutionReadPath >= 4 || consecutiveSelfEvolutionReadOnlySteps >= 24)
+              ) {
+                const repeatedPathHint =
+                  readPath && readPath.length > 0 ? `（当前反复读取：${readPath}）` : "";
+                selfEvolutionLoopBreakReply =
+                  locale === "zh"
+                    ? `我已经完成仓库初步扫描，但你的需求还不够具体 ${repeatedPathHint}`.trim() +
+                      "。请直接告诉我要改什么功能、哪个页面、文件或报错，我再继续执行。"
+                    : `I finished an initial repository scan${readPath && readPath.length > 0 ? ` and I keep rereading ${readPath}` : ""}, but the requested change is still too vague. Please tell me the feature, page, file, or error you want me to work on.`;
+                console.warn(
+                  `[agent-loop] trace=${traceId} self-evolution read loop guard triggered after ${consecutiveSelfEvolutionReadOnlySteps} read-only steps (samePathRepeats=${consecutiveSameSelfEvolutionReadPath})`,
+                );
+                abortController.abort();
+              }
+            } else if (callNames.some((name) => SELF_EVOLUTION_TOOL_NAME_SET.has(name))) {
+              consecutiveSelfEvolutionReadOnlySteps = 0;
+              lastSelfEvolutionReadPath = null;
+              consecutiveSameSelfEvolutionReadPath = 0;
+            }
+
             const row = {
               trace_id: traceId,
               event_id: event.id ?? null,
@@ -1404,12 +1468,19 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     } catch (genErr) {
       clearInterval(typingInterval);
       clearTimeout(timer);
+      if (selfEvolutionLoopBreakReply && /abort/i.test(genErr instanceof Error ? genErr.message : String(genErr))) {
+        result = {
+          text: selfEvolutionLoopBreakReply,
+          steps: [],
+        };
+      } else {
       if (pickedKeyId && isRateLimitError(genErr)) {
         const cd = getCooldownDuration(genErr);
         const reason = genErr instanceof Error ? genErr.message : String(genErr);
         markKeyCooldown(pickedKeyId, reason.slice(0, 500), cd);
       }
       throw genErr;
+      }
     } finally {
       clearInterval(typingInterval);
       clearTimeout(timer);
