@@ -740,6 +740,32 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       messages.push({ role: "user" as const, content: messageText });
     }
 
+    const hasImageInput = Boolean(imageBase64ForMediaSearch && imageMimeForMediaSearch);
+    const { count: embeddingKeyCount } = await supabase
+      .from("secrets")
+      .select("id", { count: "exact", head: true })
+      .eq("key_name", "EMBEDDING_API_KEY");
+    const hasEmbeddingApiKey = (embeddingKeyCount ?? 0) > 0;
+    let configuredKnowledgeEmbedModel: string | null = null;
+    if (hasImageInput) {
+      const { data: embedSetting } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "knowledge_embed_model")
+        .maybeSingle();
+      configuredKnowledgeEmbedModel = embedSetting?.value ?? null;
+      if (configuredKnowledgeEmbedModel !== "gemini-embedding-2-preview") {
+        console.log(
+          `[agent-loop] trace=${traceId} image knowledge retrieval disabled: knowledge_embed_model=${configuredKnowledgeEmbedModel ?? "unset"}`
+        );
+      }
+      if (!hasEmbeddingApiKey) {
+        console.log(
+          `[agent-loop] trace=${traceId} image knowledge retrieval disabled: missing EMBEDDING_API_KEY`
+        );
+      }
+    }
+
     const { model, resolvedProviderId, pickedKeyId } = await getModel(typedAgent.model, typedAgent.provider_id);
 
     let canEditAiSoul = true;
@@ -794,6 +820,19 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       } else {
         (filteredBuiltin as Record<string, unknown>)[name] = def;
       }
+    }
+    if (!hasEmbeddingApiKey && "knowledge_search" in (filteredBuiltin as Record<string, unknown>)) {
+      delete (filteredBuiltin as Record<string, unknown>).knowledge_search;
+      console.log(
+        `[agent-loop] trace=${traceId} knowledge_search tool disabled: missing EMBEDDING_API_KEY`
+      );
+    }
+    const canImageKnowledgeSearchByModel = configuredKnowledgeEmbedModel === "gemini-embedding-2-preview";
+    if (hasImageInput && !canImageKnowledgeSearchByModel && "knowledge_search" in (filteredBuiltin as Record<string, unknown>)) {
+      delete (filteredBuiltin as Record<string, unknown>).knowledge_search;
+      console.log(
+        `[agent-loop] trace=${traceId} knowledge_search tool disabled for image input (knowledge_embed_model=${configuredKnowledgeEmbedModel ?? "unset"})`
+      );
     }
 
     // ── MCP tools (from agent_mcps junction table) ──
@@ -1023,24 +1062,48 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     // ── Multimodal knowledge search bypass ──
-    if (imageBase64ForMediaSearch && imageMimeForMediaSearch) {
+    const canImageKnowledgeSearchThisTurn =
+      hasImageInput &&
+      hasEmbeddingApiKey &&
+      canImageKnowledgeSearchByModel &&
+      Object.prototype.hasOwnProperty.call(tools as Record<string, unknown>, "knowledge_search");
+    if (canImageKnowledgeSearchThisTurn && imageBase64ForMediaSearch && imageMimeForMediaSearch) {
+      const rawApproxBytes = Math.floor((imageBase64ForMediaSearch.length * 3) / 4);
+      const mediaSearchStartedAt = Date.now();
+      let mediaStepStatus: "success" | "failed" = "success";
+      let mediaStepError: string | null = null;
+      let mediaStepOutput: Record<string, unknown> = { outcome: "not_started" };
+
       try {
         const { normalizeImageForEmbedding } = await import("@/lib/memory/image-normalize");
         const normalized = await normalizeImageForEmbedding(imageBase64ForMediaSearch, imageMimeForMediaSearch);
         if (!normalized) {
+          mediaStepOutput = {
+            outcome: "skipped_unsupported_mime",
+            sourceMime: imageMimeForMediaSearch,
+          };
           console.warn(
             `[agent-loop] trace=${traceId} skip media-search: unsupported image mime=${imageMimeForMediaSearch}`
           );
         } else {
           const approxBytes = Math.floor((normalized.base64.length * 3) / 4);
           if (approxBytes > 8 * 1024 * 1024) {
+            mediaStepOutput = {
+              outcome: "skipped_too_large",
+              normalizedMime: normalized.mimeType,
+              bytes: approxBytes,
+            };
             console.warn(
               `[agent-loop] trace=${traceId} skip media-search: image too large (${approxBytes} bytes, mime=${normalized.mimeType})`
             );
           } else {
             const { hasAgentMediaEmbeddings, searchArticleByMedia, getAgentKnowledgeBaseIds, getMediaMatchThreshold } = await import("@/lib/knowledge/search");
             const hasMedia = await hasAgentMediaEmbeddings(typedAgent.id);
-            if (hasMedia) {
+            if (!hasMedia) {
+              mediaStepOutput = {
+                outcome: "skipped_no_media_embeddings",
+              };
+            } else {
               const threshold = await getMediaMatchThreshold();
               const { embedContent } = await import("@/lib/memory/embedding");
               if (normalized.converted) {
@@ -1060,6 +1123,13 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
                 const agentKbIds = await getAgentKnowledgeBaseIds(typedAgent.id);
                 const topArticle = await searchArticleByMedia(queryVec, agentKbIds, 1, threshold);
                 if (topArticle) {
+                  mediaStepOutput = {
+                    outcome: "hit",
+                    threshold,
+                    similarity: topArticle.similarity,
+                    articleId: topArticle.id,
+                    articleTitle: topArticle.title,
+                  };
                   console.log(`[agent-loop] trace=${traceId} media-search hit: "${topArticle.title}" sim=${topArticle.similarity.toFixed(3)} threshold=${threshold}`);
                   systemPrompt += "\n\n## Image Search Result\n";
                   systemPrompt += "The user's image was matched against the knowledge base via vector similarity. ";
@@ -1069,9 +1139,20 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
                   systemPrompt += "If the image does NOT match (false positive), IGNORE this section entirely and respond based on the image alone.\n\n";
                   systemPrompt += `### ${topArticle.title}\n${topArticle.content}\n`;
                 } else {
+                  mediaStepOutput = {
+                    outcome: "no_hit_above_threshold",
+                    threshold,
+                  };
                   console.log(`[agent-loop] trace=${traceId} media-search no hit above threshold=${threshold}`);
                 }
               } else {
+                mediaStepStatus = "failed";
+                mediaStepError = "Failed to embed media query";
+                mediaStepOutput = {
+                  outcome: "query_embedding_failed",
+                  normalizedMime: normalized.mimeType,
+                  threshold,
+                };
                 console.warn(
                   `[agent-loop] trace=${traceId} media-search query embedding failed: mime=${normalized.mimeType}`
                 );
@@ -1080,7 +1161,36 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           }
         }
       } catch (err) {
+        mediaStepStatus = "failed";
+        mediaStepError = err instanceof Error ? err.message : "Media search bypass exception";
+        mediaStepOutput = {
+          outcome: "exception",
+        };
         console.warn("[agent-loop] media search bypass error (non-blocking):", err);
+      } finally {
+        try {
+          await supabase.from("agent_step_logs").insert({
+            trace_id: traceId,
+            event_id: event.id ?? null,
+            agent_id: typedAgent.id,
+            channel_id: channel?.id ?? null,
+            session_id: session.id,
+            step_no: 0,
+            phase: "tool",
+            tool_name: "media_search_bypass",
+            tool_input_json: trimPayload({
+              sourceMime: imageMimeForMediaSearch,
+              sourceBytesApprox: rawApproxBytes,
+            }),
+            tool_output_json: trimPayload(mediaStepOutput),
+            model_text: "",
+            status: mediaStepStatus,
+            error_message: mediaStepError,
+            latency_ms: Math.max(0, Date.now() - mediaSearchStartedAt),
+          });
+        } catch {
+          // non-blocking: synthetic step log should never break agent flow
+        }
       }
     }
 

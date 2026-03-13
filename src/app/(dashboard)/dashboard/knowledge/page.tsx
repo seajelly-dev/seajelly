@@ -109,6 +109,11 @@ interface SearchArticle {
   matched_chunks: number;
 }
 
+function clampMediaThreshold(value: number): number {
+  if (!Number.isFinite(value)) return 0.75;
+  return Math.max(0, Math.min(1, value));
+}
+
 export default function KnowledgePage() {
   const t = useT();
   const [activeTab, setActiveTab] = useState<TabKey>("manage");
@@ -152,7 +157,8 @@ export default function KnowledgePage() {
   const [hasCustomEmbedKey, setHasCustomEmbedKey] = useState(false);
   const [savingEmbedKey, setSavingEmbedKey] = useState(false);
   const [savingEmbedModel, setSavingEmbedModel] = useState(false);
-  const [hasGeminiKey, setHasGeminiKey] = useState(false);
+  const [mediaThresholdDraft, setMediaThresholdDraft] = useState("0.75");
+  const [savingMediaThreshold, setSavingMediaThreshold] = useState(false);
 
   // Search
   const [searchQuery, setSearchQuery] = useState("");
@@ -179,11 +185,10 @@ export default function KnowledgePage() {
   const GOOGLE_PROVIDER_ID = "00000000-0000-0000-0000-000000000003";
 
   const fetchModels = useCallback(async () => {
-    const [provRes, modRes, secretsRes, googleKeysRes, settingsRes] = await Promise.all([
+    const [provRes, modRes, secretsRes, settingsRes] = await Promise.all([
       fetch("/api/admin/providers").then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/models").then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/secrets").then((r) => r.json()).catch(() => ({})),
-      fetch(`/api/admin/providers/keys?provider_id=${GOOGLE_PROVIDER_ID}`).then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/settings").then((r) => r.json()).catch(() => ({})),
     ]);
     const providers: Provider[] = provRes.providers ?? [];
@@ -204,15 +209,15 @@ export default function KnowledgePage() {
       const firstModel = models.find((m) => m.provider_id === providers[0].id);
       setChunkModelId(firstModel?.model_id || "");
     }
-    const googleKeys: { is_active: boolean }[] = googleKeysRes.keys ?? [];
-    setHasGeminiKey(googleKeys.some((k) => k.is_active));
-
     const secrets: { key_name: string }[] = secretsRes.secrets ?? [];
     setHasCustomEmbedKey(secrets.some((s) => s.key_name === "EMBEDDING_API_KEY"));
 
     const settings: Record<string, string> = settingsRes.settings ?? {};
     if (settings.knowledge_embed_model && EMBED_MODELS.some((m) => m.id === settings.knowledge_embed_model)) {
       setEmbedModelId(settings.knowledge_embed_model);
+    }
+    if (settings.knowledge_media_match_threshold !== undefined) {
+      setMediaThresholdDraft(clampMediaThreshold(Number(settings.knowledge_media_match_threshold)).toFixed(2));
     }
   }, []);
 
@@ -425,6 +430,33 @@ export default function KnowledgePage() {
       if (selectedBase) fetchArticles(selectedBase);
     };
     input.click();
+  };
+
+  const saveMediaThreshold = async () => {
+    const raw = Number(mediaThresholdDraft);
+    if (!Number.isFinite(raw) || raw < 0 || raw > 1) {
+      toast.error(t("knowledge.mediaThresholdInvalid"));
+      return;
+    }
+    const parsed = Number(raw.toFixed(2));
+    setSavingMediaThreshold(true);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: "knowledge_media_match_threshold",
+          value: parsed.toFixed(2),
+        }),
+      });
+      if (!res.ok) throw new Error("save failed");
+      setMediaThresholdDraft(parsed.toFixed(2));
+      toast.success(t("knowledge.mediaThresholdSaved"));
+    } catch {
+      toast.error(t("knowledge.mediaThresholdSaveFailed"));
+    } finally {
+      setSavingMediaThreshold(false);
+    }
   };
 
   // ─── Search ───
@@ -923,6 +955,49 @@ export default function KnowledgePage() {
                 </div>
               </div>
 
+              {/* Media retrieval threshold */}
+              <div className="space-y-3 rounded-lg border p-4">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">{t("knowledge.mediaThreshold")}</Label>
+                  <Badge variant="secondary">{Math.round(clampMediaThreshold(Number(mediaThresholdDraft)) * 100)}%</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">{t("knowledge.mediaThresholdDesc")}</p>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={0.95}
+                  step={0.01}
+                  value={clampMediaThreshold(Number(mediaThresholdDraft))}
+                  onChange={(e) => setMediaThresholdDraft(Number(e.target.value).toFixed(2))}
+                  className="h-2 w-full cursor-pointer accent-primary"
+                />
+                <div className="flex items-end gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={mediaThresholdDraft}
+                    onChange={(e) => setMediaThresholdDraft(e.target.value)}
+                    className="w-28"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={saveMediaThreshold}
+                    disabled={savingMediaThreshold}
+                  >
+                    {savingMediaThreshold ? <Loader2 className="size-4 animate-spin" /> : t("knowledge.saveMediaThreshold")}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">{t("knowledge.mediaThresholdHint")}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("knowledge.mediaThresholdRule", {
+                    threshold: Math.round(clampMediaThreshold(Number(mediaThresholdDraft)) * 100).toString(),
+                  })}
+                </p>
+              </div>
+
               {/* API Key status & management */}
               <div className="space-y-3">
                 <Label className="text-sm font-medium">{t("knowledge.embedApiKey")}</Label>
@@ -930,16 +1005,14 @@ export default function KnowledgePage() {
 
                 {/* Current status */}
                 <div className={`rounded-lg border p-3 text-sm ${
-                  hasCustomEmbedKey || hasGeminiKey
+                  hasCustomEmbedKey
                     ? "border-green-200 bg-green-50/60 text-green-800 dark:border-green-800 dark:bg-green-950/30 dark:text-green-300"
                     : "border-red-200 bg-red-50/60 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
                 }`}>
                   <Info className="inline-block size-3.5 mr-1.5 -mt-0.5" />
                   {hasCustomEmbedKey
                     ? t("knowledge.statusUsingCustomKey")
-                    : hasGeminiKey
-                      ? t("knowledge.statusUsingGeminiKey")
-                      : t("knowledge.statusNoKey")}
+                    : t("knowledge.statusNoKey")}
                 </div>
 
                 {/* Custom key input */}

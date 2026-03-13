@@ -526,6 +526,30 @@ async function startBotForAgent(agent: AgentRow) {
         messages.push({ role: "user" as const, content: text });
       }
 
+      const hasImageInput = Boolean(imageBase64ForMediaSearch && imageMimeForMediaSearch);
+      const { count: embeddingKeyCount } = await supabase
+        .from("secrets")
+        .select("id", { count: "exact", head: true })
+        .eq("key_name", "EMBEDDING_API_KEY");
+      const hasEmbeddingApiKey = (embeddingKeyCount ?? 0) > 0;
+      let configuredKnowledgeEmbedModel: string | null = null;
+      if (hasImageInput) {
+        const { data: embedSetting } = await supabase
+          .from("system_settings")
+          .select("value")
+          .eq("key", "knowledge_embed_model")
+          .maybeSingle();
+        configuredKnowledgeEmbedModel = embedSetting?.value ?? null;
+        if (configuredKnowledgeEmbedModel !== "gemini-embedding-2-preview") {
+          console.log(
+            `  [polling] image knowledge retrieval disabled: knowledge_embed_model=${configuredKnowledgeEmbedModel ?? "unset"}`
+          );
+        }
+        if (!hasEmbeddingApiKey) {
+          console.log("  [polling] image knowledge retrieval disabled: missing EMBEDDING_API_KEY");
+        }
+      }
+
       const startTime = Date.now();
       const { model, resolvedProviderId, pickedKeyId } = await getModel(agent.model, agent.provider_id);
 
@@ -570,6 +594,17 @@ async function startBotForAgent(agent: AgentRow) {
         } else {
           (filteredBuiltin as Record<string, unknown>)[name] = def;
         }
+      }
+      if (!hasEmbeddingApiKey && "knowledge_search" in (filteredBuiltin as Record<string, unknown>)) {
+        delete (filteredBuiltin as Record<string, unknown>).knowledge_search;
+        console.log("  [polling] knowledge_search tool disabled: missing EMBEDDING_API_KEY");
+      }
+      const canImageKnowledgeSearchByModel = configuredKnowledgeEmbedModel === "gemini-embedding-2-preview";
+      if (hasImageInput && !canImageKnowledgeSearchByModel && "knowledge_search" in (filteredBuiltin as Record<string, unknown>)) {
+        delete (filteredBuiltin as Record<string, unknown>).knowledge_search;
+        console.log(
+          `  [polling] knowledge_search tool disabled for image input (knowledge_embed_model=${configuredKnowledgeEmbedModel ?? "unset"})`
+        );
       }
 
       let mcpResult: MCPResult | null = null;
@@ -664,7 +699,12 @@ async function startBotForAgent(agent: AgentRow) {
       }
 
       // ── Multimodal knowledge search bypass ──
-      if (imageBase64ForMediaSearch && imageMimeForMediaSearch) {
+      const canImageKnowledgeSearchThisTurn =
+        hasImageInput &&
+        hasEmbeddingApiKey &&
+        canImageKnowledgeSearchByModel &&
+        Object.prototype.hasOwnProperty.call(tools as Record<string, unknown>, "knowledge_search");
+      if (canImageKnowledgeSearchThisTurn && imageBase64ForMediaSearch && imageMimeForMediaSearch) {
         try {
           const { normalizeImageForEmbedding } = await import("@/lib/memory/image-normalize");
           const normalized = await normalizeImageForEmbedding(imageBase64ForMediaSearch, imageMimeForMediaSearch);

@@ -55,11 +55,6 @@ interface VoiceKeyInfo {
   is_active: boolean;
 }
 
-function clampMediaThreshold(value: number): number {
-  if (!Number.isFinite(value)) return 0.75;
-  return Math.max(0, Math.min(1, value));
-}
-
 export default function VoicePage() {
   const t = useT();
   const [activeTab, setActiveTab] = useState<"tts" | "live" | "asr" | "image_gen">("tts");
@@ -76,8 +71,6 @@ export default function VoicePage() {
   const [doubaoAccessKeyInput, setDoubaoAccessKeyInput] = useState("");
   const [imageGenKeyInput, setImageGenKeyInput] = useState("");
   const [savingKey, setSavingKey] = useState<string | null>(null);
-  const [mediaThresholdDraft, setMediaThresholdDraft] = useState("0.75");
-  const [savingMediaThreshold, setSavingMediaThreshold] = useState(false);
 
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -86,23 +79,10 @@ export default function VoicePage() {
 
   const loadConfig = useCallback(async () => {
     try {
-      const [res, settingsRes] = await Promise.all([
-        fetch("/api/admin/multimodal"),
-        fetch("/api/admin/settings").catch(() => null),
-      ]);
+      const res = await fetch("/api/admin/multimodal");
       const data = await res.json();
       setSettings(data.settings || {});
       setKeys(data.keys || []);
-
-      let threshold = 0.75;
-      if (settingsRes) {
-        const sysData = await settingsRes.json().catch(() => ({}));
-        const raw = (sysData.settings as Record<string, string> | undefined)?.knowledge_media_match_threshold;
-        if (raw !== undefined) {
-          threshold = clampMediaThreshold(Number(raw));
-        }
-      }
-      setMediaThresholdDraft(threshold.toFixed(2));
     } catch {
       toast.error(t("voice.configSaveFailed"));
     } finally {
@@ -125,35 +105,6 @@ export default function VoicePage() {
       toast.success(t("voice.configSaved"));
     } catch {
       toast.error(t("voice.configSaveFailed"));
-    }
-  };
-
-  const saveMediaThreshold = async () => {
-    const raw = Number(mediaThresholdDraft);
-    if (!Number.isFinite(raw) || raw < 0 || raw > 1) {
-      toast.error(t("voice.mediaSearchThresholdInvalid"));
-      return;
-    }
-    const parsed = Number(raw.toFixed(2));
-    setSavingMediaThreshold(true);
-    try {
-      const res = await fetch("/api/admin/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          key: "knowledge_media_match_threshold",
-          value: parsed.toFixed(2),
-        }),
-      });
-      if (!res.ok) {
-        throw new Error("save failed");
-      }
-      setMediaThresholdDraft(parsed.toFixed(2));
-      toast.success(t("voice.mediaSearchThresholdSaved"));
-    } catch {
-      toast.error(t("voice.mediaSearchThresholdSaveFailed"));
-    } finally {
-      setSavingMediaThreshold(false);
     }
   };
 
@@ -744,65 +695,6 @@ export default function VoicePage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <ImageIcon className="size-5 text-muted-foreground" />
-                <CardTitle>{t("voice.mediaSearchTitle")}</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-5">
-              <p className="text-sm text-muted-foreground">{t("voice.mediaSearchDescription")}</p>
-
-              <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-4">
-                <div className="flex items-start gap-2">
-                  <Info className="size-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
-                  <p className="text-xs text-blue-800 dark:text-blue-300">{t("voice.mediaSearchHint")}</p>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <Label>{t("voice.mediaSearchThreshold")}</Label>
-                  <Badge variant="secondary">{Math.round(clampMediaThreshold(Number(mediaThresholdDraft)) * 100)}%</Badge>
-                </div>
-                <input
-                  type="range"
-                  min={0.5}
-                  max={0.95}
-                  step={0.01}
-                  value={clampMediaThreshold(Number(mediaThresholdDraft))}
-                  onChange={(e) => setMediaThresholdDraft(Number(e.target.value).toFixed(2))}
-                  className="h-2 w-full cursor-pointer accent-primary"
-                />
-                <div className="flex items-end gap-2">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={mediaThresholdDraft}
-                    onChange={(e) => setMediaThresholdDraft(e.target.value)}
-                    className="max-w-28"
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={saveMediaThreshold}
-                    disabled={savingMediaThreshold}
-                  >
-                    {savingMediaThreshold ? <Loader2 className="size-4 animate-spin" /> : t("voice.saveKey")}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">{t("voice.mediaSearchThresholdHint")}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t("voice.mediaSearchThresholdRule", {
-                    threshold: Math.round(clampMediaThreshold(Number(mediaThresholdDraft)) * 100).toString(),
-                  })}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
         </div>
       )}
     </div>

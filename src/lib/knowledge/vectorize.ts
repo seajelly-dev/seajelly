@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { embedText } from "@/lib/memory/embedding";
+import { embedText, hasEmbeddingApiKey } from "@/lib/memory/embedding";
 
 function getSupabase() {
   return createClient(
@@ -17,6 +17,16 @@ interface VectorizeResult {
 }
 
 export async function vectorizeChunks(chunkIds: string[], embedModel?: string): Promise<VectorizeResult> {
+  if (!(await hasEmbeddingApiKey())) {
+    return {
+      success: false,
+      total: chunkIds.length,
+      embedded: 0,
+      failed: 0,
+      error: "Missing EMBEDDING_API_KEY. Please configure dedicated Embedding API Key in Knowledge settings.",
+    };
+  }
+
   const supabase = getSupabase();
   let embedded = 0;
   let failed = 0;

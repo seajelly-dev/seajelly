@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { embedText } from "@/lib/memory/embedding";
+import { embedText, hasEmbeddingApiKey } from "@/lib/memory/embedding";
 
 function getSupabase() {
   return createClient(
@@ -44,6 +44,14 @@ export async function searchKnowledge(
   options: SearchOptions
 ): Promise<{ success: boolean; results: KnowledgeSearchResult[]; error?: string }> {
   const { query, topK = 10, threshold = 0.5, kbIds = null } = options;
+
+  if (!(await hasEmbeddingApiKey())) {
+    return {
+      success: false,
+      results: [],
+      error: "Missing EMBEDDING_API_KEY. Please configure dedicated Embedding API Key in Knowledge settings.",
+    };
+  }
 
   const queryEmbedding = await embedText(query, "gemini-embedding-001", "RETRIEVAL_QUERY");
   if (!queryEmbedding) {

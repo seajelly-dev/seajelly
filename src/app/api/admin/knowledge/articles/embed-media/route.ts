@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdmin, authErrorResponse } from "@/lib/supabase/server";
-import { embedContent } from "@/lib/memory/embedding";
+import { embedContent, hasEmbeddingApiKey } from "@/lib/memory/embedding";
 import { normalizeImageForEmbedding } from "@/lib/memory/image-normalize";
 
 function getSupabase() {
@@ -38,6 +38,13 @@ export async function POST(request: Request) {
   if (!ALLOWED_MIME.has(media_type)) {
     return NextResponse.json(
       { error: `Unsupported media type: ${media_type}. Supported: PNG/JPEG/WEBP/GIF/BMP (image will be normalized), MP3/WAV, MP4/MOV, PDF.` },
+      { status: 400 },
+    );
+  }
+
+  if (!(await hasEmbeddingApiKey())) {
+    return NextResponse.json(
+      { error: "Missing EMBEDDING_API_KEY. Please configure dedicated Embedding API Key in Knowledge settings." },
       { status: 400 },
     );
   }

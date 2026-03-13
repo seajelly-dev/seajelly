@@ -1,12 +1,8 @@
-import { createClient } from "@supabase/supabase-js";
 import { createHash } from "crypto";
-import { decrypt } from "@/lib/crypto/encrypt";
 import { getSecret } from "@/lib/secrets";
 
 const CHUNK_SIZE = 400;
 const CHUNK_OVERLAP = 80;
-
-const GOOGLE_PROVIDER_ID = "00000000-0000-0000-0000-000000000003";
 
 export function chunkText(text: string): string[] {
   const words = text.split(/\s+/);
@@ -27,31 +23,13 @@ export function contentHash(text: string): string {
 }
 
 async function resolveEmbeddingApiKey(): Promise<string | null> {
-  // 1) secrets 表的 EMBEDDING_API_KEY
   const secretKey = await getSecret("EMBEDDING_API_KEY");
-  if (secretKey) return secretKey;
+  return secretKey?.trim() ? secretKey : null;
+}
 
-  // 2) provider_api_keys 表的 Google provider key
-  try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
-    const { data: keys } = await supabase
-      .from("provider_api_keys")
-      .select("encrypted_value")
-      .eq("provider_id", GOOGLE_PROVIDER_ID)
-      .eq("is_active", true)
-      .limit(1);
-
-    if (keys && keys.length > 0) {
-      return decrypt(keys[0].encrypted_value);
-    }
-  } catch (err) {
-    console.error("[embedText] Failed to read Google provider key:", err);
-  }
-
-  return null;
+export async function hasEmbeddingApiKey(): Promise<boolean> {
+  const apiKey = await resolveEmbeddingApiKey();
+  return Boolean(apiKey);
 }
 
 export type EmbedTaskType = "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY";
@@ -75,7 +53,7 @@ export async function embedContent(
 ): Promise<number[] | null> {
   const apiKey = await resolveEmbeddingApiKey();
   if (!apiKey) {
-    console.error("[embedContent] No embedding API key found. Set EMBEDDING_API_KEY in secrets or add a Google provider key.");
+    console.error("[embedContent] No embedding API key found. Set EMBEDDING_API_KEY in secrets.");
     return null;
   }
 
