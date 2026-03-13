@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:unit": "node --import tsx --test src/lib/memory/session.test.ts src/lib/agent/commands/commands.test.ts"
+    "test:unit": "node --import tsx --test src/lib/memory/session.test.ts src/lib/agent/commands/commands.test.ts src/lib/agent/media/media.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.58",

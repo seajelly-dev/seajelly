@@ -11,8 +11,8 @@ import {
 import { SELF_EVOLUTION_TOOL_NAMES } from "./tooling/catalog";
 import { dispatchCommand, parseCommand } from "./commands";
 import type { LoopResult } from "./commands/types";
-import { getSenderForAgent, getFileDownloader } from "@/lib/platform/sender";
-import { isImageMime, isTextMime, detectImageMimeFromBuffer } from "@/lib/platform/file-utils";
+import { buildInboundUserMessages, downloadInboundFile, handlePendingImageEdit } from "./media";
+import { getSenderForAgent } from "@/lib/platform/sender";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import type { PlatformSender } from "@/lib/platform/types";
 import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
@@ -723,41 +723,31 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     });
     if (handled) return handled;
 
+    const resolvedInboundFile =
+      fileId && event.agent_id
+        ? await downloadInboundFile({
+            agentId: event.agent_id,
+            platform,
+            fileId,
+            fileMime,
+            fileName,
+            logger: (message) => console.log(`[agent-loop] trace=${traceId} ${message}`),
+          })
+        : null;
+
     // ── /imgedit image intercept: if pending and user sends an image, run image edit directly ──
-    const imageEditSessionMeta = (session.metadata ?? {}) as Record<string, unknown>;
-    if (imageEditSessionMeta.imgedit_pending && fileId && event.agent_id) {
-      const fileDownloader = getFileDownloader(platform);
-      const file = await fileDownloader.download(event.agent_id, fileId, fileMime, fileName);
-      if (file && isImageMime(file.mimeType)) {
-        const editPrompt = (messageText || imageEditSessionMeta.imgedit_prompt as string || "").trim();
-        if (!editPrompt) {
-          await sender.sendText(platformChatId, t("imgeditNoPrompt"));
-          return { success: true, reply: "imgedit_no_prompt", traceId };
-        }
-        await sender!.sendTyping(platformChatId);
-        const typingTimer = setInterval(() => { sender?.sendTyping(platformChatId).catch(() => {}); }, 4000);
-        try {
-          const { generateImage } = await import("@/lib/image-gen/engine");
-          const result = await generateImage({
-            prompt: editPrompt,
-            sourceImageBase64: file.base64,
-            sourceMimeType: file.mimeType,
-          });
-          clearInterval(typingTimer);
-          const imageBuffer = Buffer.from(result.imageBase64, "base64");
-          await sender.sendPhoto(platformChatId, imageBuffer, result.textResponse || undefined);
-          await sender.sendText(platformChatId, t("imgeditSuccess", { ms: result.durationMs }));
-        } catch (err) {
-          clearInterval(typingTimer);
-          const errMsg = err instanceof Error ? err.message : "Unknown error";
-          await sender.sendText(platformChatId, t("imgeditFailed", { error: errMsg }));
-        }
-        await supabase
-          .from("sessions")
-          .update({ metadata: { ...imageEditSessionMeta, imgedit_pending: false, imgedit_prompt: null } })
-          .eq("id", session.id);
-        return { success: true, reply: "imgedit_done", traceId };
-      }
+    const imageEditResult = await handlePendingImageEdit({
+      resolvedFile: resolvedInboundFile,
+      session,
+      supabase,
+      sender,
+      platformChatId,
+      messageText,
+      t,
+      traceId,
+    });
+    if (imageEditResult?.handled && imageEditResult.loopResult) {
+      return imageEditResult.loopResult;
     }
 
     const preparedSession = prepareSessionHistory({
@@ -782,86 +772,24 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           : []
       );
 
-    // Build multimodal user message if file is present
-    let fileHandled = false;
-    let imageBase64ForMediaSearch: string | null = null;
-    let imageMimeForMediaSearch: string | null = null;
-    if (fileId && event.agent_id) {
-      const fileDownloader = getFileDownloader(platform);
-      const file = await fileDownloader.download(event.agent_id, fileId, fileMime, fileName);
-      if (!file) {
-        console.warn(`File download returned null: platform=${platform} fileId=${fileId} fileMime=${fileMime}`);
-      }
-      if (file) {
-        const mime = file.mimeType;
-        const textPrompt = messageText || "";
-
-        if (isImageMime(mime)) {
-          const fileBuf = Buffer.from(file.base64, "base64");
-          const detectedImageMime = detectImageMimeFromBuffer(fileBuf);
-          const effectiveImageMime = detectedImageMime || mime;
-          if (detectedImageMime && detectedImageMime !== mime) {
-            console.log(
-              `[agent-loop] trace=${traceId} image mime corrected: ${mime} -> ${detectedImageMime}`
-            );
-          }
-          imageBase64ForMediaSearch = file.base64;
-          imageMimeForMediaSearch = effectiveImageMime;
-          messages.push({
-            role: "user" as const,
-            content: [
-              { type: "image" as const, image: file.base64, mediaType: effectiveImageMime },
-              { type: "text" as const, text: textPrompt || "Please describe or analyze this image." },
-            ],
-          });
-          fileHandled = true;
-        } else if (isTextMime(mime)) {
-          const decoded = Buffer.from(file.base64, "base64").toString("utf-8");
-          const label = file.fileName ? `[File: ${file.fileName}]` : "[Text file]";
-          messages.push({
-            role: "user" as const,
-            content: `${label}\n\`\`\`\n${decoded.slice(0, 50_000)}\n\`\`\`\n\n${textPrompt || "Please analyze this file."}`,
-          });
-          fileHandled = true;
-        } else if (
-          mime === "application/pdf" ||
-          mime.startsWith("video/") ||
-          mime.startsWith("audio/")
-        ) {
-          const defaultPrompt = mime === "application/pdf"
-            ? "Please analyze this PDF document."
-            : mime.startsWith("video/")
-              ? "Please analyze this video."
-              : "Please analyze this audio.";
-          messages.push({
-            role: "user" as const,
-            content: [
-              { type: "file" as const, data: file.base64, mediaType: mime },
-              { type: "text" as const, text: textPrompt || defaultPrompt },
-            ],
-          });
-          fileHandled = true;
-        } else {
-          const label = file.fileName ? `[File: ${file.fileName}, type: ${mime}]` : `[File: ${mime}]`;
-          messages.push({
-            role: "user" as const,
-            content: `${label}\n(Binary file — ${file.sizeBytes} bytes)\n\n${textPrompt || "I sent you a file. What can you help me with?"}`,
-          });
-          fileHandled = true;
-        }
+    const mediaBuild = buildInboundUserMessages({
+      resolvedFile: resolvedInboundFile,
+      hasFileInput: Boolean(fileId),
+      messageText,
+      logger: (message) =>
+        console.warn(
+          `[agent-loop] trace=${traceId} ${message}${fileId ? ` fileId=${fileId} fileMime=${fileMime}` : ""}`,
+        ),
+    });
+    if (mediaBuild.warningText) {
+      await sender.sendText(platformChatId, mediaBuild.warningText);
+      if (!messageText && fileId) {
+        return { success: true, traceId };
       }
     }
-    if (!fileHandled) {
-      if (fileId) {
-        console.warn(`[agent-loop] trace=${traceId} file not handled: fileId=${fileId} fileMime=${fileMime} messageText=${!!messageText}`);
-        if (!messageText) {
-          await sender.sendText(platformChatId, "⚠️ Failed to process the file you sent. Please try again or send as a different format.");
-          return { success: true, traceId };
-        }
-        await sender.sendText(platformChatId, "⚠️ File could not be loaded. Responding to your text only.");
-      }
-      messages.push({ role: "user" as const, content: messageText });
-    }
+    messages.push(...mediaBuild.messagesToAppend);
+    const imageBase64ForMediaSearch = mediaBuild.imageBase64ForMediaSearch;
+    const imageMimeForMediaSearch = mediaBuild.imageMimeForMediaSearch;
 
     const hasImageInput = Boolean(imageBase64ForMediaSearch && imageMimeForMediaSearch);
     const { count: embeddingKeyCount } = await supabase
@@ -1586,7 +1514,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
 
-    const userContent = fileHandled
+    const userContent = mediaBuild.fileHandled
       ? `[File${fileName ? `: ${fileName}` : ""}]${messageText ? ` ${messageText}` : ""}`
       : messageText;
 
