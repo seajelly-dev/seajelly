@@ -70,6 +70,7 @@ export async function handleInboundMessage(params: InboundMessageParams): Promis
       .single();
 
     if (channel && !channel.is_allowed) {
+      console.log(`[webhook-handler] blocked by channel ACL: platform=${platform} agent=${agentId} uid=${platformUid}`);
       return NextResponse.json({ ok: true, blocked: true });
     }
   }

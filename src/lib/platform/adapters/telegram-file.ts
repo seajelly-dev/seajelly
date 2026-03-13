@@ -19,7 +19,6 @@ export class TelegramFileDownloader implements PlatformFileDownloader {
         return null;
       }
 
-      const url = `https://api.telegram.org/file/bot${"*".repeat(8)}/${file.file_path}`;
       console.log(`[tg-file] downloading: path=${file.file_path} hintMime=${hintMime}`);
       const res = await fetch(`https://api.telegram.org/file/bot${bot.token}/${file.file_path}`);
       if (!res.ok) {
