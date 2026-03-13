@@ -356,31 +356,62 @@ export default function KnowledgePage() {
     if (selectedBase) fetchArticles(selectedBase);
   };
 
+  const SUPPORTED_MEDIA_TYPES = new Set([
+    "image/png", "image/jpeg", "image/jpg",
+    "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav",
+    "video/mp4", "video/quicktime",
+    "application/pdf",
+  ]);
+
+  const convertImageToPng = (file: File): Promise<{ base64: string; mimeType: string }> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext("2d")!.drawImage(img, 0, 0);
+        const dataUrl = canvas.toDataURL("image/png");
+        resolve({ base64: dataUrl.split(",")[1], mimeType: "image/png" });
+        URL.revokeObjectURL(img.src);
+      };
+      img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error("Image decode failed")); };
+      img.src = URL.createObjectURL(file);
+    });
+
   const handleMediaEmbed = async (articleId: string) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*,audio/*,video/*,application/pdf";
+    input.accept = "image/png,image/jpeg,image/webp,image/gif,image/bmp,audio/mpeg,audio/mp3,audio/wav,video/mp4,video/quicktime,application/pdf";
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
       setMediaEmbeddingIds((prev) => new Set(prev).add(articleId));
       try {
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result as string;
-            resolve(result.split(",")[1]);
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
+        let base64: string;
+        let mimeType = file.type;
+
+        const isImage = file.type.startsWith("image/");
+        if (isImage && !SUPPORTED_MEDIA_TYPES.has(file.type)) {
+          const converted = await convertImageToPng(file);
+          base64 = converted.base64;
+          mimeType = converted.mimeType;
+        } else {
+          base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve((reader.result as string).split(",")[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+        }
+
         const res = await fetch("/api/admin/knowledge/articles/embed-media", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             article_id: articleId,
             media_base64: base64,
-            media_type: file.type,
+            media_type: mimeType,
             embed_model: embedModelId,
           }),
         });

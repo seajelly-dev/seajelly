@@ -27,6 +27,19 @@ export async function POST(request: Request) {
     );
   }
 
+  const ALLOWED_MIME = new Set([
+    "image/png", "image/jpeg", "image/jpg",
+    "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav",
+    "video/mp4", "video/quicktime",
+    "application/pdf",
+  ]);
+  if (!ALLOWED_MIME.has(media_type)) {
+    return NextResponse.json(
+      { error: `Unsupported media type: ${media_type}. Gemini Embedding supports: PNG, JPEG, MP3, WAV, MP4, MOV, PDF.` },
+      { status: 400 },
+    );
+  }
+
   const supabase = getSupabase();
   const model = embed_model || "gemini-embedding-2-preview";
 

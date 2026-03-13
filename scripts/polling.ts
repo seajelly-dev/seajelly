@@ -658,7 +658,8 @@ async function startBotForAgent(agent: AgentRow) {
       }
 
       // ── Multimodal knowledge search bypass ──
-      if (imageBase64ForMediaSearch && imageMimeForMediaSearch) {
+      const EMBED_SUPPORTED_IMAGE = new Set(["image/png", "image/jpeg", "image/jpg"]);
+      if (imageBase64ForMediaSearch && imageMimeForMediaSearch && EMBED_SUPPORTED_IMAGE.has(imageMimeForMediaSearch)) {
         try {
           const { hasAgentMediaEmbeddings, searchArticleByMedia, getAgentKnowledgeBaseIds } = await import("@/lib/knowledge/search");
           const hasMedia = await hasAgentMediaEmbeddings(agent.id);
