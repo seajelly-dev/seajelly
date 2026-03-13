@@ -59,6 +59,7 @@ Both tools require conventional commit messages:
 
 ### 5. Monitor Deployment
 
+- **CRITICAL**: Always pass the **full 40-character commit SHA** to `github_check_deploy`. The tool result from `github_patch_files` or `github_commit_push` returns `commitSha` as a full hash (e.g. `2d85bb3e55c0aa006d85ec7b5e4f5b7950d6ad05`) — use it verbatim. NEVER truncate to a short hash (e.g. `2d85bb3`), NEVER pass invented values like `"latest"`.
 - After a successful push, call `github_check_deploy` 2-3 times.
 - If status is `BUILDING`, wait and tell the user to check back.
 - If status is `READY`, report success with the deployment URL.
@@ -68,7 +69,7 @@ Both tools require conventional commit messages:
   - Ask the user to choose: **(a)** fix the code and push a new commit, or **(b)** revert via `github_revert_commit`.
   - Do NOT keep polling after ERROR — the build has already terminally failed.
 - If the result contains `fatal: true` (e.g. missing Vercel credentials), STOP immediately. Do NOT retry.
-- Always include the **commit SHA** in your reply for future reference.
+- Always include the **full commit SHA** in your reply for future reference (revert, deploy check, etc.).
 
 ### 6. Revert if Needed
 
@@ -222,3 +223,4 @@ Since we rely on Vercel's native build, there's no separate build verification s
 8. **Don't make multiple commits for one feature** — batch all file operations into a single `github_patch_files` call with multiple operations.
 9. **Don't fall back to full-file push for patch failures** — re-read the file and fix the diff context lines instead.
 10. **Don't forget `@@ ` hunk headers** — without an anchor, the diff engine may apply changes at the wrong location.
+11. **Don't truncate commit SHAs** — always pass the full 40-char hash to `github_check_deploy` and `github_revert_commit`. Short hashes and made-up values like `"latest"` will fail.

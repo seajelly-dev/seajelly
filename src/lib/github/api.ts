@@ -325,10 +325,17 @@ export async function checkVercelDeployment(
   const data = await res.json();
   const deployments = data.deployments ?? [];
 
+  const sha = commitSha.trim().toLowerCase();
+  const matchSha = (candidate: unknown): boolean => {
+    if (typeof candidate !== "string") return false;
+    const c = candidate.toLowerCase();
+    return c === sha || c.startsWith(sha) || sha.startsWith(c);
+  };
+
   const match = deployments.find(
     (d: Record<string, unknown>) =>
-      (d.meta as Record<string, unknown>)?.githubCommitSha === commitSha ||
-      (d.gitSource as Record<string, unknown>)?.sha === commitSha
+      matchSha((d.meta as Record<string, unknown>)?.githubCommitSha) ||
+      matchSha((d.gitSource as Record<string, unknown>)?.sha)
   );
 
   if (!match) {
