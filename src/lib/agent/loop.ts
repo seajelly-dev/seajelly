@@ -11,7 +11,7 @@ import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
 import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText, humanizeAgentError } from "@/lib/i18n/bot";
 import { checkSubscription } from "@/lib/subscription/check";
 import type { Locale } from "@/lib/i18n/types";
-import { renewEventLock } from "@/lib/events/queue";
+import { renewEventLock, markProcessed, markFailed } from "@/lib/events/queue";
 
 interface LoopResult {
   success: boolean;
@@ -100,6 +100,109 @@ const GITHUB_WORKFLOW_TOOLS = [
 ] as const;
 
 const STEP_PAYLOAD_MAX_CHARS = 64 * 1024;
+const TELEGRAM_COALESCE_WAIT_MS = 1200;
+const TELEGRAM_COALESCE_WINDOW_MS = 6000;
+const TELEGRAM_COALESCE_SCAN_LIMIT = 5;
+const EVENT_LOCK_SECONDS = 360;
+
+interface EventMessageSnapshot {
+  text: string;
+  fileId: string | null;
+  fileMime: string | null;
+  fileName: string | null;
+}
+
+function readEventMessageSnapshot(payload: Record<string, unknown>): EventMessageSnapshot {
+  const message = (payload.message as Record<string, unknown> | undefined) ?? {};
+  return {
+    text: typeof message.text === "string" ? message.text : "",
+    fileId:
+      (typeof message.file_id === "string" && message.file_id) ||
+      (typeof message.photo_file_id === "string" && message.photo_file_id) ||
+      null,
+    fileMime: (typeof message.file_mime === "string" && message.file_mime) || null,
+    fileName: (typeof message.file_name === "string" && message.file_name) || null,
+  };
+}
+
+function mergePromptText(baseText: string, extraText: string): string {
+  const a = baseText.trim();
+  const b = extraText.trim();
+  if (!a) return b;
+  if (!b) return a;
+  if (a === b) return a;
+  return `${a}\n${b}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface ClaimedCompanionFileEvent {
+  eventId: string;
+  text: string;
+  fileId: string;
+  fileMime: string | null;
+  fileName: string | null;
+}
+
+async function claimTelegramCompanionFileEvent(params: {
+  supabase: ReturnType<typeof createClient>;
+  baseEvent: AgentEvent;
+  agentId: string;
+  platformChatId: string;
+}): Promise<ClaimedCompanionFileEvent | null> {
+  const { supabase, baseEvent, agentId, platformChatId } = params;
+  const baseCreatedAtMs = Date.parse(baseEvent.created_at);
+  if (!Number.isFinite(baseCreatedAtMs)) return null;
+  const windowEnd = new Date(baseCreatedAtMs + TELEGRAM_COALESCE_WINDOW_MS).toISOString();
+
+  const { data: candidates } = await supabase
+    .from("events")
+    .select("id, payload, created_at")
+    .eq("source", "telegram")
+    .eq("agent_id", agentId)
+    .eq("platform_chat_id", platformChatId)
+    .eq("status", "pending")
+    .gt("created_at", baseEvent.created_at)
+    .lte("created_at", windowEnd)
+    .order("created_at", { ascending: true })
+    .limit(TELEGRAM_COALESCE_SCAN_LIMIT);
+
+  for (const row of candidates ?? []) {
+    const rowPayload = (row.payload ?? {}) as Record<string, unknown>;
+    const snapshot = readEventMessageSnapshot(rowPayload);
+    if (!snapshot.fileId) continue;
+
+    const lockedUntil = new Date(Date.now() + EVENT_LOCK_SECONDS * 1000).toISOString();
+    const { data: claimed } = await supabase
+      .from("events")
+      .update({
+        status: "processing",
+        locked_until: lockedUntil,
+      })
+      .eq("id", row.id)
+      .eq("status", "pending")
+      .select("id, payload")
+      .maybeSingle();
+
+    if (!claimed) continue;
+
+    const claimedPayload = (claimed.payload ?? {}) as Record<string, unknown>;
+    const claimedSnapshot = readEventMessageSnapshot(claimedPayload);
+    if (!claimedSnapshot.fileId) continue;
+
+    return {
+      eventId: claimed.id as string,
+      text: claimedSnapshot.text,
+      fileId: claimedSnapshot.fileId,
+      fileMime: claimedSnapshot.fileMime,
+      fileName: claimedSnapshot.fileName,
+    };
+  }
+
+  return null;
+}
 
 function hasGithubWorkflowIntent(messageText: string): boolean {
   const t = messageText.toLowerCase();
@@ -200,6 +303,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
   const startTime = Date.now();
   let mcpResult: MCPResult | null = null;
   let lockRenewTimer: ReturnType<typeof setInterval> | null = null;
+  let coalescedCompanionEventId: string | null = null;
 
   const platform = resolvePlatform(event);
   let sender: PlatformSender | null = null;
@@ -238,10 +342,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const msgPayload = (event.payload as Record<string, unknown>).message as
       | Record<string, unknown>
       | undefined;
-    const messageText = (msgPayload?.text as string) || "";
-    const fileId = (msgPayload?.file_id as string) || (msgPayload?.photo_file_id as string) || null;
-    const fileMime = (msgPayload?.file_mime as string) || null;
-    const fileName = (msgPayload?.file_name as string) || null;
+    let messageText = (msgPayload?.text as string) || "";
+    let fileId = (msgPayload?.file_id as string) || (msgPayload?.photo_file_id as string) || null;
+    let fileMime = (msgPayload?.file_mime as string) || null;
+    let fileName = (msgPayload?.file_name as string) || null;
 
     if (!messageText && !fileId) {
       throw new Error("No message text or file in payload");
@@ -252,6 +356,28 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       command = messageText.split(/[\s@]/)[0].toLowerCase();
     } else if (messageText.startsWith("!")) {
       command = "/" + messageText.slice(1).split(/[\s@]/)[0].toLowerCase();
+    }
+
+    // Telegram often sends "text then image" as two close events.
+    // Coalesce them into one turn to avoid the text being interpreted independently.
+    if (platform === "telegram" && messageText.trim() && !fileId && !command) {
+      await sleep(TELEGRAM_COALESCE_WAIT_MS);
+      const companion = await claimTelegramCompanionFileEvent({
+        supabase,
+        baseEvent: event,
+        agentId: typedAgent.id,
+        platformChatId,
+      });
+      if (companion) {
+        messageText = mergePromptText(messageText, companion.text);
+        fileId = companion.fileId;
+        fileMime = companion.fileMime;
+        fileName = companion.fileName;
+        coalescedCompanionEventId = companion.eventId;
+        console.log(
+          `[agent-loop] trace=${traceId} coalesced text+file events: base=${event.id ?? "unknown"} companion=${companion.eventId} fileMime=${companion.fileMime ?? "unknown"}`
+        );
+      }
     }
 
     // ── Resolve channel from event payload ──
@@ -1412,12 +1538,30 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       );
     }
 
+    if (coalescedCompanionEventId) {
+      await markProcessed(coalescedCompanionEventId).catch((err) => {
+        console.warn(
+          `[agent-loop] trace=${traceId} failed to mark coalesced companion processed: ${coalescedCompanionEventId}`,
+          err
+        );
+      });
+    }
+
     if (lockRenewTimer) clearInterval(lockRenewTimer);
     if (mcpResult) await mcpResult.cleanup().catch(() => {});
     return { success: true, reply: roomToolCalled ? "[room_tool_handled]" : reply, traceId };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : "Unknown error";
     console.error(`Agent loop failed (trace: ${traceId}):`, errMsg);
+
+    if (coalescedCompanionEventId) {
+      await markFailed(coalescedCompanionEventId, errMsg).catch((markErr) => {
+        console.warn(
+          `[agent-loop] trace=${traceId} failed to mark coalesced companion failed: ${coalescedCompanionEventId}`,
+          markErr
+        );
+      });
+    }
 
     if (event.platform_chat_id && sender) {
       try {
