@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdmin, authErrorResponse } from "@/lib/supabase/server";
 import { embedContent } from "@/lib/memory/embedding";
+import { normalizeImageForEmbedding } from "@/lib/memory/image-normalize";
 
 function getSupabase() {
   return createClient(
@@ -29,19 +30,36 @@ export async function POST(request: Request) {
 
   const ALLOWED_MIME = new Set([
     "image/png", "image/jpeg", "image/jpg",
+    "image/webp", "image/gif", "image/bmp",
     "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav",
     "video/mp4", "video/quicktime",
     "application/pdf",
   ]);
   if (!ALLOWED_MIME.has(media_type)) {
     return NextResponse.json(
-      { error: `Unsupported media type: ${media_type}. Gemini Embedding supports: PNG, JPEG, MP3, WAV, MP4, MOV, PDF.` },
+      { error: `Unsupported media type: ${media_type}. Supported: PNG/JPEG/WEBP/GIF/BMP (image will be normalized), MP3/WAV, MP4/MOV, PDF.` },
       { status: 400 },
     );
   }
 
   const supabase = getSupabase();
   const model = embed_model || "gemini-embedding-2-preview";
+  let embeddingMime = media_type as string;
+  let embeddingBase64 = media_base64 as string;
+  if (media_type.startsWith("image/")) {
+    const normalized = await normalizeImageForEmbedding(media_base64, media_type);
+    if (!normalized) {
+      return NextResponse.json(
+        { error: `Unsupported image type for embedding: ${media_type}` },
+        { status: 400 },
+      );
+    }
+    embeddingMime = normalized.mimeType;
+    embeddingBase64 = normalized.base64;
+    if (normalized.converted) {
+      console.log(`[embed-media] converted image for embedding: ${media_type} -> ${embeddingMime}`);
+    }
+  }
 
   await supabase
     .from("knowledge_articles")
@@ -50,7 +68,7 @@ export async function POST(request: Request) {
 
   try {
     const embedding = await embedContent(
-      [{ inlineData: { mimeType: media_type, data: media_base64 } }],
+      [{ inlineData: { mimeType: embeddingMime, data: embeddingBase64 } }],
       model,
       "RETRIEVAL_DOCUMENT",
     );

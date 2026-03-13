@@ -173,6 +173,21 @@ export interface MediaSearchResult {
   knowledge_base_name: string;
 }
 
+export async function getMediaMatchThreshold(defaultValue = 0.75): Promise<number> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("system_settings")
+    .select("value")
+    .eq("key", "knowledge_media_match_threshold")
+    .maybeSingle();
+
+  if (error || !data?.value) return defaultValue;
+
+  const parsed = Number(data.value);
+  if (!Number.isFinite(parsed)) return defaultValue;
+  return Math.max(0, Math.min(1, parsed));
+}
+
 export async function hasAgentMediaEmbeddings(agentId: string): Promise<boolean> {
   const supabase = getSupabase();
 
@@ -203,7 +218,7 @@ export async function searchArticleByMedia(
   embedding: number[],
   kbIds: string[],
   topK = 1,
-  threshold = 0.3,
+  threshold = 0.75,
 ): Promise<MediaSearchResult | null> {
   const supabase = getSupabase();
 

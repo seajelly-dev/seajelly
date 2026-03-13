@@ -1,5 +1,5 @@
 import type { PlatformFileDownloader, PlatformFile } from "../types";
-import { guessMime } from "../file-utils";
+import { guessMime, detectImageMimeFromBuffer } from "../file-utils";
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto/encrypt";
 
@@ -86,11 +86,28 @@ export class FeishuFileDownloader implements PlatformFileDownloader {
       const buffer = Buffer.from(await res.arrayBuffer());
       if (buffer.length > MAX_FILE_SIZE) return null;
 
-      const resolvedMime = hintMime?.split(";")[0].trim() || null;
+      const resolvedHeaderMime = contentType.split(";")[0].trim() || null;
+      const resolvedHintMime = hintMime?.split(";")[0].trim() || null;
       const fileKey = parts.length >= 3 ? parts[1] : fileRef;
+      let finalMime = guessMime(
+        hintName || fileKey,
+        resolvedHeaderMime && resolvedHeaderMime !== "application/octet-stream"
+          ? resolvedHeaderMime
+          : resolvedHintMime
+      );
+      const detectedImageMime = detectImageMimeFromBuffer(buffer);
+      if (detectedImageMime && finalMime !== detectedImageMime) {
+        console.log(
+          `[feishu-file] mime corrected by magic bytes: ${finalMime} -> ${detectedImageMime} (header=${resolvedHeaderMime ?? "n/a"}, hint=${resolvedHintMime ?? "n/a"})`
+        );
+        finalMime = detectedImageMime;
+      }
+      console.log(
+        `[feishu-file] success: size=${buffer.length} mime=${finalMime} header=${resolvedHeaderMime ?? "n/a"} hint=${resolvedHintMime ?? "n/a"}`
+      );
       return {
         base64: buffer.toString("base64"),
-        mimeType: guessMime(hintName || fileKey, resolvedMime),
+        mimeType: finalMime,
         fileName: hintName || null,
         sizeBytes: buffer.length,
       };

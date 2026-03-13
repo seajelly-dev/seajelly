@@ -20,6 +20,7 @@ import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText, getBotCom
 import { checkSubscription } from "@/lib/subscription/check";
 import type { Locale } from "@/lib/i18n/types";
 import type { ChatMessage, Channel } from "@/types/database";
+import { detectImageMimeFromBuffer } from "@/lib/platform/file-utils";
 
 config({ path: resolve(process.cwd(), ".env.local") });
 
@@ -470,17 +471,22 @@ async function startBotForAgent(agent: AgentRow) {
               };
               const mime = (fileMime && fileMime !== "application/octet-stream")
                 ? fileMime : (MIME_MAP[ext] || "application/octet-stream");
+              const detectedImageMime = detectImageMimeFromBuffer(buf);
+              const effectiveMime = detectedImageMime || mime;
+              if (detectedImageMime && detectedImageMime !== mime) {
+                console.log(`  [polling] image mime corrected: ${mime} -> ${detectedImageMime}`);
+              }
 
-              const isImage = mime.startsWith("image/");
-              const isText = mime.startsWith("text/") || mime === "application/json";
+              const isImage = effectiveMime.startsWith("image/");
+              const isText = effectiveMime.startsWith("text/") || effectiveMime === "application/json";
 
               if (isImage) {
                 imageBase64ForMediaSearch = buf.toString("base64");
-                imageMimeForMediaSearch = mime;
+                imageMimeForMediaSearch = effectiveMime;
                 messages.push({
                   role: "user" as const,
                   content: [
-                    { type: "image", image: imageBase64ForMediaSearch, mediaType: mime },
+                    { type: "image", image: imageBase64ForMediaSearch, mediaType: effectiveMime },
                     { type: "text", text: text || "Please describe or analyze this image." },
                   ],
                 } as never);
@@ -493,17 +499,17 @@ async function startBotForAgent(agent: AgentRow) {
                   content: `${label}\n\`\`\`\n${decoded.slice(0, 50_000)}\n\`\`\`\n\n${text || "Please analyze this file."}`,
                 });
                 fileHandled = true;
-              } else if (mime === "application/pdf" || mime.startsWith("video/") || mime.startsWith("audio/")) {
+              } else if (effectiveMime === "application/pdf" || effectiveMime.startsWith("video/") || effectiveMime.startsWith("audio/")) {
                 messages.push({
                   role: "user" as const,
                   content: [
-                    { type: "file", data: buf.toString("base64"), mediaType: mime },
-                    { type: "text", text: text || `Please analyze this ${mime.split("/")[0]}.` },
+                    { type: "file", data: buf.toString("base64"), mediaType: effectiveMime },
+                    { type: "text", text: text || `Please analyze this ${effectiveMime.split("/")[0]}.` },
                   ],
                 } as never);
                 fileHandled = true;
               } else {
-                const label = fileName ? `[File: ${fileName}, type: ${mime}]` : `[File: ${mime}]`;
+                const label = fileName ? `[File: ${fileName}, type: ${effectiveMime}]` : `[File: ${effectiveMime}]`;
                 messages.push({
                   role: "user" as const,
                   content: `${label}\n(Binary file — ${buf.length} bytes)\n\n${text || "I sent you a file."}`,
@@ -658,30 +664,49 @@ async function startBotForAgent(agent: AgentRow) {
       }
 
       // ── Multimodal knowledge search bypass ──
-      const EMBED_SUPPORTED_IMAGE = new Set(["image/png", "image/jpeg", "image/jpg"]);
-      if (imageBase64ForMediaSearch && imageMimeForMediaSearch && EMBED_SUPPORTED_IMAGE.has(imageMimeForMediaSearch)) {
+      if (imageBase64ForMediaSearch && imageMimeForMediaSearch) {
         try {
-          const { hasAgentMediaEmbeddings, searchArticleByMedia, getAgentKnowledgeBaseIds } = await import("@/lib/knowledge/search");
-          const hasMedia = await hasAgentMediaEmbeddings(agent.id);
-          if (hasMedia) {
-            const { embedContent } = await import("@/lib/memory/embedding");
-            const queryVec = await embedContent(
-              [{ inlineData: { mimeType: imageMimeForMediaSearch, data: imageBase64ForMediaSearch } }],
-              "gemini-embedding-2-preview",
-              "RETRIEVAL_QUERY",
-            );
-            if (queryVec) {
-              const agentKbIds = await getAgentKnowledgeBaseIds(agent.id);
-              const topArticle = await searchArticleByMedia(queryVec, agentKbIds, 1);
-              if (topArticle) {
-                console.log(`  [media-search] hit: "${topArticle.title}" sim=${topArticle.similarity.toFixed(3)}`);
-                systemPrompt += "\n\n## Image Search Result\n";
-                systemPrompt += "The user's image was matched against the knowledge base via vector similarity. ";
-                systemPrompt += `Top match: "${topArticle.title}" (similarity: ${topArticle.similarity.toFixed(3)}).\n\n`;
-                systemPrompt += "**Your task**: Compare what you see in the image with the article below. ";
-                systemPrompt += "If they clearly refer to the same subject, use the article as your PRIMARY source to answer. ";
-                systemPrompt += "If the image does NOT match (false positive), IGNORE this section entirely and respond based on the image alone.\n\n";
-                systemPrompt += `### ${topArticle.title}\n${topArticle.content}\n`;
+          const { normalizeImageForEmbedding } = await import("@/lib/memory/image-normalize");
+          const normalized = await normalizeImageForEmbedding(imageBase64ForMediaSearch, imageMimeForMediaSearch);
+          if (!normalized) {
+            console.warn(`  [polling] skip media-search: unsupported image mime=${imageMimeForMediaSearch}`);
+          } else {
+            const approxBytes = Math.floor((normalized.base64.length * 3) / 4);
+            if (approxBytes > 8 * 1024 * 1024) {
+              console.warn(`  [polling] skip media-search: image too large (${approxBytes} bytes, mime=${normalized.mimeType})`);
+            } else {
+              const { hasAgentMediaEmbeddings, searchArticleByMedia, getAgentKnowledgeBaseIds, getMediaMatchThreshold } = await import("@/lib/knowledge/search");
+              const hasMedia = await hasAgentMediaEmbeddings(agent.id);
+              if (hasMedia) {
+                const threshold = await getMediaMatchThreshold();
+                const { embedContent } = await import("@/lib/memory/embedding");
+                if (normalized.converted) {
+                  console.log(`  [polling] media-search image converted for embedding: ${imageMimeForMediaSearch} -> ${normalized.mimeType}`);
+                }
+                console.log(`  [polling] media-search query embedding: mime=${normalized.mimeType} bytes≈${approxBytes} threshold=${threshold}`);
+                const queryVec = await embedContent(
+                  [{ inlineData: { mimeType: normalized.mimeType, data: normalized.base64 } }],
+                  "gemini-embedding-2-preview",
+                  "RETRIEVAL_QUERY",
+                );
+                if (queryVec) {
+                  const agentKbIds = await getAgentKnowledgeBaseIds(agent.id);
+                  const topArticle = await searchArticleByMedia(queryVec, agentKbIds, 1, threshold);
+                  if (topArticle) {
+                    console.log(`  [media-search] hit: "${topArticle.title}" sim=${topArticle.similarity.toFixed(3)} threshold=${threshold}`);
+                    systemPrompt += "\n\n## Image Search Result\n";
+                    systemPrompt += "The user's image was matched against the knowledge base via vector similarity. ";
+                    systemPrompt += `Top match: "${topArticle.title}" (similarity: ${topArticle.similarity.toFixed(3)}).\n\n`;
+                    systemPrompt += "**Your task**: Compare what you see in the image with the article below. ";
+                    systemPrompt += "If they clearly refer to the same subject, use the article as your PRIMARY source to answer. ";
+                    systemPrompt += "If the image does NOT match (false positive), IGNORE this section entirely and respond based on the image alone.\n\n";
+                    systemPrompt += `### ${topArticle.title}\n${topArticle.content}\n`;
+                  } else {
+                    console.log(`  [polling] media-search no hit above threshold=${threshold}`);
+                  }
+                } else {
+                  console.warn(`  [polling] media-search query embedding failed: mime=${normalized.mimeType}`);
+                }
               }
             }
           }

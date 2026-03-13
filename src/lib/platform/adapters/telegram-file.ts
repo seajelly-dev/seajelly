@@ -1,5 +1,5 @@
 import type { PlatformFileDownloader, PlatformFile } from "../types";
-import { guessMime } from "../file-utils";
+import { guessMime, detectImageMimeFromBuffer } from "../file-utils";
 import { getBotForAgent } from "@/lib/telegram/bot";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -38,7 +38,20 @@ export class TelegramFileDownloader implements PlatformFileDownloader {
         return null;
       }
 
-      const mime = guessMime(file.file_path, hintMime);
+      const resolvedHeaderMime = res.headers.get("content-type")?.split(";")[0].trim() || null;
+      let mime = guessMime(
+        file.file_path,
+        resolvedHeaderMime && resolvedHeaderMime !== "application/octet-stream"
+          ? resolvedHeaderMime
+          : hintMime
+      );
+      const detectedImageMime = detectImageMimeFromBuffer(buffer);
+      if (detectedImageMime && mime !== detectedImageMime) {
+        console.log(
+          `[tg-file] mime corrected by magic bytes: ${mime} -> ${detectedImageMime} (header=${resolvedHeaderMime ?? "n/a"}, hint=${hintMime ?? "n/a"})`
+        );
+        mime = detectedImageMime;
+      }
       console.log(`[tg-file] success: size=${buffer.length} mime=${mime}`);
       return {
         base64: buffer.toString("base64"),
