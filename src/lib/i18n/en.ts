@@ -775,6 +775,8 @@ const en = {
     toolGitHubPatchFiles: "Apply incremental V4A diff-based code changes to GitHub. Preferred for editing existing files — only outputs changed lines.",
     toolGitHubCheckDeploy: "Check Vercel deployment status for a specific commit SHA.",
     toolGitHubRevertCommit: "Revert a commit by creating a reverse commit on the main branch.",
+    toolGitHubCompareCommits: "Compare two commits to see changed files, diffs, and commit history.",
+    toolGitHubSearchCode: "Search for code patterns across the entire repository.",
     toolTtsSpeak: "Convert text to speech and send as voice message. Owner can toggle via /tts command.",
     toolImageGenerate: "Generate images from text prompts. Requires API key configured in Multimodal → Image Generation.",
     codePlaceholderPython: "# Python example\nimport math\nprint(f'Pi is {math.pi}')",

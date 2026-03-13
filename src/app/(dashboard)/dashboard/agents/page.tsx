@@ -75,6 +75,8 @@ const PRIVILEGED_TOOLS = [
   { key: "github_patch_files", label: "github_patch_files", desc: "coding.toolGitHubPatchFiles", defaultOn: false },
   { key: "github_check_deploy", label: "github_check_deploy", desc: "coding.toolGitHubCheckDeploy", defaultOn: false },
   { key: "github_revert_commit", label: "github_revert_commit", desc: "coding.toolGitHubRevertCommit", defaultOn: false },
+  { key: "github_compare_commits", label: "github_compare_commits", desc: "coding.toolGitHubCompareCommits", defaultOn: false },
+  { key: "github_search_code", label: "github_search_code", desc: "coding.toolGitHubSearchCode", defaultOn: false },
   { key: "tts_speak", label: "tts_speak", desc: "coding.toolTtsSpeak", defaultOn: false },
   { key: "image_generate", label: "image_generate", desc: "coding.toolImageGenerate", defaultOn: false },
 ] as const;

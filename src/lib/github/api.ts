@@ -94,6 +94,115 @@ export async function listTree(
     .filter((p) => (path ? p.startsWith(path) : true));
 }
 
+export interface CompareResult {
+  aheadBy: number;
+  behindBy: number;
+  totalCommits: number;
+  files: {
+    filename: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    patch?: string;
+  }[];
+  commits: {
+    sha: string;
+    message: string;
+    date: string;
+  }[];
+}
+
+export async function compareCommits(
+  token: string,
+  repo: string,
+  base: string,
+  head: string,
+): Promise<CompareResult> {
+  const { owner, name } = parseRepo(repo);
+  const res = await fetch(
+    `${API}/repos/${owner}/${name}/compare/${base}...${head}`,
+    { headers: headers(token) },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`GitHub compare failed (${res.status}): ${body}`);
+  }
+  const data = await res.json();
+  return {
+    aheadBy: data.ahead_by ?? 0,
+    behindBy: data.behind_by ?? 0,
+    totalCommits: data.total_commits ?? 0,
+    files: (data.files ?? []).map(
+      (f: Record<string, unknown>) => ({
+        filename: f.filename as string,
+        status: f.status as string,
+        additions: (f.additions as number) ?? 0,
+        deletions: (f.deletions as number) ?? 0,
+        patch: typeof f.patch === "string" ? (f.patch as string).slice(0, 2000) : undefined,
+      }),
+    ),
+    commits: (data.commits ?? []).slice(-20).map(
+      (c: Record<string, unknown>) => {
+        const commit = c.commit as Record<string, unknown>;
+        const author = commit.author as Record<string, unknown> | undefined;
+        return {
+          sha: c.sha as string,
+          message: ((commit.message as string) ?? "").split("\n")[0],
+          date: (author?.date as string) ?? "",
+        };
+      },
+    ),
+  };
+}
+
+export interface CodeSearchResult {
+  totalCount: number;
+  items: {
+    path: string;
+    matchedLines: string[];
+  }[];
+}
+
+export async function searchCode(
+  token: string,
+  repo: string,
+  query: string,
+  maxResults = 10,
+): Promise<CodeSearchResult> {
+  const { owner, name } = parseRepo(repo);
+  const q = encodeURIComponent(`${query} repo:${owner}/${name}`);
+  const res = await fetch(
+    `${API}/search/code?q=${q}&per_page=${Math.min(maxResults, 30)}`,
+    {
+      headers: {
+        ...headers(token),
+        Accept: "application/vnd.github.text-match+json",
+      },
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`GitHub code search failed (${res.status}): ${body}`);
+  }
+  const data = await res.json();
+  return {
+    totalCount: data.total_count ?? 0,
+    items: (data.items ?? []).map((item: Record<string, unknown>) => {
+      const textMatches = Array.isArray(item.text_matches)
+        ? (item.text_matches as Record<string, unknown>[])
+        : [];
+      const matchedLines = textMatches
+        .map((m) => (typeof m.fragment === "string" ? m.fragment : ""))
+        .filter(Boolean)
+        .slice(0, 3);
+      return {
+        path: item.path as string,
+        matchedLines,
+      };
+    }),
+  };
+}
+
 interface FileChange {
   path: string;
   content: string;

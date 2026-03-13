@@ -14,18 +14,21 @@ This skill guides an AI Agent through the self-evolution pipeline — modifying 
 | `github_commit_push` | Push full file contents | Creating brand-new files or files < 30 lines |
 | `github_check_deploy` | Poll Vercel deployment status | After any commit/patch push |
 | `github_revert_commit` | Revert a commit by SHA | Only when user explicitly requests |
+| `github_compare_commits` | Compare two commits' diffs | Before revert (preview impact), or after push (review changes) |
+| `github_search_code` | Search code patterns in repo | Before refactoring to find all usage sites |
 
 ## Pipeline Flow
 
 ```
-1. Understand → 2. Propose → 3. Confirm → 4. Patch/Commit → 5. Monitor → 6. Revert (if needed)
+1. Search/Understand → 2. Propose → 3. Confirm → 4. Patch/Commit → 5. Monitor → 6. Compare/Revert (if needed)
 ```
 
 ## Step-by-Step Rules
 
-### 1. Understand the Codebase
+### 1. Search & Understand the Codebase
 
 - Call `github_list_files` **once** with empty path to get the full recursive file tree.
+- Use `github_search_code` to quickly locate where a function, variable, or pattern is used across the codebase. This is much faster than reading files one by one — especially useful before refactoring to find all call sites.
 - Read only the files you actually need with `github_read_file`. Plan your reads upfront.
 - Do NOT call `github_list_files` for individual subdirectories — one call returns everything.
 
@@ -71,8 +74,9 @@ Both tools require conventional commit messages:
 - If the result contains `fatal: true` (e.g. missing Vercel credentials), STOP immediately. Do NOT retry.
 - Always include the **full commit SHA** in your reply for future reference (revert, deploy check, etc.).
 
-### 6. Revert if Needed
+### 6. Compare & Revert if Needed
 
+- Use `github_compare_commits` to preview what a revert would undo, or to review what changed after a push. Pass two commit SHAs, branch names, or tags as `base` and `head`.
 - Only revert when the user explicitly requests it.
 - Use `github_revert_commit` with the commit SHA.
 - This creates a reverse commit that triggers Vercel to redeploy the previous state.
@@ -189,12 +193,14 @@ Typical allocation for a single feature:
 | Phase | Steps | Notes |
 |-------|-------|-------|
 | List files | 1 | Single recursive call |
+| Search code | 0-2 | Use `github_search_code` to find usage sites |
 | Read files | 2-5 | Only read what's needed |
 | Propose plan | 1 | Text response to user |
 | Wait for approval | 0 | User sends next message |
 | Patch / commit | 1 | Single `github_patch_files` or `github_commit_push` call |
 | Check deploy | 2-3 | Poll Vercel status |
-| **Total** | **7-11** | Leaves room for iteration |
+| Compare commits | 0-1 | Optional: review what changed after push |
+| **Total** | **7-13** | Leaves room for iteration |
 
 ## When to Skip Build Verification
 

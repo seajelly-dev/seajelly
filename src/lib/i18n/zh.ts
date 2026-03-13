@@ -777,6 +777,8 @@ const zh: TranslationKeys = {
     toolGitHubPatchFiles: "基于 V4A diff 增量修改 GitHub 代码。优先用于编辑已有文件 — 只需输出变更行。",
     toolGitHubCheckDeploy: "通过 Vercel API 查询指定 commit 的部署状态。",
     toolGitHubRevertCommit: "在 main 分支创建反向提交以回退指定 commit。",
+    toolGitHubCompareCommits: "对比两个 commit 之间的文件变更、diff 和提交历史。",
+    toolGitHubSearchCode: "在整个仓库中搜索代码模式，快速定位函数、变量等。",
     toolTtsSpeak: "文本转语音，发送语音消息。Agent Owner 可通过 /tts 命令开启或关闭。",
     toolImageGenerate: "根据文本描述生成图片并发送。需在「多模态 → 图片生成」中配置 API Key。",
     codePlaceholderPython: "# Python 示例\nimport math\nprint(f'Pi is {math.pi}')",

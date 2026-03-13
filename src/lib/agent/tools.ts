@@ -21,6 +21,8 @@ import {
   getFile as githubGetFile,
   listTree as githubListTree,
   createCommitAndPush,
+  compareCommits as githubCompareCommits,
+  searchCode as githubSearchCode,
 } from "@/lib/github/api";
 import { applyPatchesToGitHub, type PatchOperation } from "@/lib/github/patch-harness";
 import type { PlatformSender } from "@/lib/platform/types";
@@ -1183,6 +1185,81 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
             latencyMs: Date.now() - startedAtMs,
           });
           return { success: false, error: err instanceof Error ? err.message : "Revert failed" };
+        }
+      },
+    }),
+
+    github_compare_commits: tool({
+      description:
+        "Compare two commits and show what changed between them. " +
+        "Returns the list of changed files with additions/deletions, commit messages, and patch diffs. " +
+        "Use this to review what a commit changed, preview what a revert would undo, " +
+        "or understand recent modifications. " +
+        "Pass two full commit SHAs, branch names, or tags as base and head.",
+      inputSchema: z.object({
+        base: z.string().describe("Base commit SHA, branch name, or tag (e.g. the parent commit or 'main~1')"),
+        head: z.string().describe("Head commit SHA, branch name, or tag (e.g. the latest commit SHA or 'main')"),
+      }),
+      execute: async ({ base, head }: { base: string; head: string }) => {
+        const { token, repo } = await getGitHubConfig();
+        if (!token || !repo) {
+          return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
+        }
+        try {
+          const result = await githubCompareCommits(token, repo, base, head);
+          return {
+            success: true,
+            totalCommits: result.totalCommits,
+            aheadBy: result.aheadBy,
+            behindBy: result.behindBy,
+            filesChanged: result.files.length,
+            files: result.files.map((f) => ({
+              path: f.filename,
+              status: f.status,
+              additions: f.additions,
+              deletions: f.deletions,
+              patch: f.patch,
+            })),
+            commits: result.commits,
+          };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Compare failed" };
+        }
+      },
+    }),
+
+    github_search_code: tool({
+      description:
+        "Search for code patterns across the entire repository. " +
+        "Returns matching file paths and code fragments. " +
+        "Use this to find where a function, variable, class, or string literal is used " +
+        "across the codebase — much faster than reading files one by one. " +
+        "Supports GitHub code search syntax: exact phrases in quotes, language filters, path filters.",
+      inputSchema: z.object({
+        query: z.string().describe(
+          "Search query. Examples: 'createAgentTools', '\"MAX_STEPS\"', 'language:typescript getFile', 'path:src/lib error'",
+        ),
+        max_results: z.number().optional().describe("Max results to return (default: 10, max: 30)"),
+      }),
+      execute: async ({ query, max_results }: { query: string; max_results?: number }) => {
+        const { token, repo } = await getGitHubConfig();
+        if (!token || !repo) {
+          return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
+        }
+        try {
+          const limit = Math.min(max_results ?? 10, 30);
+          const result = await githubSearchCode(token, repo, query, limit);
+          return {
+            success: true,
+            totalCount: result.totalCount,
+            resultCount: result.items.length,
+            results: result.items.map((item) => ({
+              path: item.path,
+              matchedLines: item.matchedLines,
+            })),
+          };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Search failed" };
         }
       },
     }),

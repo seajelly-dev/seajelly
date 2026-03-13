@@ -98,6 +98,8 @@ const GITHUB_WORKFLOW_TOOLS = [
   "github_patch_files",
   "github_check_deploy",
   "github_revert_commit",
+  "github_compare_commits",
+  "github_search_code",
 ] as const;
 
 const STEP_PAYLOAD_MAX_CHARS = 64 * 1024;
@@ -991,6 +993,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       github_patch_files: false,
       github_check_deploy: false,
       github_revert_commit: false,
+      github_compare_commits: false,
+      github_search_code: false,
       image_generate: false,
     };
     const toolsConfig = (typedAgent.tools_config ?? {}) as Record<string, boolean>;
@@ -1277,6 +1281,8 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       "github_patch_files",
       "github_check_deploy",
       "github_revert_commit",
+      "github_compare_commits",
+      "github_search_code",
     ];
     const githubToolNames = Object.keys(tools).filter((n) => allGithubToolKeys.includes(n));
     if (githubToolNames.length > 0) {
@@ -1301,8 +1307,14 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         "```\n\n" +
         "For **new files** (create_file), every content line starts with `+`.\n" +
         "Only use `github_commit_push` when creating entirely new files from scratch or when the file is very short (< 30 lines).\n\n" +
+        "### Code Search\n" +
+        "Use `github_search_code` to find where a function, variable, or pattern is used across the codebase. " +
+        "This is much faster than reading files one by one. Use it before refactoring to find all usage sites.\n\n" +
+        "### Compare Commits\n" +
+        "Use `github_compare_commits` to see what changed between two commits. " +
+        "Useful after pushing to review changes, or before reverting to preview what will be undone.\n\n" +
         "### Workflow\n" +
-        "1. **Understand**: Call `github_list_files` ONCE (empty path = full recursive tree). Then `github_read_file` for files you need.\n" +
+        "1. **Understand**: Call `github_list_files` ONCE (empty path = full recursive tree). Use `github_search_code` to locate specific symbols. Then `github_read_file` for files you need.\n" +
         "2. **Propose**: Present a clear modification plan with full code diffs to the user. NEVER skip this step.\n" +
         "3. **Wait for confirmation**: Only proceed when the user explicitly approves (e.g. 'ok', 'go ahead', '同意', '推送', '继续').\n" +
         "4. **Commit**: Call `github_patch_files` (preferred for edits) or `github_commit_push` (new files only). Use conventional commit messages.\n" +
