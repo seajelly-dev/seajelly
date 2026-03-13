@@ -432,7 +432,7 @@ export default function DashboardPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-4">
-                    <StatusBadge status={event.status} t={t} />
+                    <StatusBadge status={event.status} t={t as (key: string) => string} />
                     <span className="text-xs text-muted-foreground font-medium">
                       {new Date(event.created_at).toLocaleString()}
                     </span>
@@ -486,7 +486,7 @@ function StatCard({
   );
 }
 
-function StatusBadge({ status, t }: { status: string; t: any }) {
+function StatusBadge({ status, t }: { status: string; t: (key: string) => string }) {
   const variant =
     status === "processed"
       ? "default"

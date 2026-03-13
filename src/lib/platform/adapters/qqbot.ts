@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import * as crypto from "crypto";
 import { decrypt } from "@/lib/crypto/encrypt";
 import type { PlatformSender, SendOptions, ButtonRow } from "../types";
 
@@ -222,7 +223,6 @@ export async function verifyQQBotSignature(
   body: string,
   signatureHex: string,
 ): Promise<boolean> {
-  const crypto = await import("crypto");
   const ed25519Seed = buildEd25519Seed(appSecret);
 
   try {
@@ -260,7 +260,6 @@ export function signQQBotChallenge(
   eventTs: string,
   plainToken: string,
 ): string {
-  const crypto = require("crypto") as typeof import("crypto");
   const ed25519Seed = buildEd25519Seed(appSecret);
 
   const privateKey = crypto.createPrivateKey({

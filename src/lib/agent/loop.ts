@@ -9,12 +9,14 @@ import {
   resolveGenerateTextToolDirective,
 } from "./tooling/runtime";
 import { SELF_EVOLUTION_TOOL_NAMES } from "./tooling/catalog";
+import { dispatchCommand, parseCommand } from "./commands";
+import type { LoopResult } from "./commands/types";
 import { getSenderForAgent, getFileDownloader } from "@/lib/platform/sender";
 import { isImageMime, isTextMime, detectImageMimeFromBuffer } from "@/lib/platform/file-utils";
 import { connectMCPServers, type MCPResult } from "@/lib/mcp/client";
 import type { PlatformSender } from "@/lib/platform/types";
 import type { Agent, AgentEvent, ChatMessage, Channel } from "@/types/database";
-import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText, humanizeAgentError } from "@/lib/i18n/bot";
+import { botT, getBotLocaleOrDefault, buildWelcomeText, humanizeAgentError } from "@/lib/i18n/bot";
 import { checkSubscription } from "@/lib/subscription/check";
 import type { Locale } from "@/lib/i18n/types";
 import { renewEventLock, markProcessed, markFailed } from "@/lib/events/queue";
@@ -23,13 +25,6 @@ import {
   compactSessionMessages,
   prepareSessionHistory,
 } from "@/lib/memory/session";
-
-interface LoopResult {
-  success: boolean;
-  reply?: string;
-  error?: string;
-  traceId: string;
-}
 
 function resolvePlatform(event: AgentEvent): string {
   const fromPayload = (event.payload as Record<string, unknown>).platform as string | undefined;
@@ -551,12 +546,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       throw new Error("No message text or file in payload");
     }
 
-    let command: string | null = null;
-    if (messageText.startsWith("/")) {
-      command = messageText.split(/[\s@]/)[0].toLowerCase();
-    } else if (messageText.startsWith("!")) {
-      command = "/" + messageText.slice(1).split(/[\s@]/)[0].toLowerCase();
-    }
+    const command: string | null = parseCommand(messageText).command;
 
     // Telegram often sends "text then image" as two close events.
     // Coalesce them into one turn to avoid the text being interpreted independently.
@@ -716,254 +706,22 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     // ── Handle bot commands (no AI needed) ──
     const locale: Locale = getBotLocaleOrDefault(typedAgent.bot_locale);
     const t = (k: Parameters<typeof botT>[1], p?: Parameters<typeof botT>[2]) => botT(locale, k, p);
-    const prefix = "/";
-
-    if (command) {
-      if (command === "/new") {
-        await supabase
-          .from("sessions")
-          .update({ is_active: false })
-          .eq("id", session.id);
-        await supabase
-          .from("sessions")
-          .insert({
-            platform_chat_id: platformChatId,
-            agent_id: typedAgent.id,
-            channel_id: channel?.id || null,
-            messages: [],
-            active_skill_ids: [],
-            version: 1,
-            is_active: true,
-          });
-        const msg = t("newSession");
-        await sender.sendText(platformChatId, msg);
-        return { success: true, reply: msg, traceId };
-      }
-
-      if (command === "/skill") {
-        const { data: skillRows } = await supabase
-          .from("agent_skills")
-          .select("skill_id, skills(id, name, description)")
-          .eq("agent_id", typedAgent.id);
-        const skills = (skillRows ?? [])
-          .map((r) => r.skills as unknown as { id: string; name: string; description: string })
-          .filter(Boolean);
-        if (skills.length === 0) {
-          await sender.sendMarkdown(platformChatId, t("skillNone"));
-          return { success: true, reply: "no_skills", traceId };
-        }
-        const activeIds: string[] = Array.isArray(session.active_skill_ids)
-          ? (session.active_skill_ids as string[])
-          : [];
-        const active = skills.filter((s) => activeIds.includes(s.id));
-        const available = skills.filter((s) => !activeIds.includes(s.id));
-        let text = t("skillTitle") + "\n\n";
-        if (active.length > 0) {
-          text += t("skillActive", { count: active.length }) + "\n";
-          for (const s of active) text += `  • *${s.name}*${s.description ? ` — ${s.description}` : ""}\n`;
-          text += "\n";
-        }
-        if (available.length > 0) {
-          text += t("skillAvailable", { count: available.length }) + "\n";
-          for (const s of available) text += `  • ${s.name}${s.description ? ` — ${s.description}` : ""}\n`;
-          text += "\n";
-        }
-        text += t("skillAutoHint");
-        await sender.sendMarkdown(platformChatId, text);
-        return { success: true, reply: text, traceId };
-      }
-
-      if (command === "/help") {
-        const helpText = buildHelpText(locale, typedAgent.name, platform);
-        await sender.sendMarkdown(platformChatId, helpText);
-        return { success: true, reply: helpText, traceId };
-      }
-
-      if (command === "/status") {
-        const msgCount = Array.isArray(session.messages)
-          ? (session.messages as unknown[]).length
-          : 0;
-        const statusText =
-          t("statusTitle") + "\n\n" +
-          t("statusAgent", { agentName: typedAgent.name }) + "\n" +
-          t("statusModel", { model: typedAgent.model }) + "\n" +
-          t("statusAccessMode", { accessMode: typedAgent.access_mode }) + "\n" +
-          t("statusMessages", { count: msgCount });
-        await sender.sendMarkdown(platformChatId, statusText);
-        return { success: true, reply: statusText, traceId };
-      }
-
-      if (command === "/whoami") {
-        const whoamiText = channel
-          ? t("whoamiTitle") + "\n\n" +
-            t("whoamiUid", { uid: channel.platform_uid }) + "\n" +
-            t("whoamiName", { name: channel.display_name || "N/A" }) + "\n" +
-            t("whoamiAllowed", { status: channel.is_allowed ? "✅" : "⛔" }) + "\n\n" +
-            t("whoamiSoul", { soul: channel.user_soul || "(empty)" })
-          : t("noChannelRecord");
-        await sender.sendMarkdown(platformChatId, whoamiText);
-        return { success: true, reply: whoamiText, traceId };
-      }
-
-      if (command === "/start") {
-        await sender.sendMarkdown(platformChatId, t("startGreeting", { agentName: typedAgent.name, prefix }));
-        return { success: true, reply: "start", traceId };
-      }
-
-      if (command === "/tts") {
-        if (!channel?.is_owner) {
-          await sender.sendText(platformChatId, t("ttsOwnerOnly"));
-          return { success: true, reply: "tts_denied", traceId };
-        }
-        const currentConfig = (typedAgent.tools_config ?? {}) as Record<string, boolean>;
-        const isEnabled = !!currentConfig.tts_speak;
-        const newConfig = { ...currentConfig, tts_speak: !isEnabled };
-        await supabase
-          .from("agents")
-          .update({ tools_config: newConfig })
-          .eq("id", typedAgent.id);
-        const ttsMsg = !isEnabled
-          ? t("ttsEnabled", { agentName: typedAgent.name })
-          : t("ttsDisabled", { agentName: typedAgent.name });
-        await sender.sendMarkdown(platformChatId, ttsMsg);
-        return { success: true, reply: `tts_${!isEnabled ? "enabled" : "disabled"}`, traceId };
-      }
-
-      if (command === "/live") {
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-        const { data: link, error: linkErr } = await supabase
-          .from("voice_temp_links")
-          .insert({
-            type: "live",
-            agent_id: typedAgent.id,
-            channel_id: channel?.id || null,
-            config: {},
-          })
-          .select("id, expires_at")
-          .single();
-        if (linkErr || !link) {
-          await sender.sendText(platformChatId, t("liveCreateFailed"));
-          return { success: false, error: "Failed to create live link", traceId };
-        }
-        const liveUrl = `${appUrl}/voice/live/${link.id}`;
-        const liveText =
-          t("liveTitle") + "\n\n" +
-          t("liveLink", { url: liveUrl }) + "\n\n" +
-          t("liveExpires", { time: new Date(link.expires_at).toLocaleString() }) + "\n\n" +
-          t("liveSecurity");
-        await sender.sendMarkdown(platformChatId, liveText);
-        return { success: true, reply: liveUrl, traceId };
-      }
-
-      if (command === "/asr") {
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-        const { data: link, error: linkErr } = await supabase
-          .from("voice_temp_links")
-          .insert({
-            type: "asr",
-            agent_id: typedAgent.id,
-            channel_id: channel?.id || null,
-            config: {},
-          })
-          .select("id, expires_at")
-          .single();
-        if (linkErr || !link) {
-          await sender.sendText(platformChatId, t("asrCreateFailed"));
-          return { success: false, error: "Failed to create ASR link", traceId };
-        }
-        const asrUrl = `${appUrl}/voice/asr/${link.id}`;
-        const asrText =
-          t("asrTitle") + "\n\n" +
-          t("asrLink", { url: asrUrl }) + "\n\n" +
-          t("asrExpires", { time: new Date(link.expires_at).toLocaleString() }) + "\n\n" +
-          t("asrSecurity");
-        await sender.sendMarkdown(platformChatId, asrText);
-        return { success: true, reply: asrUrl, traceId };
-      }
-
-      if (command === "/room") {
-        if (!channel?.is_owner) {
-          await sender.sendText(platformChatId, t("roomOwnerOnly"));
-          return { success: true, reply: "owner only", traceId };
-        }
-        const roomTitle = messageText.replace(/^\/room\s*/i, "").trim() || `Room ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
-        const { data: room, error: roomErr } = await supabase
-          .from("chat_rooms")
-          .insert({
-            agent_id: typedAgent.id,
-            created_by: channel?.id || null,
-            title: roomTitle,
-          })
-          .select()
-          .single();
-        if (roomErr || !room) {
-          await sender.sendText(platformChatId, t("roomCreateFailed"));
-          return { success: false, error: "Failed to create chatroom", traceId };
-        }
-
-        const { buildRoomUrl } = await import("@/lib/room-token");
-        const ownerUrl = buildRoomUrl(room.id, channel?.id || null, platform, channel?.display_name || "Owner", true);
-
-        await supabase.from("chat_room_messages").insert({
-          room_id: room.id,
-          sender_type: "system",
-          sender_name: "System",
-          content: `Chatroom "${roomTitle}" created`,
-        });
-
-        await sender.sendMarkdown(platformChatId, t("roomCreated", { title: roomTitle, url: ownerUrl }));
-
-        const { data: channels } = await supabase
-          .from("channels")
-          .select("id, platform, platform_uid, display_name, is_allowed, is_owner")
-          .eq("agent_id", typedAgent.id)
-          .eq("is_allowed", true);
-        if (channels) {
-          for (const ch of channels) {
-            if (!ch.platform_uid || ch.id === channel?.id) continue;
-            try {
-              const chUrl = buildRoomUrl(room.id, ch.id, ch.platform, ch.display_name || ch.platform_uid, ch.is_owner);
-              const chSender = await getSenderForAgent(typedAgent.id, ch.platform);
-              if (chSender) {
-                await chSender.sendMarkdown(ch.platform_uid, t("roomBroadcast", { title: roomTitle, url: chUrl }));
-              }
-            } catch { /* skip failing channels */ }
-          }
-        }
-        return { success: true, reply: ownerUrl, traceId };
-      }
-
-      if (command === "/imgedit") {
-        const toolsConfig = (typedAgent.tools_config ?? {}) as Record<string, boolean>;
-        if (!toolsConfig.image_generate) {
-          await sender.sendText(platformChatId, t("imgeditNotEnabled"));
-          return { success: true, reply: "imgedit_not_enabled", traceId };
-        }
-        const editPrompt = messageText.replace(/^[/!]imgedit\s*/i, "").trim();
-        const meta = (session.metadata ?? {}) as Record<string, unknown>;
-        await supabase
-          .from("sessions")
-          .update({ metadata: { ...meta, imgedit_pending: true, imgedit_prompt: editPrompt || null } })
-          .eq("id", session.id);
-        const msg = editPrompt
-          ? t("imgeditPrompt", { prompt: editPrompt })
-          : t("imgeditNoPrompt");
-        await sender.sendMarkdown(platformChatId, msg);
-        return { success: true, reply: "imgedit_pending", traceId };
-      }
-
-      if (command === "/cancel") {
-        const meta = (session.metadata ?? {}) as Record<string, unknown>;
-        if (meta.imgedit_pending) {
-          await supabase
-            .from("sessions")
-            .update({ metadata: { ...meta, imgedit_pending: false, imgedit_prompt: null } })
-            .eq("id", session.id);
-          await sender.sendText(platformChatId, t("imgeditCancelled"));
-          return { success: true, reply: "imgedit_cancelled", traceId };
-        }
-      }
-    }
+    const handled = await dispatchCommand({
+      supabase,
+      sender,
+      platform,
+      platformChatId,
+      agent: typedAgent,
+      channel,
+      session,
+      locale,
+      t,
+      traceId,
+      messageText,
+      event,
+      command,
+    });
+    if (handled) return handled;
 
     // ── /imgedit image intercept: if pending and user sends an image, run image edit directly ──
     const imageEditSessionMeta = (session.metadata ?? {}) as Record<string, unknown>;
