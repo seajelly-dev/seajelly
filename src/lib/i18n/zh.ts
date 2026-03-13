@@ -773,6 +773,7 @@ const zh: TranslationKeys = {
     toolGitHubReadFile: "从项目 GitHub 仓库读取文件内容。",
     toolGitHubListFiles: "列出项目 GitHub 仓库的文件目录树。",
     toolGitHubCommitPush: "提交并推送代码到 GitHub（需用户文本确认）。",
+    toolGitHubPatchFiles: "基于 V4A diff 增量修改 GitHub 代码。优先用于编辑已有文件 — 只需输出变更行。",
     toolGitHubCheckDeploy: "通过 Vercel API 查询指定 commit 的部署状态。",
     toolGitHubRevertCommit: "在 main 分支创建反向提交以回退指定 commit。",
     toolTtsSpeak: "文本转语音，发送语音消息。Agent Owner 可通过 /tts 命令开启或关闭。",

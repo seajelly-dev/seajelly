@@ -771,6 +771,7 @@ const en = {
     toolGitHubReadFile: "Read a file from the project's GitHub repository.",
     toolGitHubListFiles: "List the file tree of the project's GitHub repository.",
     toolGitHubCommitPush: "Commit and push code changes to GitHub (requires user text confirmation).",
+    toolGitHubPatchFiles: "Apply incremental V4A diff-based code changes to GitHub. Preferred for editing existing files — only outputs changed lines.",
     toolGitHubCheckDeploy: "Check Vercel deployment status for a specific commit SHA.",
     toolGitHubRevertCommit: "Revert a commit by creating a reverse commit on the main branch.",
     toolTtsSpeak: "Convert text to speech and send as voice message. Owner can toggle via /tts command.",

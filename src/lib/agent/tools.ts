@@ -22,6 +22,7 @@ import {
   listTree as githubListTree,
   createCommitAndPush,
 } from "@/lib/github/api";
+import { applyPatchesToGitHub, type PatchOperation } from "@/lib/github/patch-harness";
 import type { PlatformSender } from "@/lib/platform/types";
 import { botT, getBotLocaleOrDefault } from "@/lib/i18n/bot";
 import type { Locale } from "@/lib/i18n/types";
@@ -966,6 +967,127 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
             latencyMs: Date.now() - startedAtMs,
           });
           return { success: false, error: err instanceof Error ? err.message : "Push failed" };
+        }
+      },
+    }),
+
+    github_patch_files: tool({
+      description:
+        "Apply incremental code changes to GitHub using V4A diffs. " +
+        "PREFERRED over github_commit_push for modifying existing files — uses diff-based patching " +
+        "so you only output changed lines instead of entire file contents. " +
+        "Each operation specifies a file path and a V4A diff. " +
+        "For new files, use create_file with a diff where every line starts with +. " +
+        "For modifications, use update_file with context lines (space prefix) and +/- changes. " +
+        "For deletions, use delete_file with just the path.\n\n" +
+        "CRITICAL: You MUST present the full change plan to the user and receive explicit text confirmation " +
+        "BEFORE calling this tool. NEVER call this without prior user consent.",
+      inputSchema: z.object({
+        operations: z
+          .array(
+            z.object({
+              type: z.enum(["create_file", "update_file", "delete_file"]),
+              path: z.string().describe("File path relative to repo root"),
+              diff: z
+                .string()
+                .optional()
+                .describe(
+                  "V4A diff text. For update_file: include @@ context header, space-prefixed context lines, " +
+                  "+added lines, -removed lines. For create_file: every content line starts with +. " +
+                  "Not needed for delete_file.",
+                ),
+            }),
+          )
+          .describe("List of file operations to apply"),
+        message: z.string().describe("Git commit message (use conventional commits: feat/fix/docs/refactor)"),
+        branch: z.string().optional().describe("Target branch, default: main"),
+      }),
+      execute: async (params: {
+        operations: { type: "create_file" | "update_file" | "delete_file"; path: string; diff?: string }[];
+        message: string;
+        branch?: string;
+      }) => {
+        const startedAtMs = Date.now();
+        const guardErr = githubPipelineGuardError();
+        if (guardErr) {
+          await writePipelineAudit({
+            toolName: "github_patch_files",
+            input: params,
+            output: { blocked: true },
+            status: "failed",
+            errorMessage: guardErr,
+            latencyMs: Date.now() - startedAtMs,
+          });
+          return { success: false, error: guardErr };
+        }
+
+        if (!channelId) {
+          return { success: false, error: "No channel context for patch." };
+        }
+
+        const { data: callerCh } = await supabase
+          .from("channels")
+          .select("id, is_owner")
+          .eq("id", channelId)
+          .single();
+        if (!callerCh?.is_owner) {
+          return { success: false, error: "Only the owner channel can push to GitHub." };
+        }
+
+        const { token, repo } = await getGitHubConfig();
+        if (!token || !repo) {
+          return { success: false, error: "GITHUB_TOKEN or GITHUB_REPO not configured." };
+        }
+        const branch = params.branch ?? "main";
+        try {
+          const { owner, name } = parseRepo(repo);
+          const result = await applyPatchesToGitHub(
+            token,
+            `${owner}/${name}`,
+            params.operations as PatchOperation[],
+            params.message,
+            branch,
+          );
+          await writePipelineAudit({
+            toolName: "github_patch_files",
+            input: {
+              branch,
+              operations_count: params.operations.length,
+              files: params.operations.map((o) => `${o.type}:${o.path}`),
+            },
+            output: {
+              commit_sha: result.commitSha,
+              commit_url: result.commitUrl,
+              patched_files: result.patchedFiles,
+            },
+            status: "success",
+            latencyMs: Date.now() - startedAtMs,
+          });
+          return {
+            success: true,
+            commitSha: result.commitSha,
+            commitUrl: result.commitUrl,
+            patchedFiles: result.patchedFiles,
+            message: `Patched ${result.patchedFiles.length} file(s) and pushed to ${branch}: ${result.commitUrl}. Vercel will auto-deploy. Use github_check_deploy to monitor.`,
+          };
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : "Patch failed";
+          await writePipelineAudit({
+            toolName: "github_patch_files",
+            input: {
+              branch,
+              operations_count: params.operations.length,
+            },
+            output: null,
+            status: "failed",
+            errorMessage: errMsg,
+            latencyMs: Date.now() - startedAtMs,
+          });
+          return {
+            success: false,
+            error: errMsg,
+            hint: "The file may have changed since you last read it. Re-read with github_read_file and retry with corrected context lines.",
+          };
         }
       },
     }),

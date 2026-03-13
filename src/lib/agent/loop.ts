@@ -95,6 +95,7 @@ const GITHUB_WORKFLOW_TOOLS = [
   "github_read_file",
   "github_list_files",
   "github_commit_push",
+  "github_patch_files",
   "github_check_deploy",
   "github_revert_commit",
 ] as const;
@@ -237,6 +238,8 @@ function hasGithubWorkflowIntent(messageText: string): boolean {
     "pipeline",
     "revert",
     "rollback",
+    "patch",
+    "diff",
     "部署",
     "仓库",
     "代码修改",
@@ -244,6 +247,7 @@ function hasGithubWorkflowIntent(messageText: string): boolean {
     "自进化",
     "回退",
     "回滚",
+    "补丁",
   ];
   return keywords.some((k) => t.includes(k));
 }
@@ -950,6 +954,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       github_read_file: false,
       github_list_files: false,
       github_commit_push: false,
+      github_patch_files: false,
       github_check_deploy: false,
       github_revert_commit: false,
       image_generate: false,
@@ -1161,6 +1166,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       "github_read_file",
       "github_list_files",
       "github_commit_push",
+      "github_patch_files",
       "github_check_deploy",
       "github_revert_commit",
     ];
@@ -1169,11 +1175,29 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       systemPrompt +=
         "\n\n## GitHub Self-Evolution Pipeline\n" +
         "You can read and modify the project's GitHub repository, triggering Vercel auto-deployment.\n\n" +
+        "### Diff-Based Editing (Preferred)\n" +
+        "When modifying existing files, ALWAYS prefer `github_patch_files` over `github_commit_push`.\n" +
+        "Use V4A diff format in each operation's `diff` field:\n" +
+        "- Start with `@@ <context>` header containing a recognizable line (e.g. function signature) to anchor the change location.\n" +
+        "- Use space prefix (` `) for context lines that must match the original file — include 2-3 lines before and after each change.\n" +
+        "- Use `-` prefix for lines to remove.\n" +
+        "- Use `+` prefix for lines to add.\n" +
+        "- Multiple `@@ ` sections in one diff for changes in different parts of the same file.\n\n" +
+        "Example diff for update_file:\n" +
+        "```\n" +
+        "@@ export async function myFunc\n" +
+        " export async function myFunc() {\n" +
+        "-  const old = true;\n" +
+        "+  const fixed = false;\n" +
+        "   return fixed;\n" +
+        "```\n\n" +
+        "For **new files** (create_file), every content line starts with `+`.\n" +
+        "Only use `github_commit_push` when creating entirely new files from scratch or when the file is very short (< 30 lines).\n\n" +
         "### Workflow\n" +
         "1. **Understand**: Call `github_list_files` ONCE (empty path = full recursive tree). Then `github_read_file` for files you need.\n" +
         "2. **Propose**: Present a clear modification plan with full code diffs to the user. NEVER skip this step.\n" +
         "3. **Wait for confirmation**: Only proceed when the user explicitly approves (e.g. 'ok', 'go ahead', '同意', '推送', '继续').\n" +
-        "4. **Commit**: Call `github_commit_push` with the approved changes. Use conventional commit messages (feat/fix/docs/refactor).\n" +
+        "4. **Commit**: Call `github_patch_files` (preferred for edits) or `github_commit_push` (new files only). Use conventional commit messages.\n" +
         "5. **Monitor**: Call `github_check_deploy` 2-3 times to check Vercel deployment status. If still BUILDING, tell the user to wait.\n" +
         "   - **CRITICAL**: If `github_check_deploy` returns `fatal: true`, STOP immediately. Do NOT retry. Report the error to the user and end the monitoring.\n" +
         "   - **ON ERROR**: When state is `ERROR`, the result includes `buildLogs` with the actual build error output. " +
@@ -1181,8 +1205,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         "Do NOT keep polling after receiving ERROR — the build has already failed.\n" +
         "6. **Revert if needed**: If the user requests a rollback, use `github_revert_commit` with the commit SHA.\n\n" +
         "### Rules\n" +
-        "- NEVER call `github_commit_push` without prior user consent in the conversation.\n" +
+        "- NEVER call `github_commit_push` or `github_patch_files` without prior user consent in the conversation.\n" +
         "- NEVER call `github_revert_commit` without explicit user request.\n" +
+        "- If `github_patch_files` fails (context mismatch), re-read the file with `github_read_file` and retry with corrected context lines.\n" +
         "- If any tool returns `fatal: true`, NEVER call that tool again in this session.\n" +
         "- After receiving ERROR from `github_check_deploy`, do NOT poll again — present logs and wait for user decision.\n" +
         "- Be efficient: plan reads upfront, minimize tool calls. Budget: ~25 steps total.\n" +
@@ -1474,7 +1499,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     let reply = roomToolCalled ? "" : (result.text || t("noResponseGenerated"));
     if (!roomToolCalled && stepsCount >= AGENT_LIMITS.MAX_STEPS && (!result.text || !result.text.trim())) {
-      const hasPushSuccess = calledToolNames.has("github_commit_push");
+      const hasPushSuccess = calledToolNames.has("github_commit_push") || calledToolNames.has("github_patch_files");
       if (hasPushSuccess) {
         reply = locale === "zh"
           ? "代码已成功推送到 GitHub，Vercel 将自动部署。可以发送\"查询部署状态\"来跟进。"

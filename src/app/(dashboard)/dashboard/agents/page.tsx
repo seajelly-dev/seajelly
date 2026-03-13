@@ -72,6 +72,7 @@ const PRIVILEGED_TOOLS = [
   { key: "github_read_file", label: "github_read_file", desc: "coding.toolGitHubReadFile", defaultOn: false },
   { key: "github_list_files", label: "github_list_files", desc: "coding.toolGitHubListFiles", defaultOn: false },
   { key: "github_commit_push", label: "github_commit_push", desc: "coding.toolGitHubCommitPush", defaultOn: false },
+  { key: "github_patch_files", label: "github_patch_files", desc: "coding.toolGitHubPatchFiles", defaultOn: false },
   { key: "github_check_deploy", label: "github_check_deploy", desc: "coding.toolGitHubCheckDeploy", defaultOn: false },
   { key: "github_revert_commit", label: "github_revert_commit", desc: "coding.toolGitHubRevertCommit", defaultOn: false },
   { key: "tts_speak", label: "tts_speak", desc: "coding.toolTtsSpeak", defaultOn: false },
