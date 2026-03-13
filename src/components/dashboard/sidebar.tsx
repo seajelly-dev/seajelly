@@ -79,10 +79,10 @@ function LocalTime() {
     return () => clearInterval(timer);
   }, []);
 
-  if (!time) return <div className="h-4 mt-2" />;
+  if (!time) return <div className="h-4 mt-1" />;
 
   return (
-    <div className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/60">
+    <div className="mt-1 flex w-full items-center justify-center gap-1.5 text-[11px] font-medium text-muted-foreground/60">
       <Clock className="size-3" />
       <span>{time}</span>
     </div>
@@ -126,7 +126,7 @@ export function DashboardSidebar({ userEmail }: { userEmail: string }) {
       <Suspense fallback={null}>
         <LoginGateCapture />
       </Suspense>
-      <SidebarHeader className="border-b px-4 py-3">
+      <SidebarHeader className="border-b px-4 pt-4 pb-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Image src="/logo.svg" alt="SEAJelly Logo" width={32} height={32} />
