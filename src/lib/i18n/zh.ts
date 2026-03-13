@@ -304,6 +304,7 @@ const zh: TranslationKeys = {
     chatHistory: "聊天记录",
     chatInfo: "聊天 {chatId} · {agent} · {count} 条消息",
     noMessages: "此会话暂无消息。",
+    activeSkills: "已激活技能",
     loadFailed: "加载会话失败",
   },
 

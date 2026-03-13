@@ -56,6 +56,7 @@ interface SessionRow {
   is_active: boolean;
   updated_at: string;
   messages: ChatMessage[];
+  active_skill_ids: string[];
   agents: { name: string } | null;
   channels: { platform: string; display_name: string | null } | null;
 }
@@ -269,11 +270,30 @@ export default function SessionsPage() {
                 <Loader2 className="size-8 animate-spin" />
                 <p className="text-sm">{t("common.loading")}</p>
               </div>
-            ) : selectedDetail && selectedDetail.messages.length > 0 ? (
+            ) : selectedDetail ? (
               <div className="flex flex-col gap-4">
-                {selectedDetail.messages.map((msg, i) => (
-                  <MessageBubble key={i} message={msg} />
-                ))}
+                {selectedDetail.active_skill_ids?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 rounded-lg border bg-muted/30 px-3 py-2">
+                    <span className="mr-1 text-xs font-medium text-muted-foreground">
+                      {t("sessions.activeSkills")}:
+                    </span>
+                    {selectedDetail.active_skill_ids.map((id) => (
+                      <Badge key={id} variant="secondary" className="text-xs">
+                        {id.slice(0, 8)}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {selectedDetail.messages.length > 0 ? (
+                  selectedDetail.messages.map((msg, i) => (
+                    <MessageBubble key={i} message={msg} />
+                  ))
+                ) : (
+                  <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
+                    <MessageSquare className="size-8" />
+                    <p className="text-sm">{t("sessions.noMessages")}</p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">

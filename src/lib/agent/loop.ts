@@ -560,6 +560,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             agent_id: typedAgent.id,
             channel_id: channel?.id || null,
             messages: [],
+            active_skill_ids: [],
             version: 1,
             is_active: true,
           });
@@ -1096,19 +1097,64 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
 
-    // ── Skills injection ──
+    // ── Skills injection (lazy activation per session) ──
     const { data: agentSkillRows } = await supabase
       .from("agent_skills")
-      .select("skill_id, skills(name, content)")
+      .select("skill_id, skills(id, name, description, content)")
       .eq("agent_id", typedAgent.id);
 
-    if (agentSkillRows?.length) {
-      systemPrompt += "\n\n## Skills\n";
-      for (const row of agentSkillRows) {
-        const skill = row.skills as unknown as { name: string; content: string };
-        if (skill) {
-          systemPrompt += `\n### ${skill.name}\n${skill.content}\n`;
+    const allAgentSkills = (agentSkillRows ?? [])
+      .map((r) => r.skills as unknown as { id: string; name: string; description: string; content: string })
+      .filter(Boolean);
+
+    const sessionActiveSkillIds: string[] = Array.isArray(session.active_skill_ids)
+      ? (session.active_skill_ids as string[])
+      : [];
+
+    const newlyActivatedIds: string[] = [];
+    if (allAgentSkills.length > 0) {
+      const inactiveSkills = allAgentSkills.filter((s) => !sessionActiveSkillIds.includes(s.id));
+      const lowerMsg = messageText.toLowerCase();
+      for (const skill of inactiveSkills) {
+        const nameWords = skill.name.toLowerCase().split(/[\s_\-/]+/).filter((w) => w.length >= 2);
+        const descWords = (skill.description || "").toLowerCase().split(/[\s_\-/,;.]+/).filter((w) => w.length >= 3);
+        const matchWords = [...nameWords, ...descWords];
+        if (matchWords.some((w) => lowerMsg.includes(w))) {
+          newlyActivatedIds.push(skill.id);
         }
+      }
+    }
+
+    const effectiveActiveIds = [...new Set([...sessionActiveSkillIds, ...newlyActivatedIds])];
+
+    if (newlyActivatedIds.length > 0) {
+      await supabase
+        .from("sessions")
+        .update({ active_skill_ids: effectiveActiveIds })
+        .eq("id", session.id);
+      const activatedNames = allAgentSkills
+        .filter((s) => newlyActivatedIds.includes(s.id))
+        .map((s) => s.name);
+      console.log(
+        `[agent-loop] trace=${traceId} skills activated: [${activatedNames.join(",")}] total_active=${effectiveActiveIds.length}`
+      );
+    }
+
+    const activeSkills = allAgentSkills.filter((s) => effectiveActiveIds.includes(s.id));
+    const inactiveSkills = allAgentSkills.filter((s) => !effectiveActiveIds.includes(s.id));
+
+    if (activeSkills.length > 0) {
+      systemPrompt += "\n\n## Active Skills\n";
+      for (const skill of activeSkills) {
+        systemPrompt += `\n### ${skill.name}\n${skill.content}\n`;
+      }
+    }
+
+    if (inactiveSkills.length > 0) {
+      systemPrompt += "\n\n## Available Skills (not yet activated)\n";
+      systemPrompt += "The following skills are available but not loaded. They will auto-activate when relevant topics are discussed.\n";
+      for (const skill of inactiveSkills) {
+        systemPrompt += `- **${skill.name}**: ${skill.description || "(no description)"}\n`;
       }
     }
 
@@ -1570,6 +1616,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       .from("sessions")
       .update({
         messages: updatedMessages,
+        active_skill_ids: effectiveActiveIds,
         version: sessionVersion + 1,
       })
       .eq("id", session.id)

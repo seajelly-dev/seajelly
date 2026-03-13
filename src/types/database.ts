@@ -164,6 +164,7 @@ export interface Session {
   channel_id: string | null;
   messages: ChatMessage[];
   metadata: Record<string, unknown>;
+  active_skill_ids: string[];
   version: number;
   is_active: boolean;
   updated_at: string;

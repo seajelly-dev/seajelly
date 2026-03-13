@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS public.sessions (
   channel_id        uuid REFERENCES public.channels(id) ON DELETE SET NULL,
   messages          jsonb NOT NULL DEFAULT '[]',
   metadata          jsonb NOT NULL DEFAULT '{}',
+  active_skill_ids  uuid[] NOT NULL DEFAULT '{}',
   version           int NOT NULL DEFAULT 1,
   is_active         boolean NOT NULL DEFAULT true,
   updated_at        timestamptz NOT NULL DEFAULT now()

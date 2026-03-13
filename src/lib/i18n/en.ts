@@ -302,6 +302,7 @@ const en = {
     chatHistory: "Chat History",
     chatInfo: "Chat {chatId} · {agent} · {count} messages",
     noMessages: "No messages in this session.",
+    activeSkills: "Active Skills",
     loadFailed: "Failed to load sessions",
   },
 
