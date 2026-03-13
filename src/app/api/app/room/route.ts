@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { generateText } from "ai";
 import { getModel } from "@/lib/agent/provider";
 import { verifyRoomToken } from "@/lib/room-token";
+import { logApiUsage, readGenerateTextUsage } from "@/lib/usage/log";
 import type { Agent } from "@/types/database";
 
 export const runtime = "nodejs";
@@ -242,7 +243,8 @@ async function handleAgentReply(
       })
       .join("\n");
 
-    const { model } = await getModel(typedAgent.model, typedAgent.provider_id);
+    const startedAt = Date.now();
+    const { model, resolvedProviderId, pickedKeyId } = await getModel(typedAgent.model, typedAgent.provider_id);
     const systemPrompt =
       (typedAgent.system_prompt || "") +
       `\n\nYou are "${typedAgent.name}", participating in a cross-platform chatroom. ` +
@@ -260,6 +262,16 @@ async function handleAgentReply(
         },
       ],
       maxOutputTokens: 1024,
+    });
+
+    await logApiUsage({
+      supabase,
+      agentId,
+      providerId: resolvedProviderId,
+      modelId: typedAgent.model,
+      keyId: pickedKeyId,
+      durationMs: Date.now() - startedAt,
+      usage: readGenerateTextUsage(result),
     });
 
     const reply = result.text?.trim();

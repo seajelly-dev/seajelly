@@ -18,6 +18,11 @@ import { botT, getBotLocaleOrDefault, buildHelpText, buildWelcomeText, humanizeA
 import { checkSubscription } from "@/lib/subscription/check";
 import type { Locale } from "@/lib/i18n/types";
 import { renewEventLock, markProcessed, markFailed } from "@/lib/events/queue";
+import {
+  buildSessionSummaryPromptSection,
+  compactSessionMessages,
+  prepareSessionHistory,
+} from "@/lib/memory/session";
 
 interface LoopResult {
   success: boolean;
@@ -38,6 +43,12 @@ function resolvePlatform(event: AgentEvent): string {
 interface ExtractedImage {
   png: string;
   toolName: string;
+}
+
+interface UsageMetrics {
+  present: boolean;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 function readToolName(stepItem: unknown): string | null {
@@ -116,6 +127,22 @@ function extractToolInputPath(toolCalls: unknown[]): string | null {
     return trimmed.length > 0 ? trimmed : "";
   }
   return null;
+}
+
+function extractUsageMetrics(usage: unknown): UsageMetrics {
+  if (!usage || typeof usage !== "object") {
+    return { present: false, inputTokens: 0, outputTokens: 0 };
+  }
+
+  const rec = usage as Record<string, unknown>;
+  const inputTokens = typeof rec.inputTokens === "number" ? rec.inputTokens : 0;
+  const outputTokens = typeof rec.outputTokens === "number" ? rec.outputTokens : 0;
+
+  return {
+    present: true,
+    inputTokens,
+    outputTokens,
+  };
 }
 
 type DeployCheckState = "BUILDING" | "READY" | "ERROR" | "QUEUED" | "CANCELED" | "NOT_FOUND";
@@ -939,12 +966,12 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     // ── /imgedit image intercept: if pending and user sends an image, run image edit directly ──
-    const sessionMeta = (session.metadata ?? {}) as Record<string, unknown>;
-    if (sessionMeta.imgedit_pending && fileId && event.agent_id) {
+    const imageEditSessionMeta = (session.metadata ?? {}) as Record<string, unknown>;
+    if (imageEditSessionMeta.imgedit_pending && fileId && event.agent_id) {
       const fileDownloader = getFileDownloader(platform);
       const file = await fileDownloader.download(event.agent_id, fileId, fileMime, fileName);
       if (file && isImageMime(file.mimeType)) {
-        const editPrompt = (messageText || sessionMeta.imgedit_prompt as string || "").trim();
+        const editPrompt = (messageText || imageEditSessionMeta.imgedit_prompt as string || "").trim();
         if (!editPrompt) {
           await sender.sendText(platformChatId, t("imgeditNoPrompt"));
           return { success: true, reply: "imgedit_no_prompt", traceId };
@@ -969,22 +996,33 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         }
         await supabase
           .from("sessions")
-          .update({ metadata: { ...sessionMeta, imgedit_pending: false, imgedit_prompt: null } })
+          .update({ metadata: { ...imageEditSessionMeta, imgedit_pending: false, imgedit_prompt: null } })
           .eq("id", session.id);
         return { success: true, reply: "imgedit_done", traceId };
       }
     }
 
-    const history: ChatMessage[] = Array.isArray(session.messages)
-      ? (session.messages as ChatMessage[])
-      : [];
+    const preparedSession = prepareSessionHistory({
+      metadata: session.metadata ?? {},
+      messages: Array.isArray(session.messages)
+        ? (session.messages as ChatMessage[])
+        : [],
+      modelId: typedAgent.model,
+    });
+    const sessionMetadata = preparedSession.metadata;
+    const sessionSummary = preparedSession.summary;
+    const history = preparedSession.messages;
 
     const messages: ModelMessage[] = history
       .slice(-AGENT_LIMITS.MAX_SESSION_MESSAGES)
-      .map((m: ChatMessage) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      }));
+      .flatMap((m: ChatMessage) =>
+        m.role === "user" || m.role === "assistant"
+          ? [{
+              role: m.role,
+              content: m.content,
+            }]
+          : []
+      );
 
     // Build multimodal user message if file is present
     let fileHandled = false;
@@ -1240,6 +1278,11 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         }
         systemPrompt += section;
       }
+    }
+
+    const sessionSummarySection = buildSessionSummaryPromptSection(sessionSummary);
+    if (sessionSummarySection) {
+      systemPrompt += `\n\n${sessionSummarySection}`;
     }
 
     // ── Skills injection (lazy activation per session) ──
@@ -1508,6 +1551,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     let lastDeployCheckCommitSha: string | null = null;
     let lastDeployCheckState: string | null = null;
     let consecutiveSameDeployCheckState = 0;
+    let usageRowsInserted = 0;
+    let loggedInputTokens = 0;
+    let loggedOutputTokens = 0;
     try {
       result = await generateText({
         model,
@@ -1655,7 +1701,34 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
               error_message: errorMessage,
               latency_ms: latency,
             };
+            const stepUsage = extractUsageMetrics(rec.usage);
+            const actualModelId =
+              rec.model && typeof rec.model === "object" && typeof (rec.model as Record<string, unknown>).modelId === "string"
+                ? ((rec.model as Record<string, unknown>).modelId as string)
+                : typedAgent.model;
+
             await supabase.from("agent_step_logs").insert(row);
+
+            if (stepUsage.present) {
+              try {
+                await supabase
+                  .from("api_usage_logs")
+                  .insert({
+                    agent_id: typedAgent.id,
+                    provider_id: resolvedProviderId,
+                    model_id: actualModelId,
+                    key_id: pickedKeyId,
+                    input_tokens: stepUsage.inputTokens,
+                    output_tokens: stepUsage.outputTokens,
+                    duration_ms: latency,
+                  });
+                usageRowsInserted += 1;
+                loggedInputTokens += stepUsage.inputTokens;
+                loggedOutputTokens += stepUsage.outputTokens;
+              } catch (err) {
+                console.warn(`[agent-loop] trace=${traceId} api_usage_logs step insert failed:`, err);
+              }
+            }
           } catch {
             // non-blocking: step log should never break main agent flow
           }
@@ -1710,21 +1783,34 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     const usageDurationMs = Date.now() - startTime;
-    supabase
-      .from("api_usage_logs")
-      .insert({
-        agent_id: typedAgent.id,
-        provider_id: resolvedProviderId,
-        model_id: typedAgent.model,
-        key_id: pickedKeyId,
-        input_tokens: result.usage?.inputTokens ?? 0,
-        output_tokens: result.usage?.outputTokens ?? 0,
-        duration_ms: usageDurationMs,
-      })
-      .then(
-        () => {},
-        () => {},
+    const totalUsage = extractUsageMetrics(
+      ((result as Record<string, unknown>).totalUsage ?? (result as Record<string, unknown>).usage)
+    );
+    if (usageRowsInserted === 0 && totalUsage.present) {
+      try {
+        await supabase.from("api_usage_logs").insert({
+          agent_id: typedAgent.id,
+          provider_id: resolvedProviderId,
+          model_id: typedAgent.model,
+          key_id: pickedKeyId,
+          input_tokens: totalUsage.inputTokens,
+          output_tokens: totalUsage.outputTokens,
+          duration_ms: usageDurationMs,
+        });
+        usageRowsInserted = 1;
+        loggedInputTokens = totalUsage.inputTokens;
+        loggedOutputTokens = totalUsage.outputTokens;
+      } catch (err) {
+        console.warn(`[agent-loop] trace=${traceId} api_usage_logs fallback insert failed:`, err);
+      }
+    } else if (
+      totalUsage.present &&
+      (totalUsage.inputTokens !== loggedInputTokens || totalUsage.outputTokens !== loggedOutputTokens)
+    ) {
+      console.warn(
+        `[agent-loop] trace=${traceId} usage mismatch total=(${totalUsage.inputTokens},${totalUsage.outputTokens}) logged=(${loggedInputTokens},${loggedOutputTokens}) rows=${usageRowsInserted}`,
       );
+    }
 
     if (!roomToolCalled) {
       await sender.sendMarkdown(platformChatId, reply);
@@ -1762,12 +1848,22 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
               timestamp: new Date().toISOString(),
             }]
       ),
-    ].slice(-AGENT_LIMITS.MAX_SESSION_MESSAGES);
+    ];
+
+    const compactedSession = await compactSessionMessages({
+      metadata: sessionMetadata,
+      messages: updatedMessages,
+      modelId: typedAgent.model,
+      sessionVersion,
+      agentId: typedAgent.id,
+      providerId: typedAgent.provider_id,
+    });
 
     const { error: updateErr } = await supabase
       .from("sessions")
       .update({
-        messages: updatedMessages,
+        messages: compactedSession.messages,
+        metadata: compactedSession.metadata,
         active_skill_ids: effectiveActiveIds,
         version: sessionVersion + 1,
       })

@@ -157,13 +157,27 @@ export interface ChatMessage {
   timestamp?: string;
 }
 
+export interface SessionSummary {
+  version: 1;
+  summary_text: string;
+  updated_at: string;
+  summarized_message_count: number;
+  retained_recent_count: number;
+  last_compacted_session_version: number;
+  model_id: string;
+}
+
+export interface SessionMetadata extends Record<string, unknown> {
+  session_summary?: SessionSummary | null;
+}
+
 export interface Session {
   id: string;
   platform_chat_id: string;
   agent_id: string;
   channel_id: string | null;
   messages: ChatMessage[];
-  metadata: Record<string, unknown>;
+  metadata: SessionMetadata;
   active_skill_ids: string[];
   version: number;
   is_active: boolean;

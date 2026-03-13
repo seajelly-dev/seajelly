@@ -25,10 +25,24 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TablePagination } from "@/components/table-pagination";
 import { toast } from "sonner";
-import { MessageSquare, Bot, User, RefreshCw, Loader2, Copy, Check } from "lucide-react";
+import {
+  MessageSquare,
+  Bot,
+  User,
+  RefreshCw,
+  Loader2,
+  Copy,
+  Check,
+  ChevronDown,
+} from "lucide-react";
 import {
   TelegramIcon,
   FeishuIcon,
@@ -47,6 +61,21 @@ interface ChatMessage {
   timestamp?: string;
 }
 
+interface SessionSummaryData {
+  version: 1;
+  summary_text: string;
+  updated_at: string;
+  summarized_message_count: number;
+  retained_recent_count: number;
+  last_compacted_session_version: number;
+  model_id: string;
+}
+
+interface SessionMetadata {
+  session_summary?: SessionSummaryData | null;
+  [key: string]: unknown;
+}
+
 interface SessionRow {
   id: string;
   platform_chat_id: string;
@@ -56,6 +85,7 @@ interface SessionRow {
   is_active: boolean;
   updated_at: string;
   messages: ChatMessage[];
+  metadata?: SessionMetadata | null;
   active_skill_ids: string[];
   agents: { name: string } | null;
   channels: { platform: string; display_name: string | null } | null;
@@ -69,6 +99,17 @@ const PLATFORM_ICON: Record<string, React.FC<{ className?: string }>> = {
   qqbot: QQBotIcon,
   whatsapp: WhatsAppIcon,
 };
+
+function normalizeSessionRow(session: SessionRow): SessionRow {
+  return {
+    ...session,
+    messages: Array.isArray(session.messages) ? session.messages : [],
+    metadata:
+      session.metadata && typeof session.metadata === "object"
+        ? session.metadata
+        : null,
+  };
+}
 
 export default function SessionsPage() {
   const t = useT();
@@ -90,10 +131,9 @@ export default function SessionsPage() {
           `/api/admin/sessions?page=${p}&page_size=${PAGE_SIZE}`
         );
         const data = await res.json();
-        const rows = (data.sessions ?? []).map((s: SessionRow) => ({
-          ...s,
-          messages: Array.isArray(s.messages) ? s.messages : [],
-        }));
+        const rows = (data.sessions ?? []).map((s: SessionRow) =>
+          normalizeSessionRow(s)
+        );
         setSessions(rows);
         setTotal(data.total ?? 0);
       } catch {
@@ -113,11 +153,7 @@ export default function SessionsPage() {
         const res = await fetch(`/api/admin/sessions?id=${id}`);
         const data = await res.json();
         if (data.session) {
-          const s = data.session;
-          setSelectedDetail({
-            ...s,
-            messages: Array.isArray(s.messages) ? s.messages : [],
-          });
+          setSelectedDetail(normalizeSessionRow(data.session as SessionRow));
           if (Array.isArray(data.active_skills)) {
             setActiveSkillNames(data.active_skills);
           }
@@ -293,6 +329,11 @@ export default function SessionsPage() {
                     ))}
                   </div>
                 )}
+                {selectedDetail.metadata?.session_summary && (
+                  <SessionSummaryCard
+                    summary={selectedDetail.metadata.session_summary}
+                  />
+                )}
                 {selectedDetail.messages.length > 0 ? (
                   selectedDetail.messages.map((msg, i) => (
                     <MessageBubble key={i} message={msg} />
@@ -314,6 +355,60 @@ export default function SessionsPage() {
         </SheetContent>
       </Sheet>
     </div>
+  );
+}
+
+function SessionSummaryCard({ summary }: { summary: SessionSummaryData }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className="rounded-xl border bg-muted/20">
+        <div className="flex flex-col gap-3 p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <div className="text-sm font-medium">
+                {t("sessions.summaryTitle")}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("sessions.summaryDesc")}
+              </p>
+            </div>
+            <CollapsibleTrigger className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+              {open ? t("sessions.summaryHide") : t("sessions.summaryShow")}
+              <ChevronDown
+                className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+              />
+            </CollapsibleTrigger>
+          </div>
+
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <Badge variant="outline">
+              {t("sessions.summaryUpdatedAt")}:{" "}
+              {new Date(summary.updated_at).toLocaleString()}
+            </Badge>
+            <Badge variant="outline">
+              {t("sessions.summaryCompressedCount")}:{" "}
+              {summary.summarized_message_count}
+            </Badge>
+            <Badge variant="outline">
+              {t("sessions.summaryRetainedCount")}:{" "}
+              {summary.retained_recent_count}
+            </Badge>
+            <Badge variant="outline">
+              {t("sessions.summaryModel")}: {summary.model_id}
+            </Badge>
+          </div>
+        </div>
+
+        <CollapsibleContent className="border-t px-4 py-4">
+          <div className="whitespace-pre-wrap text-sm leading-6 text-foreground">
+            {summary.summary_text}
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
   );
 }
 
