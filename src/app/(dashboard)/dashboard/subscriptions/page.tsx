@@ -375,7 +375,10 @@ export default function SubscriptionsPage() {
 
   const formatDate = (iso: string | null) => {
     if (!iso) return "—";
-    return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    return new Date(iso).toLocaleString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
   };
 
   const filteredGrantChannels = useMemo(() => {
