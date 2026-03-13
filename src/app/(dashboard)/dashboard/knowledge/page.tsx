@@ -151,6 +151,7 @@ export default function KnowledgePage() {
   const [customEmbedKey, setCustomEmbedKey] = useState("");
   const [hasCustomEmbedKey, setHasCustomEmbedKey] = useState(false);
   const [savingEmbedKey, setSavingEmbedKey] = useState(false);
+  const [savingEmbedModel, setSavingEmbedModel] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
 
   // Search
@@ -178,11 +179,12 @@ export default function KnowledgePage() {
   const GOOGLE_PROVIDER_ID = "00000000-0000-0000-0000-000000000003";
 
   const fetchModels = useCallback(async () => {
-    const [provRes, modRes, secretsRes, googleKeysRes] = await Promise.all([
+    const [provRes, modRes, secretsRes, googleKeysRes, settingsRes] = await Promise.all([
       fetch("/api/admin/providers").then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/models").then((r) => r.json()).catch(() => ({})),
       fetch("/api/admin/secrets").then((r) => r.json()).catch(() => ({})),
       fetch(`/api/admin/providers/keys?provider_id=${GOOGLE_PROVIDER_ID}`).then((r) => r.json()).catch(() => ({})),
+      fetch("/api/admin/settings").then((r) => r.json()).catch(() => ({})),
     ]);
     const providers: Provider[] = provRes.providers ?? [];
     const models: ModelItem[] = (modRes.models ?? []).map((m: ModelItem & Record<string, unknown>) => ({
@@ -207,6 +209,11 @@ export default function KnowledgePage() {
 
     const secrets: { key_name: string }[] = secretsRes.secrets ?? [];
     setHasCustomEmbedKey(secrets.some((s) => s.key_name === "EMBEDDING_API_KEY"));
+
+    const settings: Record<string, string> = settingsRes.settings ?? {};
+    if (settings.knowledge_embed_model && EMBED_MODELS.some((m) => m.id === settings.knowledge_embed_model)) {
+      setEmbedModelId(settings.knowledge_embed_model);
+    }
   }, []);
 
   useEffect(() => {
@@ -844,16 +851,40 @@ export default function KnowledgePage() {
               {/* Model selector */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">{t("knowledge.embedModel")}</Label>
-                <Select value={embedModelId} onValueChange={(v) => setEmbedModelId(v ?? EMBED_MODELS[0].id)}>
-                  <SelectTrigger className="w-80">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {EMBED_MODELS.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <Select value={embedModelId} onValueChange={(v) => setEmbedModelId(v ?? EMBED_MODELS[0].id)}>
+                    <SelectTrigger className="w-80">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EMBED_MODELS.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    disabled={savingEmbedModel}
+                    onClick={async () => {
+                      setSavingEmbedModel(true);
+                      try {
+                        const res = await fetch("/api/admin/settings", {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ key: "knowledge_embed_model", value: embedModelId }),
+                        });
+                        if (!res.ok) throw new Error("save failed");
+                        toast.success(t("knowledge.embedModelSaved"));
+                      } catch {
+                        toast.error(t("knowledge.embedModelSaveFailed"));
+                      } finally {
+                        setSavingEmbedModel(false);
+                      }
+                    }}
+                  >
+                    {savingEmbedModel ? <Loader2 className="size-4 animate-spin" /> : t("knowledge.saveEmbedModel")}
+                  </Button>
+                </div>
 
                 <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                   <AlertCircle className="size-4 mt-0.5 shrink-0" />
