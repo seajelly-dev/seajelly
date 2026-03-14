@@ -576,6 +576,9 @@ export default function AgentsPage() {
   };
 
   const getFieldGuideKey = (platform: PlatformKey, fieldName: string) => {
+    if (platform === "feishu" && fieldName === "encrypt_key") {
+      return "feishuEncryptKeyGuide";
+    }
     if (platform === "feishu" && fieldName === "verification_token") {
       return "feishuVerificationTokenGuide";
     }

@@ -1,4 +1,4 @@
-# OpenCrab Agent Notes
+# SeaJelly Agent Notes
 
 ## Project Snapshot
 

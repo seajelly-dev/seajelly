@@ -266,6 +266,7 @@ const en = {
     hintSlack: "Go to api.slack.com/apps → Create New App (From scratch) → add Bot Scopes in OAuth & Permissions: chat:write, im:history, files:read → Install to Workspace → copy Bot User OAuth Token (starts with xoxb-) → get Signing Secret from Basic Information → enable Event Subscriptions with the Webhook URL below and subscribe to message.im → enable Messages Tab in App Home → set the same Webhook URL in Interactivity & Shortcuts.",
     hintQqbot: "Go to q.qq.com → create a bot → get AppID & AppSecret → set the Event Callback URL in Developer Settings to the Webhook URL below.",
     hintWhatsapp: "Go to developers.facebook.com → create an app (Business type) → add WhatsApp product → in API Setup, get Phone Number ID → in Business Settings → System Users, generate a permanent Access Token (do not use the temporary token from API Setup, it expires quickly) → in Webhook Configuration, set the Callback URL to the Webhook URL below with your custom Verify Token → subscribe to 'messages' field. App Secret comes from the Meta App's Basic Settings page.",
+    feishuEncryptKeyGuide: "Encrypt Key is only needed if you enabled encrypted callback payloads in Feishu. Copy the exact same Encrypt Key from Feishu here; do not generate a different value locally.",
     feishuVerificationTokenGuide: "Verification Token is a custom string you set inside Feishu Event Subscriptions. You can click Generate here, then paste the same value into Feishu.",
     whatsappVerifyTokenGuide: "Verify Token is also a custom string for Meta webhook verification. You can generate one here and paste the same value into Meta Webhook Configuration.",
     whatsappAppSecretGuide: "App Secret is not generated here. Copy it from Meta App Dashboard → App Settings → Basic → App Secret.",
@@ -1013,6 +1014,7 @@ const en = {
   subApps: {
     title: "Sub-Apps",
     subtitle: "Manage Agent-Native GUI applications",
+    guide: "Dev Guide",
     slug: "Slug",
     name: "Name",
     description: "Description",
@@ -1028,6 +1030,70 @@ const en = {
     bindFailed: "Failed to update binding",
     boundAgents: "{count} agent(s) bound",
     loadFailed: "Failed to load Sub-Apps",
+    roomSecurity: {
+      button: "Configure Room Security",
+      cardTitle: "Room Security",
+      configured: "Configured",
+      ready: "Ready",
+      required: "Required",
+      missing: "Missing: {keys}",
+      missingFallback: "Missing: settings",
+      dialogTitle: "{name} Settings",
+      dialogDesc: "Room links stay unavailable until the room signing keys are configured.",
+      currentStatusTitle: "Current Status",
+      currentStatusDesc: "The room Sub-App needs a token secret, a realtime signing key, and a key ID.",
+      complete: "Room security is ready",
+      incomplete: "Room security is incomplete",
+      allConfigured: "All required values are configured.",
+      supabaseGuideTitle: "What you need to do in Supabase",
+      supabaseGuideDesc:
+        "Supabase needs the signing key JSON. You do not paste the public key box back into SeaJelly.",
+      step1Title: "1. Generate or save a room key bundle here first.",
+      step1Desc:
+        "The lower form is where SeaJelly stores the private key. If you click Generate New Bundle, SeaJelly saves it for you automatically.",
+      step2Title: "2. Copy the “Supabase Signing Key JSON” block below.",
+      step2Desc:
+        "That JSON already contains the private key and the matching KID. You do not need to manually assemble anything.",
+      step3Title: "3. In Supabase Dashboard, open Authentication -> Signing Keys.",
+      step3Desc:
+        "If you still see the old JWT secret page, migrate it to Signing Keys first.",
+      step4Title: "4. Click Create standby key -> Import key, paste the JSON, and save.",
+      step4Desc:
+        "After the key appears in the list, click Rotate key so Supabase starts accepting room realtime JWTs signed by this key.",
+      step5Title: "5. Done: you do not paste the public key back into the fields below.",
+      step5Desc:
+        "The public key box is only a reference for inspection or external verification.",
+      kidLabel: "Realtime JWT KID",
+      signingKeyJsonLabel: "Supabase Signing Key JSON",
+      signingKeyJsonHint:
+        "Paste this whole JSON into Supabase when importing a signing key.",
+      publicKeyLabel: "Realtime Public Key",
+      publicKeyHint:
+        "Reference only. This is the public half derived from the stored private key.",
+      importJsonUnavailable:
+        "Generate or save the room key bundle first. Once a private key and KID exist, the Supabase import JSON will appear here.",
+      generateButton: "Generate New Bundle",
+      updateTitle: "Update Values",
+      updateDesc:
+        "Leave a field empty to keep the current stored value. Or generate a fresh bundle in one click.",
+      tokenSecretLabel: "ROOM_TOKEN_SECRET",
+      tokenSecretPlaceholder: "Leave empty to keep current value",
+      kidInputLabel: "ROOM_REALTIME_JWT_KID",
+      kidInputPlaceholder: "Leave empty to keep current value",
+      privateKeyLabel: "ROOM_REALTIME_JWT_PRIVATE_KEY",
+      privateKeyPlaceholder:
+        "Paste a PEM private key, or leave empty to keep current value",
+      rotationWarning:
+        "Generating a new bundle will rotate the room token secret and realtime signing key. Existing room links and active room sessions will stop working after rotation.",
+      saveSuccess: "Room Sub-App settings saved",
+      saveFailed: "Failed to save room configuration",
+      loadFailed: "Failed to load room configuration",
+      generateSuccess: "Generated a new room security bundle",
+      generateFailed: "Failed to generate room configuration",
+      copyPublicKeySuccess: "Realtime public key copied",
+      copySigningKeySuccess: "Supabase signing key JSON copied",
+      copyKidSuccess: "Realtime JWT KID copied",
+    },
   },
 
   room: {

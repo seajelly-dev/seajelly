@@ -50,6 +50,7 @@ interface RoomSettingsStatus {
   missingKeys: string[];
   publicKeyPem: string | null;
   roomRealtimeJwtKid: string | null;
+  supabaseImportJwk: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -647,6 +648,16 @@ export default function SubAppsPage() {
   const [activeTab, setActiveTab] = useState<"manage" | "guide">("manage");
   const [guideLang, setGuideLang] = useState<"en" | "zh">("en");
 
+  const formatRoomMissingKeys = useCallback(
+    (missingKeys: string[] | undefined) => {
+      const keys = missingKeys?.filter(Boolean).join(", ");
+      return keys
+        ? t("subApps.roomSecurity.missing", { keys })
+        : t("subApps.roomSecurity.missingFallback");
+    },
+    [t],
+  );
+
   const fetchSubApps = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/sub-apps");
@@ -762,7 +773,7 @@ export default function SubAppsPage() {
         })
         .catch((error) => {
           toast.error(
-            error instanceof Error ? error.message : "Failed to load room configuration",
+            error instanceof Error ? error.message : t("subApps.roomSecurity.loadFailed"),
           );
         })
         .finally(() => {
@@ -771,10 +782,10 @@ export default function SubAppsPage() {
     }
   };
 
-  const copyPublicKey = async () => {
-    if (!roomSettingsStatus?.publicKeyPem) return;
-    await navigator.clipboard.writeText(roomSettingsStatus.publicKeyPem);
-    toast.success("Public key copied");
+  const copyValue = async (value: string | null | undefined, successMessage: string) => {
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    toast.success(successMessage);
   };
 
   const saveRoomSettings = async () => {
@@ -797,10 +808,10 @@ export default function SubAppsPage() {
         ROOM_REALTIME_JWT_KID: data.roomRealtimeJwtKid || "",
       });
       await fetchSubApps();
-      toast.success("Room Sub-App settings saved");
+      toast.success(t("subApps.roomSecurity.saveSuccess"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to save room configuration",
+        error instanceof Error ? error.message : t("subApps.roomSecurity.saveFailed"),
       );
     } finally {
       setSettingsSaving(false);
@@ -827,10 +838,10 @@ export default function SubAppsPage() {
         ROOM_REALTIME_JWT_KID: data.roomRealtimeJwtKid || "",
       });
       await fetchSubApps();
-      toast.success("Generated a new room security bundle");
+      toast.success(t("subApps.roomSecurity.generateSuccess"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to generate room configuration",
+        error instanceof Error ? error.message : t("subApps.roomSecurity.generateFailed"),
       );
     } finally {
       setSettingsSaving(false);
@@ -868,7 +879,7 @@ export default function SubAppsPage() {
           }`}
         >
           <BookOpen className="inline-block mr-1.5 size-4" />
-          Dev Guide
+          {t("subApps.guide")}
         </button>
       </div>
 
@@ -938,15 +949,19 @@ export default function SubAppsPage() {
                       <div className="rounded-lg border border-dashed p-3">
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="text-sm font-medium">Room Security</p>
+                            <p className="text-sm font-medium">
+                              {t("subApps.roomSecurity.cardTitle")}
+                            </p>
                             <p className="text-xs text-muted-foreground">
                               {app.config_complete
-                                ? "Configured"
-                                : `Missing: ${(app.config_missing_keys ?? []).join(", ") || "settings"}`}
+                                ? t("subApps.roomSecurity.configured")
+                                : formatRoomMissingKeys(app.config_missing_keys)}
                             </p>
                           </div>
                           <Badge variant={app.config_complete ? "secondary" : "destructive"}>
-                            {app.config_complete ? "Ready" : "Required"}
+                            {app.config_complete
+                              ? t("subApps.roomSecurity.ready")
+                              : t("subApps.roomSecurity.required")}
                           </Badge>
                         </div>
                       </div>
@@ -959,7 +974,7 @@ export default function SubAppsPage() {
                         onClick={() => openSettings(app)}
                       >
                         <Settings2 className="mr-2 size-4" />
-                        Configure Room Security
+                        {t("subApps.roomSecurity.button")}
                       </Button>
                     )}
                     <Button
@@ -996,157 +1011,256 @@ export default function SubAppsPage() {
       )}
 
       <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+          <DialogHeader className="shrink-0 border-b px-6 pb-4 pr-12 pt-6">
             <DialogTitle className="flex items-center gap-2">
               <Settings2 className="size-4" />
-              {settingsTarget?.name || "Sub-App"} Settings
+              {t("subApps.roomSecurity.dialogTitle", {
+                name: settingsTarget?.name || "Sub-App",
+              })}
             </DialogTitle>
             <p className="text-sm text-muted-foreground">
-              Room links are disabled until these security settings are configured.
+              {t("subApps.roomSecurity.dialogDesc")}
             </p>
           </DialogHeader>
 
           {settingsTarget?.slug === "room" && (
-            <div className="space-y-4">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <KeyRound className="size-4" />
-                    Current Status
-                  </CardTitle>
-                  <CardDescription>
-                    The room Sub-App needs three secrets: token secret, realtime private key, and key id.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {settingsLoading ? (
-                    <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm">
-                          <p className="font-medium">
-                            {roomSettingsStatus?.complete
-                              ? "Room security is ready"
-                              : "Room security is incomplete"}
-                          </p>
-                          <p className="text-muted-foreground">
-                            {(roomSettingsStatus?.missingKeys ?? []).length > 0
-                              ? `Missing: ${roomSettingsStatus?.missingKeys.join(", ")}`
-                              : "All required values are configured."}
-                          </p>
-                        </div>
-                        <Badge variant={roomSettingsStatus?.complete ? "secondary" : "destructive"}>
-                          {roomSettingsStatus?.complete ? "Ready" : "Required"}
-                        </Badge>
-                      </div>
-
-                      <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
-                        <p className="font-medium text-foreground">Supabase step</p>
-                        <p>
-                          After generating a new realtime keypair, copy the public key below into
-                          Supabase Auth signing keys, and keep the same KID value there.
-                        </p>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>Realtime JWT KID</Label>
-                        <Input value={roomSettingsStatus?.roomRealtimeJwtKid || ""} readOnly />
-                      </div>
-
-                      <div className="space-y-1.5">
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              <div className="flex flex-col gap-4">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <KeyRound className="size-4" />
+                      {t("subApps.roomSecurity.currentStatusTitle")}
+                    </CardTitle>
+                    <CardDescription>
+                      {t("subApps.roomSecurity.currentStatusDesc")}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {settingsLoading ? (
+                      <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+                    ) : (
+                      <>
                         <div className="flex items-center justify-between gap-3">
-                          <Label>Realtime Public Key</Label>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={copyPublicKey}
-                            disabled={!roomSettingsStatus?.publicKeyPem}
-                          >
-                            <Copy className="mr-1.5 size-3.5" />
-                            Copy
-                          </Button>
+                          <div className="text-sm">
+                            <p className="font-medium">
+                              {roomSettingsStatus?.complete
+                                ? t("subApps.roomSecurity.complete")
+                                : t("subApps.roomSecurity.incomplete")}
+                            </p>
+                            <p className="text-muted-foreground">
+                              {(roomSettingsStatus?.missingKeys ?? []).length > 0
+                                ? formatRoomMissingKeys(roomSettingsStatus?.missingKeys)
+                                : t("subApps.roomSecurity.allConfigured")}
+                            </p>
+                          </div>
+                          <Badge variant={roomSettingsStatus?.complete ? "secondary" : "destructive"}>
+                            {roomSettingsStatus?.complete
+                              ? t("subApps.roomSecurity.ready")
+                              : t("subApps.roomSecurity.required")}
+                          </Badge>
                         </div>
-                        <Textarea
-                          value={roomSettingsStatus?.publicKeyPem || ""}
-                          readOnly
-                          rows={6}
-                          className="font-mono text-xs"
-                        />
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
 
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Update Values</CardTitle>
-                  <CardDescription>
-                    Leave a field empty to keep the current stored value. Or generate a fresh bundle in one click.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-1.5">
-                    <Label>ROOM_TOKEN_SECRET</Label>
-                    <Input
-                      type="password"
-                      value={roomSettingsForm.ROOM_TOKEN_SECRET}
-                      onChange={(event) =>
-                        setRoomSettingsForm((current) => ({
-                          ...current,
-                          ROOM_TOKEN_SECRET: event.target.value,
-                        }))
-                      }
-                      placeholder="Leave empty to keep current value"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>ROOM_REALTIME_JWT_KID</Label>
-                    <Input
-                      value={roomSettingsForm.ROOM_REALTIME_JWT_KID}
-                      onChange={(event) =>
-                        setRoomSettingsForm((current) => ({
-                          ...current,
-                          ROOM_REALTIME_JWT_KID: event.target.value,
-                        }))
-                      }
-                      placeholder="Leave empty to keep current value"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>ROOM_REALTIME_JWT_PRIVATE_KEY</Label>
-                    <Textarea
-                      value={roomSettingsForm.ROOM_REALTIME_JWT_PRIVATE_KEY}
-                      onChange={(event) =>
-                        setRoomSettingsForm((current) => ({
-                          ...current,
-                          ROOM_REALTIME_JWT_PRIVATE_KEY: event.target.value,
-                        }))
-                      }
-                      rows={8}
-                      className="font-mono text-xs"
-                      placeholder="Paste a PEM private key, or leave empty to keep current value"
-                    />
-                  </div>
+                        <div className="rounded-md border bg-muted/40 p-4 text-sm">
+                          <div className="flex flex-col gap-3">
+                            <div>
+                              <p className="font-medium text-foreground">
+                                {t("subApps.roomSecurity.supabaseGuideTitle")}
+                              </p>
+                              <p className="mt-1 text-muted-foreground">
+                                {t("subApps.roomSecurity.supabaseGuideDesc")}
+                              </p>
+                            </div>
+                            <ol className="flex list-decimal flex-col gap-2 pl-5 text-muted-foreground">
+                              <li>
+                                <span className="font-medium text-foreground">
+                                  {t("subApps.roomSecurity.step1Title")}
+                                </span>
+                                <p className="mt-1">{t("subApps.roomSecurity.step1Desc")}</p>
+                              </li>
+                              <li>
+                                <span className="font-medium text-foreground">
+                                  {t("subApps.roomSecurity.step2Title")}
+                                </span>
+                                <p className="mt-1">{t("subApps.roomSecurity.step2Desc")}</p>
+                              </li>
+                              <li>
+                                <span className="font-medium text-foreground">
+                                  {t("subApps.roomSecurity.step3Title")}
+                                </span>
+                                <p className="mt-1">{t("subApps.roomSecurity.step3Desc")}</p>
+                              </li>
+                              <li>
+                                <span className="font-medium text-foreground">
+                                  {t("subApps.roomSecurity.step4Title")}
+                                </span>
+                                <p className="mt-1">{t("subApps.roomSecurity.step4Desc")}</p>
+                              </li>
+                              <li>
+                                <span className="font-medium text-foreground">
+                                  {t("subApps.roomSecurity.step5Title")}
+                                </span>
+                                <p className="mt-1">{t("subApps.roomSecurity.step5Desc")}</p>
+                              </li>
+                            </ol>
+                          </div>
+                        </div>
 
-                  <div className="rounded-md border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900">
-                    <div className="flex items-start gap-2">
-                      <ShieldAlert className="size-4 shrink-0 mt-0.5" />
-                      <p>
-                        Generating a new bundle will rotate the room token secret and realtime signing key.
-                        Existing room links and active room sessions will stop working after rotation.
-                      </p>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <Label>{t("subApps.roomSecurity.kidLabel")}</Label>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                copyValue(
+                                  roomSettingsStatus?.roomRealtimeJwtKid,
+                                  t("subApps.roomSecurity.copyKidSuccess"),
+                                )
+                              }
+                              disabled={!roomSettingsStatus?.roomRealtimeJwtKid}
+                            >
+                              <Copy className="mr-1.5 size-3.5" />
+                              {t("common.copy")}
+                            </Button>
+                          </div>
+                          <Input value={roomSettingsStatus?.roomRealtimeJwtKid || ""} readOnly />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <Label>{t("subApps.roomSecurity.signingKeyJsonLabel")}</Label>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                copyValue(
+                                  roomSettingsStatus?.supabaseImportJwk,
+                                  t("subApps.roomSecurity.copySigningKeySuccess"),
+                                )
+                              }
+                              disabled={!roomSettingsStatus?.supabaseImportJwk}
+                            >
+                              <Copy className="mr-1.5 size-3.5" />
+                              {t("common.copy")}
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {roomSettingsStatus?.supabaseImportJwk
+                              ? t("subApps.roomSecurity.signingKeyJsonHint")
+                              : t("subApps.roomSecurity.importJsonUnavailable")}
+                          </p>
+                          <Textarea
+                            value={roomSettingsStatus?.supabaseImportJwk || ""}
+                            readOnly
+                            rows={10}
+                            className="font-mono text-xs"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <Label>{t("subApps.roomSecurity.publicKeyLabel")}</Label>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                copyValue(
+                                  roomSettingsStatus?.publicKeyPem,
+                                  t("subApps.roomSecurity.copyPublicKeySuccess"),
+                                )
+                              }
+                              disabled={!roomSettingsStatus?.publicKeyPem}
+                            >
+                              <Copy className="mr-1.5 size-3.5" />
+                              {t("common.copy")}
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {t("subApps.roomSecurity.publicKeyHint")}
+                          </p>
+                          <Textarea
+                            value={roomSettingsStatus?.publicKeyPem || ""}
+                            readOnly
+                            rows={6}
+                            className="font-mono text-xs"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">
+                      {t("subApps.roomSecurity.updateTitle")}
+                    </CardTitle>
+                    <CardDescription>
+                      {t("subApps.roomSecurity.updateDesc")}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label>{t("subApps.roomSecurity.tokenSecretLabel")}</Label>
+                      <Input
+                        type="password"
+                        value={roomSettingsForm.ROOM_TOKEN_SECRET}
+                        onChange={(event) =>
+                          setRoomSettingsForm((current) => ({
+                            ...current,
+                            ROOM_TOKEN_SECRET: event.target.value,
+                          }))
+                        }
+                        placeholder={t("subApps.roomSecurity.tokenSecretPlaceholder")}
+                      />
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+                    <div className="space-y-1.5">
+                      <Label>{t("subApps.roomSecurity.kidInputLabel")}</Label>
+                      <Input
+                        value={roomSettingsForm.ROOM_REALTIME_JWT_KID}
+                        onChange={(event) =>
+                          setRoomSettingsForm((current) => ({
+                            ...current,
+                            ROOM_REALTIME_JWT_KID: event.target.value,
+                          }))
+                        }
+                        placeholder={t("subApps.roomSecurity.kidInputPlaceholder")}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>{t("subApps.roomSecurity.privateKeyLabel")}</Label>
+                      <Textarea
+                        value={roomSettingsForm.ROOM_REALTIME_JWT_PRIVATE_KEY}
+                        onChange={(event) =>
+                          setRoomSettingsForm((current) => ({
+                            ...current,
+                            ROOM_REALTIME_JWT_PRIVATE_KEY: event.target.value,
+                          }))
+                        }
+                        rows={8}
+                        className="font-mono text-xs"
+                        placeholder={t("subApps.roomSecurity.privateKeyPlaceholder")}
+                      />
+                    </div>
+
+                    <div className="rounded-md border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900">
+                      <div className="flex items-start gap-2">
+                        <ShieldAlert className="size-4 shrink-0 mt-0.5" />
+                        <p>{t("subApps.roomSecurity.rotationWarning")}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0 shrink-0 rounded-none border-t bg-background px-6 py-4">
             {settingsTarget?.slug === "room" && (
               <Button
                 type="button"
@@ -1155,7 +1269,7 @@ export default function SubAppsPage() {
                 disabled={settingsSaving}
               >
                 <RefreshCw className="mr-2 size-4" />
-                Generate New Bundle
+                {t("subApps.roomSecurity.generateButton")}
               </Button>
             )}
             <Button variant="ghost" onClick={() => setSettingsDialogOpen(false)}>

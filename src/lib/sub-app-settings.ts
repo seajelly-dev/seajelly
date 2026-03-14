@@ -23,6 +23,7 @@ export interface RoomSubAppConfigStatus {
   missingKeys: RoomSubAppSettingKey[];
   publicKeyPem: string | null;
   roomRealtimeJwtKid: string | null;
+  supabaseImportJwk: string | null;
 }
 
 interface SubAppSettingRow {
@@ -59,9 +60,24 @@ function normalizeRoomSettingKey(value: string): RoomSubAppSettingKey | null {
 
 function derivePublicKeyPem(privateKeyPem: string) {
   return crypto
-    .createPublicKey(privateKeyPem)
+    .createPublicKey(privateKeyPem.replace(/\\n/g, "\n"))
     .export({ format: "pem", type: "spki" })
     .toString();
+}
+
+function deriveSupabaseImportJwk(privateKeyPem: string, kid: string) {
+  const jwk = crypto
+    .createPrivateKey(privateKeyPem.replace(/\\n/g, "\n"))
+    .export({ format: "jwk" }) as JsonWebKey;
+  return JSON.stringify(
+    {
+      ...jwk,
+      alg: "ES256",
+      kid,
+    },
+    null,
+    2,
+  );
 }
 
 function parseRoomConfig(rows: SubAppSettingRow[]) {
@@ -146,13 +162,16 @@ export async function getRoomSubAppConfigStatus() {
   const rows = (data ?? []) as SubAppSettingRow[];
   const { partial, configuredKeys, missingKeys } = parseRoomConfig(rows);
   const privateKey = partial.ROOM_REALTIME_JWT_PRIVATE_KEY;
+  const kid = partial.ROOM_REALTIME_JWT_KID;
 
   return {
     complete: missingKeys.length === 0,
     configuredKeys,
     missingKeys,
     publicKeyPem: privateKey ? derivePublicKeyPem(privateKey) : null,
-    roomRealtimeJwtKid: partial.ROOM_REALTIME_JWT_KID ?? null,
+    roomRealtimeJwtKid: kid ?? null,
+    supabaseImportJwk:
+      privateKey && kid ? deriveSupabaseImportJwk(privateKey, kid) : null,
   } satisfies RoomSubAppConfigStatus;
 }
 

@@ -25,6 +25,43 @@ function decryptFeishuEvent(encrypt: string, encryptKey: string): string {
   return decrypted.toString("utf8");
 }
 
+function normalizeSecret(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function safeSecretEquals(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function extractFeishuVerificationToken(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    return { source: null, token: null };
+  }
+
+  const body = payload as {
+    token?: unknown;
+    header?: {
+      token?: unknown;
+    };
+  };
+
+  if (typeof body.token === "string" && body.token.trim()) {
+    return { source: "body.token", token: body.token.trim() };
+  }
+
+  if (typeof body.header?.token === "string" && body.header.token.trim()) {
+    return { source: "header.token", token: body.header.token.trim() };
+  }
+
+  return { source: null, token: null };
+}
+
 async function getFeishuCredentials(agentId: string) {
   const supabase = getSupabase();
   const { data } = await supabase
@@ -53,15 +90,47 @@ export async function POST(
     const { agentId } = await params;
     let body = await request.json();
     const { encryptKey, verificationToken } = await getFeishuCredentials(agentId);
+    const expectedToken = normalizeSecret(verificationToken);
+    const encryptedPayload =
+      body && typeof body === "object" && typeof (body as { encrypt?: unknown }).encrypt === "string"
+        ? (body as { encrypt: string }).encrypt
+        : null;
+    const hasEncryptEnvelope = !!encryptedPayload;
 
-    if (body.encrypt) {
+    if (encryptedPayload) {
       if (!encryptKey) {
         return NextResponse.json({ error: "No encrypt key configured" }, { status: 500 });
       }
-      body = JSON.parse(decryptFeishuEvent(body.encrypt, encryptKey));
+      body = JSON.parse(decryptFeishuEvent(encryptedPayload, encryptKey));
     }
 
-    if (!verificationToken || body.token !== verificationToken) {
+    if (!expectedToken) {
+      console.error("Feishu webhook rejected: verification token is not configured", {
+        agentId,
+      });
+      return NextResponse.json(
+        { error: "Feishu verification token is not configured" },
+        { status: 500 },
+      );
+    }
+
+    const incomingToken = extractFeishuVerificationToken(body);
+    if (!incomingToken.token || !safeSecretEquals(incomingToken.token, expectedToken)) {
+      console.warn("Feishu webhook rejected: verification token mismatch", {
+        agentId,
+        hasEncryptEnvelope,
+        schema:
+          body && typeof body === "object" && typeof (body as { schema?: unknown }).schema === "string"
+            ? (body as { schema: string }).schema
+            : null,
+        tokenSource: incomingToken.source,
+        hasBodyToken:
+          !!body && typeof body === "object" && typeof (body as { token?: unknown }).token === "string",
+        hasHeaderToken:
+          !!body
+          && typeof body === "object"
+          && typeof (body as { header?: { token?: unknown } }).header?.token === "string",
+      });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
