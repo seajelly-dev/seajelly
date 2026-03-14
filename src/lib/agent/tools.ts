@@ -21,6 +21,7 @@ import { isTextTooLong } from "@/lib/voice/tts-config-data";
 import { generateImage } from "@/lib/image-gen/engine";
 import { searchKnowledgeForAgent } from "@/lib/knowledge/search";
 import { createSelfEvolutionToolkitTools } from "@/lib/agent/tooling/tools/self-evolution";
+import { createJellyBoxToolkitTools } from "@/lib/agent/tooling/tools/jellybox";
 
 function bigrams(text: string): Set<string> {
   const clean = text.replace(/\s+/g, "");
@@ -734,6 +735,11 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
       agentId,
       channelId,
       traceId,
+      supabase,
+    }),
+    ...createJellyBoxToolkitTools({
+      agentId,
+      channelId,
       supabase,
     }),
   };

@@ -24,6 +24,7 @@ import {
   CreditCard,
   BookOpen,
   AppWindow,
+  HardDrive,
 } from "lucide-react";
 import Image from "next/image";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -63,6 +64,7 @@ const NAV_ITEMS: { titleKey: string; href: string; icon: LucideIcon }[] = [
   { titleKey: "sidebar.tasks", href: "/dashboard/tasks", icon: Clock },
   { titleKey: "sidebar.mcpServers", href: "/dashboard/mcp", icon: Plug },
   { titleKey: "sidebar.skills", href: "/dashboard/skills", icon: Sparkles },
+  { titleKey: "sidebar.jellybox", href: "/dashboard/jellybox", icon: HardDrive },
   { titleKey: "sidebar.subApps", href: "/dashboard/sub-apps", icon: AppWindow },
   { titleKey: "sidebar.coding", href: "/dashboard/coding", icon: Code2 },
   { titleKey: "sidebar.events", href: "/dashboard/events", icon: Radio },

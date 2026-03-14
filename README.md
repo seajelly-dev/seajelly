@@ -17,6 +17,7 @@ No server. No Docker. No SSH. Just Supabase + Vercel free tier.
 - [Step 4: Run Setup Wizard](#step-4-run-setup-wizard)
 - [Step 5: Start Using](#step-5-start-using)
 - [Local Development](#local-development)
+- [Agent Development](#agent-development)
 - [Sub-App Development](#sub-app-development)
 - [Architecture](#architecture)
 - [FAQ](#faq)
@@ -247,6 +248,22 @@ openssl rand -base64 32
 # Start dev server (http://localhost:3000)
 pnpm dev
 ```
+
+---
+
+## Agent Development
+
+If you plan to extend the agent runtime, start here:
+
+- [`src/lib/agent/README.md`](./src/lib/agent/README.md)
+
+This guide documents the recommended architecture for:
+
+- builtin/system tools
+- toolkits and tool policy injection
+- slash command registration
+- `loop.ts` integration boundaries
+- componentized loop-stage development
 
 ---
 

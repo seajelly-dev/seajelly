@@ -1261,6 +1261,71 @@ BEGIN
   END IF;
 END $$;
 
+-- ============================================================
+-- JellyBox: Cloud Storage (Cloudflare R2)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.jellybox_storages (
+  id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name                        text NOT NULL,
+  account_id                  text NOT NULL,
+  bucket_name                 text NOT NULL,
+  endpoint                    text NOT NULL,
+  public_url                  text NOT NULL,
+  encrypted_access_key_id     text NOT NULL,
+  encrypted_secret_access_key text NOT NULL,
+  is_active_write             boolean NOT NULL DEFAULT false,
+  max_bytes                   bigint NOT NULL DEFAULT 10737418240,
+  created_at                  timestamptz NOT NULL DEFAULT now(),
+  updated_at                  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.jellybox_storages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "jellybox_storages_admin_all" ON public.jellybox_storages;
+CREATE POLICY "jellybox_storages_admin_all" ON public.jellybox_storages FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "jellybox_storages_service_select" ON public.jellybox_storages;
+CREATE POLICY "jellybox_storages_service_select" ON public.jellybox_storages FOR SELECT
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
+
+CREATE TABLE IF NOT EXISTS public.jellybox_files (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  storage_id    uuid NOT NULL REFERENCES public.jellybox_storages(id) ON DELETE CASCADE,
+  agent_id      uuid REFERENCES public.agents(id) ON DELETE SET NULL,
+  channel_id    uuid REFERENCES public.channels(id) ON DELETE SET NULL,
+  file_key      text NOT NULL,
+  original_name text NOT NULL,
+  mime_type     text,
+  file_size     bigint NOT NULL DEFAULT 0,
+  public_url    text NOT NULL,
+  metadata      jsonb NOT NULL DEFAULT '{}',
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.jellybox_files ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "jellybox_files_admin_all" ON public.jellybox_files;
+CREATE POLICY "jellybox_files_admin_all" ON public.jellybox_files FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "jellybox_files_service_all" ON public.jellybox_files;
+CREATE POLICY "jellybox_files_service_all" ON public.jellybox_files FOR ALL
+  USING (current_setting('role') = 'service_role');
+
+CREATE OR REPLACE FUNCTION public.jellybox_enforce_single_active_write()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+BEGIN
+  IF NEW.is_active_write = true THEN
+    UPDATE public.jellybox_storages
+    SET is_active_write = false, updated_at = now()
+    WHERE is_active_write = true AND id <> NEW.id;
+  END IF;
+  RETURN NEW;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS jellybox_single_active_write_trigger ON public.jellybox_storages;
+CREATE TRIGGER jellybox_single_active_write_trigger
+BEFORE INSERT OR UPDATE OF is_active_write ON public.jellybox_storages
+FOR EACH ROW EXECUTE FUNCTION public.jellybox_enforce_single_active_write();
+
 -- Seed built-in Sub-App: Chatroom
 INSERT INTO public.sub_apps (slug, name, description, tool_names, enabled)
 VALUES ('room', 'Chatroom', 'Cross-platform realtime chatroom', ARRAY['create_chat_room', 'close_chat_room', 'reopen_chat_room'], true)
@@ -1273,3 +1338,4 @@ GRANT EXECUTE ON FUNCTION public.hourly_usage_stats(integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.key_usage_stats(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.match_knowledge_chunks(vector, double precision, integer, uuid[]) TO service_role;
 GRANT EXECUTE ON FUNCTION public.match_article_media(vector, double precision, integer, uuid[]) TO service_role;
+GRANT EXECUTE ON FUNCTION public.jellybox_enforce_single_active_write() TO service_role;

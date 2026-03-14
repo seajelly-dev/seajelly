@@ -14,6 +14,7 @@ export interface BuiltinToolkitDefinition {
 }
 
 export const SELF_EVOLUTION_TOOLKIT_KEY = "self_evolution_toolkit" as const;
+export const JELLYBOX_TOOLKIT_KEY = "jellybox_toolkit" as const;
 
 export const SELF_EVOLUTION_TOOL_NAMES = [
   "github_read_file",
@@ -24,6 +25,13 @@ export const SELF_EVOLUTION_TOOL_NAMES = [
   "github_revert_commit",
   "github_compare_commits",
   "github_search_code",
+] as const;
+
+export const JELLYBOX_TOOL_NAMES = [
+  "jellybox_upload",
+  "jellybox_info",
+  "jellybox_delete",
+  "jellybox_usage",
 ] as const;
 
 export const BUILTIN_TOOL_CATALOG = [
@@ -45,6 +53,10 @@ export const BUILTIN_TOOL_CATALOG = [
   { key: "github_search_code", label: "github_search_code", descKey: "coding.toolGitHubSearchCode", defaultOn: false },
   { key: "tts_speak", label: "tts_speak", descKey: "coding.toolTtsSpeak", defaultOn: false },
   { key: "image_generate", label: "image_generate", descKey: "coding.toolImageGenerate", defaultOn: false },
+  { key: "jellybox_upload", label: "jellybox_upload", descKey: "jellybox.toolUpload", defaultOn: false },
+  { key: "jellybox_info", label: "jellybox_info", descKey: "jellybox.toolInfo", defaultOn: false },
+  { key: "jellybox_delete", label: "jellybox_delete", descKey: "jellybox.toolDelete", defaultOn: false },
+  { key: "jellybox_usage", label: "jellybox_usage", descKey: "jellybox.toolUsage", defaultOn: false },
 ] as const satisfies readonly BuiltinToolDefinition[];
 
 export const BUILTIN_TOOLKIT_CATALOG = [
@@ -54,6 +66,13 @@ export const BUILTIN_TOOLKIT_CATALOG = [
     descKey: "coding.toolkitSelfEvolution",
     defaultOn: false,
     memberToolKeys: SELF_EVOLUTION_TOOL_NAMES,
+  },
+  {
+    key: JELLYBOX_TOOLKIT_KEY,
+    label: JELLYBOX_TOOLKIT_KEY,
+    descKey: "jellybox.toolkitDesc",
+    defaultOn: false,
+    memberToolKeys: JELLYBOX_TOOL_NAMES,
   },
 ] as const satisfies readonly BuiltinToolkitDefinition[];
 

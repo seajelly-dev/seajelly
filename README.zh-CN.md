@@ -17,6 +17,7 @@
 - [第四步：运行 Setup 向导](#第四步运行-setup-向导)
 - [第五步：开始使用](#第五步开始使用)
 - [本地开发](#本地开发)
+- [Agent 开发](#agent-开发)
 - [Sub-App 开发](#sub-app-开发)
 - [架构](#架构)
 - [常见问题](#常见问题)
@@ -254,6 +255,22 @@ openssl rand -base64 32
 # 启动开发服务器 (http://localhost:3000)
 pnpm dev
 ```
+
+---
+
+## Agent 开发
+
+如果你准备扩展 Agent 运行时，建议先看这里：
+
+- [`src/lib/agent/README.md`](./src/lib/agent/README.md)
+
+这个文档重点说明了：
+
+- builtin/system tool 的开发方式
+- toolkit 与 tool policy 的组织方式
+- slash command 的注册方式
+- `loop.ts` 的集成边界
+- 如何持续做组件化的 loop stage 开发
 
 ---
 

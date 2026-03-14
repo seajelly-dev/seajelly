@@ -371,6 +371,35 @@ export interface ChatRoomMessage {
   created_at: string;
 }
 
+export interface JellyBoxStorage {
+  id: string;
+  name: string;
+  account_id: string;
+  bucket_name: string;
+  endpoint: string;
+  public_url: string;
+  encrypted_access_key_id: string;
+  encrypted_secret_access_key: string;
+  is_active_write: boolean;
+  max_bytes: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JellyBoxFile {
+  id: string;
+  storage_id: string;
+  agent_id: string | null;
+  channel_id: string | null;
+  file_key: string;
+  original_name: string;
+  mime_type: string | null;
+  file_size: number;
+  public_url: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
 export const SECRET_KEYS = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "SUPABASE_ACCESS_TOKEN",
