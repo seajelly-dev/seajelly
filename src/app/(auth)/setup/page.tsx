@@ -96,6 +96,11 @@ const SETUP_PLATFORMS = [
   },
 ];
 
+const SETUP_GENERATED_FIELDS: Partial<Record<SetupPlatform, string[]>> = {
+  feishu: ["verification_token"],
+  whatsapp: ["verify_token"],
+};
+
 export default function SetupPage() {
   const router = useRouter();
   const t = useT();
@@ -167,6 +172,33 @@ You have persistent memory across conversations. Use it wisely:
   );
   const [model, setModel] = useState("");
   const [availableModels, setAvailableModels] = useState<ModelDef[]>([]);
+
+  const generateOpaqueToken = () => {
+    const bytes = new Uint8Array(24);
+    globalThis.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  };
+
+  const fillGeneratedCredential = (fieldName: string) => {
+    setPlatformCreds((current) => ({
+      ...current,
+      [fieldName]: generateOpaqueToken(),
+    }));
+    toast.success(t("agents.generatedCredential"));
+  };
+
+  const getPlatformFieldGuide = (platform: SetupPlatform, fieldName: string) => {
+    if (platform === "feishu" && fieldName === "verification_token") {
+      return t("agents.feishuVerificationTokenGuide");
+    }
+    if (platform === "whatsapp" && fieldName === "verify_token") {
+      return t("agents.whatsappVerifyTokenGuide");
+    }
+    if (platform === "whatsapp" && fieldName === "app_secret") {
+      return t("agents.whatsappAppSecretGuide");
+    }
+    return null;
+  };
 
   const STEPS_KEYS = ["connect", "register", "secrets", "agent"] as const;
 
@@ -584,14 +616,32 @@ You have persistent memory across conversations. Use it wisely:
                       {plat.fields.map((f) => (
                         <div key={f.name} className="flex flex-col gap-1">
                           <Label className="text-xs">{f.label}</Label>
-                          <Input
-                            type={f.secret ? "password" : "text"}
-                            placeholder={f.label}
-                            value={platformCreds[f.name] || ""}
-                            onChange={(e) =>
-                              setPlatformCreds((prev) => ({ ...prev, [f.name]: e.target.value }))
-                            }
-                          />
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type={f.secret ? "password" : "text"}
+                              placeholder={f.label}
+                              value={platformCreds[f.name] || ""}
+                              onChange={(e) =>
+                                setPlatformCreds((prev) => ({ ...prev, [f.name]: e.target.value }))
+                              }
+                            />
+                            {(SETUP_GENERATED_FIELDS[selectedPlatform]?.includes(f.name) ?? false) && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0"
+                                onClick={() => fillGeneratedCredential(f.name)}
+                              >
+                                {t("agents.generateToken")}
+                              </Button>
+                            )}
+                          </div>
+                          {getPlatformFieldGuide(selectedPlatform, f.name) && (
+                            <p className="text-xs text-muted-foreground">
+                              {getPlatformFieldGuide(selectedPlatform, f.name)}
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>

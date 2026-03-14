@@ -516,8 +516,7 @@ DROP POLICY IF EXISTS "html_previews_service_all" ON public.html_previews;
 CREATE POLICY "html_previews_service_all" ON public.html_previews FOR ALL
   USING (current_setting('role') = 'service_role');
 DROP POLICY IF EXISTS "html_previews_anon_select" ON public.html_previews;
-CREATE POLICY "html_previews_anon_select" ON public.html_previews FOR SELECT
-  USING (true);
+REVOKE ALL ON TABLE public.html_previews FROM PUBLIC, anon;
 
 -- ============================================================
 -- 16. models
@@ -751,7 +750,6 @@ GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT SELECT ON public.events TO anon;
-GRANT SELECT ON public.html_previews TO anon;
 GRANT ALL ON public.providers TO service_role, authenticated;
 GRANT ALL ON public.provider_api_keys TO service_role, authenticated;
 GRANT ALL ON public.models TO service_role, authenticated;
@@ -761,7 +759,6 @@ GRANT ALL ON public.voice_api_keys TO service_role, authenticated;
 GRANT ALL ON public.voice_settings TO service_role, authenticated;
 GRANT ALL ON public.tts_usage_logs TO service_role, authenticated;
 GRANT ALL ON public.voice_temp_links TO service_role, authenticated;
-GRANT SELECT ON public.voice_temp_links TO anon;
 GRANT ALL ON public.subscription_plans TO service_role, authenticated;
 GRANT ALL ON public.subscription_rules TO service_role, authenticated;
 GRANT ALL ON public.channel_subscriptions TO service_role, authenticated;
@@ -769,11 +766,11 @@ GRANT ALL ON public.knowledge_bases TO service_role, authenticated;
 GRANT ALL ON public.knowledge_articles TO service_role, authenticated;
 GRANT ALL ON public.knowledge_chunks TO service_role, authenticated;
 GRANT ALL ON public.agent_knowledge_bases TO service_role, authenticated;
-GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+REVOKE ALL ON ALL ROUTINES IN SCHEMA public FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON ROUTINES FROM PUBLIC, anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
 
 -- ============================================================
@@ -866,8 +863,7 @@ DROP POLICY IF EXISTS "voice_temp_links_service_all" ON public.voice_temp_links;
 CREATE POLICY "voice_temp_links_service_all" ON public.voice_temp_links FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 DROP POLICY IF EXISTS "voice_temp_links_anon_select" ON public.voice_temp_links;
-CREATE POLICY "voice_temp_links_anon_select" ON public.voice_temp_links FOR SELECT
-  USING (true);
+REVOKE ALL ON TABLE public.voice_temp_links FROM PUBLIC, anon;
 
 -- ============================================================
 -- 21. subscription_plans
@@ -946,9 +942,12 @@ CREATE POLICY "channel_subscriptions_service_all" ON public.channel_subscription
 -- Triggers
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.update_updated_at()
-RETURNS trigger AS $fn$
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $fn$
 BEGIN NEW.updated_at = now(); RETURN NEW; END;
-$fn$ LANGUAGE plpgsql;
+$fn$;
 
 DROP TRIGGER IF EXISTS secrets_updated_at ON public.secrets;
 CREATE TRIGGER secrets_updated_at BEFORE UPDATE ON public.secrets FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
@@ -1013,6 +1012,7 @@ RETURNS TABLE (
   similarity float
 )
 LANGUAGE plpgsql
+SET search_path = public
 AS $fn$
 BEGIN
   RETURN QUERY
@@ -1092,6 +1092,29 @@ CREATE POLICY "sub_apps_service_select" ON public.sub_apps FOR SELECT
 GRANT ALL ON public.sub_apps TO service_role, authenticated;
 
 -- ============================================================
+-- Sub-Apps: sub_app_settings
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.sub_app_settings (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  sub_app_slug    text NOT NULL REFERENCES public.sub_apps(slug) ON DELETE CASCADE,
+  setting_key     text NOT NULL,
+  encrypted_value text NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(sub_app_slug, setting_key)
+);
+CREATE INDEX IF NOT EXISTS sub_app_settings_slug_idx ON public.sub_app_settings(sub_app_slug);
+ALTER TABLE public.sub_app_settings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sub_app_settings_admin_all" ON public.sub_app_settings;
+CREATE POLICY "sub_app_settings_admin_all" ON public.sub_app_settings FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "sub_app_settings_service_select" ON public.sub_app_settings;
+CREATE POLICY "sub_app_settings_service_select" ON public.sub_app_settings FOR SELECT
+  USING (current_setting('role') = 'service_role');
+GRANT ALL ON public.sub_app_settings TO service_role, authenticated;
+DROP TRIGGER IF EXISTS sub_app_settings_updated_at ON public.sub_app_settings;
+CREATE TRIGGER sub_app_settings_updated_at BEFORE UPDATE ON public.sub_app_settings FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+-- ============================================================
 -- Sub-Apps: agent_sub_apps (many-to-many)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.agent_sub_apps (
@@ -1121,14 +1144,13 @@ CREATE TABLE IF NOT EXISTS public.chat_rooms (
 );
 ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "chat_rooms_anon_select" ON public.chat_rooms;
-CREATE POLICY "chat_rooms_anon_select" ON public.chat_rooms FOR SELECT USING (true);
 DROP POLICY IF EXISTS "chat_rooms_admin_all" ON public.chat_rooms;
 CREATE POLICY "chat_rooms_admin_all" ON public.chat_rooms FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "chat_rooms_service_all" ON public.chat_rooms;
 CREATE POLICY "chat_rooms_service_all" ON public.chat_rooms FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 GRANT ALL ON public.chat_rooms TO service_role, authenticated;
-GRANT SELECT ON public.chat_rooms TO anon;
+REVOKE ALL ON TABLE public.chat_rooms FROM PUBLIC, anon;
 
 -- ============================================================
 -- Sub-Apps: chat_room_messages
@@ -1146,16 +1168,14 @@ CREATE TABLE IF NOT EXISTS public.chat_room_messages (
 CREATE INDEX IF NOT EXISTS chat_room_messages_room ON public.chat_room_messages(room_id, created_at);
 ALTER TABLE public.chat_room_messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "chat_room_messages_anon_select" ON public.chat_room_messages;
-CREATE POLICY "chat_room_messages_anon_select" ON public.chat_room_messages FOR SELECT USING (true);
 DROP POLICY IF EXISTS "chat_room_messages_anon_insert" ON public.chat_room_messages;
-CREATE POLICY "chat_room_messages_anon_insert" ON public.chat_room_messages FOR INSERT WITH CHECK (true);
 DROP POLICY IF EXISTS "chat_room_messages_admin_all" ON public.chat_room_messages;
 CREATE POLICY "chat_room_messages_admin_all" ON public.chat_room_messages FOR ALL USING (public.is_admin());
 DROP POLICY IF EXISTS "chat_room_messages_service_all" ON public.chat_room_messages;
 CREATE POLICY "chat_room_messages_service_all" ON public.chat_room_messages FOR ALL
   USING (public.is_admin() OR current_setting('role') = 'service_role');
 GRANT ALL ON public.chat_room_messages TO service_role, authenticated;
-GRANT SELECT, INSERT ON public.chat_room_messages TO anon;
+REVOKE ALL ON TABLE public.chat_room_messages FROM PUBLIC, anon;
 
 -- Room-scoped private Realtime access for bearer-link sessions
 DROP POLICY IF EXISTS "room_realtime_authenticated_select" ON realtime.messages;
@@ -1228,16 +1248,16 @@ CREATE TRIGGER chat_rooms_broadcast_trigger
 AFTER UPDATE ON public.chat_rooms
 FOR EACH ROW EXECUTE FUNCTION public.chat_rooms_broadcast();
 
--- Enable Realtime for chat_room_messages
+-- Legacy public realtime path removed; room updates flow through private broadcasts.
 DO $$
 BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM pg_publication_tables
     WHERE pubname = 'supabase_realtime'
       AND schemaname = 'public'
       AND tablename = 'chat_room_messages'
   ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_room_messages;
+    ALTER PUBLICATION supabase_realtime DROP TABLE public.chat_room_messages;
   END IF;
 END $$;
 
@@ -1245,3 +1265,11 @@ END $$;
 INSERT INTO public.sub_apps (slug, name, description, tool_names, enabled)
 VALUES ('room', 'Chatroom', 'Cross-platform realtime chatroom', ARRAY['create_chat_room', 'close_chat_room', 'reopen_chat_room'], true)
 ON CONFLICT (slug) DO NOTHING;
+
+-- Explicit routine grants after function creation
+GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.dashboard_stats() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.hourly_usage_stats(integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.key_usage_stats(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.match_knowledge_chunks(vector, double precision, integer, uuid[]) TO service_role;
+GRANT EXECUTE ON FUNCTION public.match_article_media(vector, double precision, integer, uuid[]) TO service_role;

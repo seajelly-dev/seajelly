@@ -136,7 +136,9 @@ export default function ChatRoomPage() {
   const [agentName, setAgentName] = useState<string>("");
   const [messages, setMessages] = useState<ChatRoomMessage[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<"not_found" | "unauthorized" | null>(null);
+  const [error, setError] = useState<
+    "not_found" | "unauthorized" | "unavailable" | null
+  >(null);
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [nickname, setNickname] = useState("");
   const [nicknameConfirmed, setNicknameConfirmed] = useState(false);
@@ -170,6 +172,10 @@ export default function ChatRoomPage() {
       const res = await fetch(`/api/app/room?id=${roomId}&t=${encodeURIComponent(tokenStr)}`);
       if (res.status === 401) {
         setError("unauthorized");
+        return;
+      }
+      if (res.status === 503) {
+        setError("unavailable");
         return;
       }
       const data = await res.json();
@@ -262,6 +268,8 @@ export default function ChatRoomPage() {
           setError("unauthorized");
         } else if (response.status === 404) {
           setError("not_found");
+        } else if (response.status === 503) {
+          setError("unavailable");
         } else {
           console.error("Realtime session failed:", data.error || "Unknown error");
         }
@@ -447,6 +455,20 @@ export default function ChatRoomPage() {
             <MessageCircle className="size-16 text-muted-foreground/30 mb-4" />
             <h2 className="text-xl font-semibold mb-2">{t("room.notFound")}</h2>
             <p className="text-muted-foreground">{t("room.notFoundDesc")}</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error === "unavailable") {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <Card className="max-w-md w-full mx-4">
+          <CardContent className="flex flex-col items-center py-12 text-center">
+            <Lock className="size-16 text-muted-foreground/30 mb-4" />
+            <h2 className="text-xl font-semibold mb-2">{t("room.unavailable")}</h2>
+            <p className="text-muted-foreground">{t("room.unavailableDesc")}</p>
           </CardContent>
         </Card>
       </div>

@@ -152,6 +152,11 @@ const PLATFORM_HINT_KEYS: Record<PlatformKey, string> = {
   whatsapp: "hintWhatsapp",
 };
 
+const GENERATED_PLATFORM_FIELDS: Partial<Record<PlatformKey, string[]>> = {
+  feishu: ["verification_token"],
+  whatsapp: ["verify_token"],
+};
+
 function useOrigin() {
   const [origin] = useState(() => (typeof window === "undefined" ? "" : window.location.origin));
   return origin;
@@ -549,6 +554,40 @@ export default function AgentsPage() {
     toast.success(t("agents.copyWebhookUrl"));
   };
 
+  const generateOpaqueToken = () => {
+    const bytes = new Uint8Array(24);
+    globalThis.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  };
+
+  const fillGeneratedCredential = (platform: PlatformKey, fieldName: string) => {
+    const generated = generateOpaqueToken();
+    setForm((current) => ({
+      ...current,
+      platform_credentials: {
+        ...current.platform_credentials,
+        [platform]: {
+          ...current.platform_credentials[platform],
+          [fieldName]: generated,
+        },
+      },
+    }));
+    toast.success(t("agents.generatedCredential"));
+  };
+
+  const getFieldGuideKey = (platform: PlatformKey, fieldName: string) => {
+    if (platform === "feishu" && fieldName === "verification_token") {
+      return "feishuVerificationTokenGuide";
+    }
+    if (platform === "whatsapp" && fieldName === "app_secret") {
+      return "whatsappAppSecretGuide";
+    }
+    if (platform === "whatsapp" && fieldName === "verify_token") {
+      return "whatsappVerifyTokenGuide";
+    }
+    return null;
+  };
+
   // ── Channels sub-dialog content ──
   function renderChannelsDialog() {
     if (channelExpanded) {
@@ -645,25 +684,43 @@ export default function AgentsPage() {
                 {plat.fields.map((field) => (
                   <div key={field.name} className="flex flex-col gap-1.5">
                     <Label>{field.label}</Label>
-                    <Input
-                      type={field.secret ? "password" : "text"}
-                      value={form.platform_credentials[channelExpanded]?.[field.name] || ""}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          platform_credentials: {
-                            ...f.platform_credentials,
-                            [channelExpanded]: {
-                              ...f.platform_credentials[channelExpanded],
-                              [field.name]: e.target.value,
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type={field.secret ? "password" : "text"}
+                        value={form.platform_credentials[channelExpanded]?.[field.name] || ""}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            platform_credentials: {
+                              ...f.platform_credentials,
+                              [channelExpanded]: {
+                                ...f.platform_credentials[channelExpanded],
+                                [field.name]: e.target.value,
+                              },
                             },
-                          },
-                        }))
-                      }
-                      placeholder={
-                        isConnected ? t("agents.credentialKeepHint") : field.label
-                      }
-                    />
+                          }))
+                        }
+                        placeholder={
+                          isConnected ? t("agents.credentialKeepHint") : field.label
+                        }
+                      />
+                      {(GENERATED_PLATFORM_FIELDS[channelExpanded]?.includes(field.name) ?? false) && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() => fillGeneratedCredential(channelExpanded, field.name)}
+                        >
+                          {t("agents.generateToken")}
+                        </Button>
+                      )}
+                    </div>
+                    {getFieldGuideKey(channelExpanded, field.name) && (
+                      <p className="text-xs text-muted-foreground">
+                        {t(`agents.${getFieldGuideKey(channelExpanded, field.name)!}` as never)}
+                      </p>
+                    )}
                   </div>
                 ))}
                 {editingAgent && (

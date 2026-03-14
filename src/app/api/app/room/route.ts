@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { generateText } from "ai";
 import { getModel } from "@/lib/agent/provider";
 import { verifyRoomToken } from "@/lib/room-token";
+import { isSubAppConfigError } from "@/lib/sub-app-settings";
 import { logApiUsage, readGenerateTextUsage } from "@/lib/usage/log";
 import { createStrictServiceClient } from "@/lib/supabase/server";
 import type { Agent } from "@/types/database";
@@ -11,6 +12,13 @@ export const maxDuration = 60;
 
 function getSupabase() {
   return createStrictServiceClient();
+}
+
+function roomUnavailableResponse() {
+  return NextResponse.json(
+    { error: "Room sub-app is not configured" },
+    { status: 503 },
+  );
 }
 
 export async function GET(request: Request) {
@@ -26,7 +34,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized: token required" }, { status: 401 });
   }
 
-  const token = verifyRoomToken(tokenStr);
+  let token;
+  try {
+    token = await verifyRoomToken(tokenStr);
+  } catch (error) {
+    if (isSubAppConfigError(error)) {
+      return roomUnavailableResponse();
+    }
+    throw error;
+  }
   if (!token || token.r !== roomId) {
     return NextResponse.json({ error: "Unauthorized: invalid token" }, { status: 401 });
   }
@@ -80,7 +96,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const token = verifyRoomToken(tokenStr);
+  let token;
+  try {
+    token = await verifyRoomToken(tokenStr);
+  } catch (error) {
+    if (isSubAppConfigError(error)) {
+      return roomUnavailableResponse();
+    }
+    throw error;
+  }
   if (!token || token.r !== room_id) {
     return NextResponse.json({ error: "Unauthorized: invalid token" }, { status: 401 });
   }
@@ -158,7 +182,15 @@ export async function PATCH(request: Request) {
     );
   }
 
-  const token = verifyRoomToken(tokenStr);
+  let token;
+  try {
+    token = await verifyRoomToken(tokenStr);
+  } catch (error) {
+    if (isSubAppConfigError(error)) {
+      return roomUnavailableResponse();
+    }
+    throw error;
+  }
   if (!token || token.r !== room_id || !token.o) {
     return NextResponse.json({ error: "Unauthorized: owner only" }, { status: 403 });
   }

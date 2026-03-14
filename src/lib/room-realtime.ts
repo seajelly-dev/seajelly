@@ -1,9 +1,11 @@
 import crypto from "crypto";
 import type { RoomTokenPayload } from "@/lib/room-token";
+import { getRoomSubAppConfig } from "@/lib/sub-app-settings";
 
 const ROOM_REALTIME_TTL_SECONDS = 10 * 60;
 
 let cachedPrivateKey: crypto.KeyObject | null = null;
+let cachedKeyFingerprint: string | null = null;
 
 function base64UrlEncode(value: Buffer | string) {
   return Buffer.isBuffer(value)
@@ -30,26 +32,21 @@ function getProjectRef() {
   return projectRef;
 }
 
-function getRealtimeSigningKey() {
-  if (cachedPrivateKey) {
+async function getRealtimeSigningKey(privateKeyPem: string) {
+  if (cachedPrivateKey && cachedKeyFingerprint === privateKeyPem) {
     return cachedPrivateKey;
   }
 
-  const rawPrivateKey = process.env.ROOM_REALTIME_JWT_PRIVATE_KEY;
-  if (!rawPrivateKey) {
-    throw new Error("ROOM_REALTIME_JWT_PRIVATE_KEY is required");
-  }
-
-  cachedPrivateKey = crypto.createPrivateKey(rawPrivateKey.replace(/\\n/g, "\n"));
+  cachedPrivateKey = crypto.createPrivateKey(privateKeyPem.replace(/\\n/g, "\n"));
+  cachedKeyFingerprint = privateKeyPem;
   return cachedPrivateKey;
 }
 
-function signEs256Jwt(payload: Record<string, unknown>) {
-  const kid = process.env.ROOM_REALTIME_JWT_KID;
-  if (!kid) {
-    throw new Error("ROOM_REALTIME_JWT_KID is required");
-  }
-
+async function signEs256Jwt(
+  payload: Record<string, unknown>,
+  privateKeyPem: string,
+  kid: string,
+) {
   const header = {
     alg: "ES256",
     kid,
@@ -58,7 +55,7 @@ function signEs256Jwt(payload: Record<string, unknown>) {
 
   const signingInput = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(payload))}`;
   const signature = crypto.sign("sha256", Buffer.from(signingInput, "utf8"), {
-    key: getRealtimeSigningKey(),
+    key: await getRealtimeSigningKey(privateKeyPem),
     dsaEncoding: "ieee-p1363",
   });
 
@@ -69,7 +66,8 @@ export function getRoomRealtimeTopic(roomId: string) {
   return `room:${roomId}`;
 }
 
-export function createRoomRealtimeSession(token: RoomTokenPayload) {
+export async function createRoomRealtimeSession(token: RoomTokenPayload) {
+  const config = await getRoomSubAppConfig();
   const issuedAt = Math.floor(Date.now() / 1000);
   const expiresAt = issuedAt + ROOM_REALTIME_TTL_SECONDS;
   const roomRole = token.o ? "owner" : "guest";
@@ -92,7 +90,11 @@ export function createRoomRealtimeSession(token: RoomTokenPayload) {
 
   return {
     expiresAt: new Date(expiresAt * 1000).toISOString(),
-    realtimeJwt: signEs256Jwt(payload),
+    realtimeJwt: await signEs256Jwt(
+      payload,
+      config.ROOM_REALTIME_JWT_PRIVATE_KEY,
+      config.ROOM_REALTIME_JWT_KID,
+    ),
     topic: getRoomRealtimeTopic(token.r),
   };
 }

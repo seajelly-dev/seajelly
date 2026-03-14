@@ -13,6 +13,17 @@ export async function handleRoom(ctx: CommandContext): Promise<LoopResult> {
     messageText.replace(/^\/room\s*/i, "").trim() ||
     `Room ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
 
+  try {
+    const { assertRoomSubAppConfigured } = await import("@/lib/sub-app-settings");
+    await assertRoomSubAppConfigured();
+  } catch (error) {
+    if (error instanceof Error && error.name === "SubAppConfigError") {
+      await sender.sendText(platformChatId, t("roomConfigRequired"));
+      return { success: true, reply: "room config required", traceId };
+    }
+    throw error;
+  }
+
   const { data: room, error: roomErr } = await supabase
     .from("chat_rooms")
     .insert({
@@ -28,7 +39,7 @@ export async function handleRoom(ctx: CommandContext): Promise<LoopResult> {
   }
 
   const { buildRoomUrl } = await import("@/lib/room-token");
-  const ownerUrl = buildRoomUrl(
+  const ownerUrl = await buildRoomUrl(
     room.id,
     channel.id,
     platform,
@@ -54,7 +65,7 @@ export async function handleRoom(ctx: CommandContext): Promise<LoopResult> {
     for (const ch of channels) {
       if (!ch.platform_uid || ch.id === channel.id) continue;
       try {
-        const chUrl = buildRoomUrl(
+        const chUrl = await buildRoomUrl(
           room.id,
           ch.id,
           ch.platform,
@@ -73,4 +84,3 @@ export async function handleRoom(ctx: CommandContext): Promise<LoopResult> {
 
   return { success: true, reply: ownerUrl, traceId };
 }
-

@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Card,
   CardContent,
@@ -20,9 +23,34 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { RefreshCw, AppWindow, Bot, Wrench, BookOpen, Globe } from "lucide-react";
+import {
+  RefreshCw,
+  AppWindow,
+  Bot,
+  Wrench,
+  BookOpen,
+  Globe,
+  Settings2,
+  ShieldAlert,
+  Copy,
+  KeyRound,
+} from "lucide-react";
 import { useT } from "@/lib/i18n";
 import type { SubApp, Agent } from "@/types/database";
+
+interface ManagedSubApp extends SubApp {
+  config_complete?: boolean;
+  config_configured_keys?: string[];
+  config_missing_keys?: string[];
+}
+
+interface RoomSettingsStatus {
+  complete: boolean;
+  configuredKeys: string[];
+  missingKeys: string[];
+  publicKeyPem: string | null;
+  roomRealtimeJwtKid: string | null;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Dev Guide content — inline JSX, no markdown lib needed            */
@@ -599,13 +627,23 @@ const mentionsAgent = aliasMentioned || nameMentioned;`}</CodeBlock>
 
 export default function SubAppsPage() {
   const t = useT();
-  const [subApps, setSubApps] = useState<SubApp[]>([]);
+  const [subApps, setSubApps] = useState<ManagedSubApp[]>([]);
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [bindDialogOpen, setBindDialogOpen] = useState(false);
   const [bindTarget, setBindTarget] = useState<SubApp | null>(null);
   const [boundAgentIds, setBoundAgentIds] = useState<string[]>([]);
   const [bindSaving, setBindSaving] = useState(false);
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [settingsTarget, setSettingsTarget] = useState<ManagedSubApp | null>(null);
+  const [roomSettingsStatus, setRoomSettingsStatus] = useState<RoomSettingsStatus | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [roomSettingsForm, setRoomSettingsForm] = useState({
+    ROOM_TOKEN_SECRET: "",
+    ROOM_REALTIME_JWT_PRIVATE_KEY: "",
+    ROOM_REALTIME_JWT_KID: "",
+  });
   const [activeTab, setActiveTab] = useState<"manage" | "guide">("manage");
   const [guideLang, setGuideLang] = useState<"en" | "zh">("en");
 
@@ -697,6 +735,105 @@ export default function SubAppsPage() {
       toast.error(err instanceof Error ? err.message : t("subApps.bindFailed"));
     } finally {
       setBindSaving(false);
+    }
+  };
+
+  const openSettings = async (app: ManagedSubApp) => {
+    setSettingsTarget(app);
+    setSettingsDialogOpen(true);
+    setRoomSettingsStatus(null);
+    setRoomSettingsForm({
+      ROOM_TOKEN_SECRET: "",
+      ROOM_REALTIME_JWT_PRIVATE_KEY: "",
+      ROOM_REALTIME_JWT_KID: "",
+    });
+    if (app.slug === "room") {
+      setSettingsLoading(true);
+      await fetch("/api/admin/sub-apps/settings?sub_app_slug=room")
+        .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok) throw new Error(data.error);
+          setRoomSettingsStatus(data);
+          setRoomSettingsForm({
+            ROOM_TOKEN_SECRET: "",
+            ROOM_REALTIME_JWT_PRIVATE_KEY: "",
+            ROOM_REALTIME_JWT_KID: data.roomRealtimeJwtKid || "",
+          });
+        })
+        .catch((error) => {
+          toast.error(
+            error instanceof Error ? error.message : "Failed to load room configuration",
+          );
+        })
+        .finally(() => {
+          setSettingsLoading(false);
+        });
+    }
+  };
+
+  const copyPublicKey = async () => {
+    if (!roomSettingsStatus?.publicKeyPem) return;
+    await navigator.clipboard.writeText(roomSettingsStatus.publicKeyPem);
+    toast.success("Public key copied");
+  };
+
+  const saveRoomSettings = async () => {
+    setSettingsSaving(true);
+    try {
+      const res = await fetch("/api/admin/sub-apps/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sub_app_slug: "room",
+          settings: roomSettingsForm,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setRoomSettingsStatus(data);
+      setRoomSettingsForm({
+        ROOM_TOKEN_SECRET: "",
+        ROOM_REALTIME_JWT_PRIVATE_KEY: "",
+        ROOM_REALTIME_JWT_KID: data.roomRealtimeJwtKid || "",
+      });
+      await fetchSubApps();
+      toast.success("Room Sub-App settings saved");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save room configuration",
+      );
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const generateRoomSettings = async () => {
+    setSettingsSaving(true);
+    try {
+      const res = await fetch("/api/admin/sub-apps/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sub_app_slug: "room",
+          action: "generate_room_security_bundle",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setRoomSettingsStatus(data);
+      setRoomSettingsForm({
+        ROOM_TOKEN_SECRET: "",
+        ROOM_REALTIME_JWT_PRIVATE_KEY: "",
+        ROOM_REALTIME_JWT_KID: data.roomRealtimeJwtKid || "",
+      });
+      await fetchSubApps();
+      toast.success("Generated a new room security bundle");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to generate room configuration",
+      );
+    } finally {
+      setSettingsSaving(false);
     }
   };
 
@@ -797,6 +934,34 @@ export default function SubAppsPage() {
                         </Badge>
                       ))}
                     </div>
+                    {app.slug === "room" && (
+                      <div className="rounded-lg border border-dashed p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">Room Security</p>
+                            <p className="text-xs text-muted-foreground">
+                              {app.config_complete
+                                ? "Configured"
+                                : `Missing: ${(app.config_missing_keys ?? []).join(", ") || "settings"}`}
+                            </p>
+                          </div>
+                          <Badge variant={app.config_complete ? "secondary" : "destructive"}>
+                            {app.config_complete ? "Ready" : "Required"}
+                          </Badge>
+                        </div>
+                      </div>
+                    )}
+                    {app.slug === "room" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => openSettings(app)}
+                      >
+                        <Settings2 className="mr-2 size-4" />
+                        Configure Room Security
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -829,6 +994,182 @@ export default function SubAppsPage() {
           <DevGuide lang={guideLang} />
         </>
       )}
+
+      <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings2 className="size-4" />
+              {settingsTarget?.name || "Sub-App"} Settings
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Room links are disabled until these security settings are configured.
+            </p>
+          </DialogHeader>
+
+          {settingsTarget?.slug === "room" && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <KeyRound className="size-4" />
+                    Current Status
+                  </CardTitle>
+                  <CardDescription>
+                    The room Sub-App needs three secrets: token secret, realtime private key, and key id.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {settingsLoading ? (
+                    <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm">
+                          <p className="font-medium">
+                            {roomSettingsStatus?.complete
+                              ? "Room security is ready"
+                              : "Room security is incomplete"}
+                          </p>
+                          <p className="text-muted-foreground">
+                            {(roomSettingsStatus?.missingKeys ?? []).length > 0
+                              ? `Missing: ${roomSettingsStatus?.missingKeys.join(", ")}`
+                              : "All required values are configured."}
+                          </p>
+                        </div>
+                        <Badge variant={roomSettingsStatus?.complete ? "secondary" : "destructive"}>
+                          {roomSettingsStatus?.complete ? "Ready" : "Required"}
+                        </Badge>
+                      </div>
+
+                      <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+                        <p className="font-medium text-foreground">Supabase step</p>
+                        <p>
+                          After generating a new realtime keypair, copy the public key below into
+                          Supabase Auth signing keys, and keep the same KID value there.
+                        </p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>Realtime JWT KID</Label>
+                        <Input value={roomSettingsStatus?.roomRealtimeJwtKid || ""} readOnly />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-3">
+                          <Label>Realtime Public Key</Label>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={copyPublicKey}
+                            disabled={!roomSettingsStatus?.publicKeyPem}
+                          >
+                            <Copy className="mr-1.5 size-3.5" />
+                            Copy
+                          </Button>
+                        </div>
+                        <Textarea
+                          value={roomSettingsStatus?.publicKeyPem || ""}
+                          readOnly
+                          rows={6}
+                          className="font-mono text-xs"
+                        />
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Update Values</CardTitle>
+                  <CardDescription>
+                    Leave a field empty to keep the current stored value. Or generate a fresh bundle in one click.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label>ROOM_TOKEN_SECRET</Label>
+                    <Input
+                      type="password"
+                      value={roomSettingsForm.ROOM_TOKEN_SECRET}
+                      onChange={(event) =>
+                        setRoomSettingsForm((current) => ({
+                          ...current,
+                          ROOM_TOKEN_SECRET: event.target.value,
+                        }))
+                      }
+                      placeholder="Leave empty to keep current value"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>ROOM_REALTIME_JWT_KID</Label>
+                    <Input
+                      value={roomSettingsForm.ROOM_REALTIME_JWT_KID}
+                      onChange={(event) =>
+                        setRoomSettingsForm((current) => ({
+                          ...current,
+                          ROOM_REALTIME_JWT_KID: event.target.value,
+                        }))
+                      }
+                      placeholder="Leave empty to keep current value"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>ROOM_REALTIME_JWT_PRIVATE_KEY</Label>
+                    <Textarea
+                      value={roomSettingsForm.ROOM_REALTIME_JWT_PRIVATE_KEY}
+                      onChange={(event) =>
+                        setRoomSettingsForm((current) => ({
+                          ...current,
+                          ROOM_REALTIME_JWT_PRIVATE_KEY: event.target.value,
+                        }))
+                      }
+                      rows={8}
+                      className="font-mono text-xs"
+                      placeholder="Paste a PEM private key, or leave empty to keep current value"
+                    />
+                  </div>
+
+                  <div className="rounded-md border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900">
+                    <div className="flex items-start gap-2">
+                      <ShieldAlert className="size-4 shrink-0 mt-0.5" />
+                      <p>
+                        Generating a new bundle will rotate the room token secret and realtime signing key.
+                        Existing room links and active room sessions will stop working after rotation.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          <DialogFooter>
+            {settingsTarget?.slug === "room" && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={generateRoomSettings}
+                disabled={settingsSaving}
+              >
+                <RefreshCw className="mr-2 size-4" />
+                Generate New Bundle
+              </Button>
+            )}
+            <Button variant="ghost" onClick={() => setSettingsDialogOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={saveRoomSettings}
+              disabled={settingsSaving || settingsTarget?.slug !== "room"}
+            >
+              {settingsSaving ? t("common.saving") : t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={bindDialogOpen} onOpenChange={setBindDialogOpen}>
         <DialogContent className="max-w-md">

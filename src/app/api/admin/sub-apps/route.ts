@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
+import {
+  ROOM_SUB_APP_SLUG,
+  getRoomSubAppConfigStatus,
+} from "@/lib/sub-app-settings";
 
 export async function GET(request: Request) {
   try {
@@ -40,7 +44,38 @@ export async function GET(request: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ sub_apps: data ?? [] });
+
+  let roomConfig:
+    | {
+        complete: boolean;
+        configuredKeys: string[];
+        missingKeys: string[];
+      }
+    | null = null;
+
+  try {
+    const status = await getRoomSubAppConfigStatus();
+    roomConfig = {
+      complete: status.complete,
+      configuredKeys: status.configuredKeys,
+      missingKeys: status.missingKeys,
+    };
+  } catch {
+    roomConfig = null;
+  }
+
+  return NextResponse.json({
+    sub_apps: (data ?? []).map((subApp) =>
+      subApp.slug === ROOM_SUB_APP_SLUG
+        ? {
+            ...subApp,
+            config_complete: roomConfig?.complete ?? false,
+            config_configured_keys: roomConfig?.configuredKeys ?? [],
+            config_missing_keys: roomConfig?.missingKeys ?? [],
+          }
+        : subApp,
+    ),
+  });
 }
 
 export async function PUT(request: Request) {

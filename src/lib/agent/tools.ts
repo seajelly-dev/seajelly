@@ -892,7 +892,13 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
     for (const ch of channels) {
       if (!ch.platform_uid || ch.id === excludeChannelId) continue;
       try {
-        const url = buildRoomUrl(roomId, ch.id, ch.platform, ch.display_name || ch.platform_uid, ch.is_owner);
+        const url = await buildRoomUrl(
+          roomId,
+          ch.id,
+          ch.platform,
+          ch.display_name || ch.platform_uid,
+          ch.is_owner,
+        );
         const chSender = await getSenderForAgent(agentId, ch.platform);
         if (chSender) {
           await chSender.sendMarkdown(
@@ -916,6 +922,9 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
           return { success: false, error: "Only the owner can create chatrooms" };
         }
         try {
+          const { assertRoomSubAppConfigured } = await import("@/lib/sub-app-settings");
+          await assertRoomSubAppConfigured();
+
           const roomTitle = title || `Room ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
           const { data: room, error } = await supabase
             .from("chat_rooms")
@@ -933,7 +942,13 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
 
           const { buildRoomUrl } = await import("@/lib/room-token");
           const ownerName = await getChannelDisplayName();
-          const ownerUrl = buildRoomUrl(room.id, channelId || null, platform || "web", ownerName, true);
+          const ownerUrl = await buildRoomUrl(
+            room.id,
+            channelId || null,
+            platform || "web",
+            ownerName,
+            true,
+          );
 
           await supabase.from("chat_room_messages").insert({
             room_id: room.id,
@@ -953,7 +968,11 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
 
           return { success: true, room_id: room.id, title: roomTitle, message: "Chatroom created and link sent." };
         } catch (err) {
-          await sendToCurrent(t("roomCreateFailed"));
+          if (err instanceof Error && err.name === "SubAppConfigError") {
+            await sendToCurrent(t("roomConfigRequired"));
+          } else {
+            await sendToCurrent(t("roomCreateFailed"));
+          }
           return { success: false, error: err instanceof Error ? err.message : "Failed" };
         }
       },
@@ -970,6 +989,9 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
           return { success: false, error: "Only the owner can close chatrooms" };
         }
         try {
+          const { assertRoomSubAppConfigured } = await import("@/lib/sub-app-settings");
+          await assertRoomSubAppConfigured();
+
           let targetId = room_id;
           if (!targetId) {
             const { data: rooms } = await supabase
@@ -1015,6 +1037,9 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
 
           return { success: true, room_id: targetId };
         } catch (err) {
+          if (err instanceof Error && err.name === "SubAppConfigError") {
+            await sendToCurrent(t("roomConfigRequired"));
+          }
           return { success: false, error: err instanceof Error ? err.message : "Failed" };
         }
       },
@@ -1072,7 +1097,13 @@ export function createSubAppTools({ agentId, channelId, isOwner, sender, platfor
           if (sender && platformChatId) {
             const { buildRoomUrl } = await import("@/lib/room-token");
             const ownerName = await getChannelDisplayName();
-            const ownerUrl = buildRoomUrl(targetId!, channelId || null, platform || "web", ownerName, true);
+            const ownerUrl = await buildRoomUrl(
+              targetId!,
+              channelId || null,
+              platform || "web",
+              ownerName,
+              true,
+            );
             await sender.sendMarkdown(
               platformChatId,
               t("roomReopened", { title: roomTitle, url: ownerUrl })

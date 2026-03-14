@@ -141,6 +141,8 @@ const botStrings = {
     roomReopened: "🏠 Chatroom *{title}* has been reopened!\n\n🔗 [Join Chatroom]({url})",
     roomOwnerOnly: "Only the owner can create, close, or reopen chatrooms.",
     roomCreateFailed: "Failed to create chatroom.",
+    roomConfigRequired:
+      "Room Sub-App security is not configured yet. Ask the admin to finish the Room configuration in Dashboard → Sub-Apps.",
     roomNoActive: "No active chatroom to close.",
     roomNoClosed: "No closed chatroom to reopen.",
 
@@ -288,6 +290,8 @@ const botStrings = {
     roomReopened: "🏠 聊天室 *{title}* 已重新开启！\n\n🔗 [进入聊天室]({url})",
     roomOwnerOnly: "只有实控人可以创建、关闭或重开聊天室。",
     roomCreateFailed: "创建聊天室失败。",
+    roomConfigRequired:
+      "Room 子应用的安全配置尚未完成。请让管理员先在 Dashboard → Sub-Apps 完成 Room 配置。",
     roomNoActive: "没有可关闭的活跃聊天室。",
     roomNoClosed: "没有可重新开启的已关闭聊天室。",
 
