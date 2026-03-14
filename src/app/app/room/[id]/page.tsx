@@ -80,24 +80,33 @@ interface RoomRealtimeBroadcastPayload<T> {
   table: string;
 }
 
-function isRoomRealtimeBroadcastPayload(
+function extractRoomRealtimeBroadcastPayload(
   payload: unknown
-): payload is RoomRealtimeBroadcastPayload<ChatRoomMessage | ChatRoom> {
+): RoomRealtimeBroadcastPayload<ChatRoomMessage | ChatRoom> | null {
   if (!payload || typeof payload !== "object") {
-    return false;
+    return null;
   }
 
   const candidate = payload as Record<string, unknown>;
-  return (
-    typeof candidate.id === "string" &&
-    (candidate.operation === "INSERT" ||
-      candidate.operation === "UPDATE" ||
-      candidate.operation === "DELETE") &&
-    typeof candidate.schema === "string" &&
-    typeof candidate.table === "string" &&
-    "record" in candidate &&
-    "old_record" in candidate
-  );
+  const nested =
+    candidate.payload && typeof candidate.payload === "object"
+      ? (candidate.payload as Record<string, unknown>)
+      : candidate;
+
+  if (
+    typeof nested.id === "string" &&
+    (nested.operation === "INSERT" ||
+      nested.operation === "UPDATE" ||
+      nested.operation === "DELETE") &&
+    typeof nested.schema === "string" &&
+    typeof nested.table === "string" &&
+    "record" in nested &&
+    "old_record" in nested
+  ) {
+    return nested as unknown as RoomRealtimeBroadcastPayload<ChatRoomMessage | ChatRoom>;
+  }
+
+  return null;
 }
 
 function mergeMessageList(current: ChatRoomMessage[], incoming: ChatRoomMessage) {
@@ -288,18 +297,21 @@ export default function ChatRoomPage() {
       channel = supabase
         .channel(data.topic, { config: { private: true } })
         .on("broadcast", { event: "INSERT" }, (payload) => {
-          if (isRoomRealtimeBroadcastPayload(payload)) {
-            handleBroadcast(payload);
+          const broadcastPayload = extractRoomRealtimeBroadcastPayload(payload);
+          if (broadcastPayload) {
+            handleBroadcast(broadcastPayload);
           }
         })
         .on("broadcast", { event: "UPDATE" }, (payload) => {
-          if (isRoomRealtimeBroadcastPayload(payload)) {
-            handleBroadcast(payload);
+          const broadcastPayload = extractRoomRealtimeBroadcastPayload(payload);
+          if (broadcastPayload) {
+            handleBroadcast(broadcastPayload);
           }
         })
         .on("broadcast", { event: "DELETE" }, (payload) => {
-          if (isRoomRealtimeBroadcastPayload(payload)) {
-            handleBroadcast(payload);
+          const broadcastPayload = extractRoomRealtimeBroadcastPayload(payload);
+          if (broadcastPayload) {
+            handleBroadcast(broadcastPayload);
           }
         })
         .on("presence", { event: "sync" }, () => {

@@ -1684,7 +1684,7 @@ CREATE POLICY "room_realtime_authenticated_select" ON realtime.messages FOR SELE
 DROP POLICY IF EXISTS "room_realtime_authenticated_insert" ON realtime.messages;
 CREATE POLICY "room_realtime_authenticated_insert" ON realtime.messages FOR INSERT TO authenticated
   WITH CHECK (
-    extension = 'presence'
+    extension IN ('broadcast', 'presence')
     AND coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'room_id' IS NOT NULL
     AND realtime.topic() = 'room:' || (coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'room_id')
   );
