@@ -1,8 +1,14 @@
 import { cleanupChannelTempFiles } from "@/lib/jellybox/storage";
+import { cancelStaleEvents } from "@/lib/events/queue";
 import type { CommandContext, LoopResult } from "../types";
 
 export async function handleNew(ctx: CommandContext): Promise<LoopResult> {
-  const { supabase, sender, platformChatId, agent, channel, session, t, traceId } = ctx;
+  const { supabase, sender, platformChatId, agent, channel, session, event, t, traceId } = ctx;
+
+  const cancelled = await cancelStaleEvents(platformChatId, agent.id, event.id ?? undefined);
+  if (cancelled > 0) {
+    console.log(`[new-command] trace=${traceId} cancelled ${cancelled} stale events for chat=${platformChatId}`);
+  }
 
   await supabase.from("sessions").update({ is_active: false }).eq("id", session.id);
   await supabase.from("sessions").insert({

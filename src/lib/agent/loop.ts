@@ -25,7 +25,7 @@ import type { Agent, AgentEvent, ChatMessage, MessageContentPart } from "@/types
 import { stringifyContent } from "@/types/database";
 import { botT, getBotLocaleOrDefault, humanizeAgentError } from "@/lib/i18n/bot";
 import type { Locale } from "@/lib/i18n/types";
-import { renewEventLock, markProcessed, markFailed } from "@/lib/events/queue";
+import { renewEventLock, markProcessed, markFailed, isEventCancelled } from "@/lib/events/queue";
 import { compactSessionMessages, prepareSessionHistory } from "@/lib/memory/session";
 
 function resolvePlatform(event: AgentEvent): string {
@@ -824,6 +824,12 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       lockRenewTimer = setInterval(() => {
         renewEventLock(event.id, 295).catch(() => {});
       }, 60_000);
+    }
+
+    if (event.id && await isEventCancelled(event.id)) {
+      console.log(`[agent-loop] trace=${traceId} event=${event.id} cancelled before LLM call, aborting`);
+      if (lockRenewTimer) clearInterval(lockRenewTimer);
+      return { success: true, reply: "[cancelled]", traceId };
     }
 
     const toolDirective = resolveGenerateTextToolDirective({

@@ -70,6 +70,17 @@ export async function claimPendingEvents(): Promise<AgentEvent[]> {
   return results;
 }
 
+export async function isEventCancelled(eventId: string): Promise<boolean> {
+  if (!eventId) return false;
+  const supabase = getSupabase();
+  const { data } = await supabase
+    .from("events")
+    .select("status")
+    .eq("id", eventId)
+    .single();
+  return data?.status === "dead";
+}
+
 export async function renewEventLock(
   eventId: string,
   extendSeconds: number = LOCK_DURATION_SECONDS
@@ -120,6 +131,30 @@ export async function markFailed(eventId: string, errorMessage: string) {
         : new Date(Date.now() + backoffMs(newRetryCount)).toISOString(),
     })
     .eq("id", eventId);
+}
+
+export async function cancelStaleEvents(
+  platformChatId: string,
+  agentId: string,
+  excludeEventId?: string,
+): Promise<number> {
+  const supabase = getSupabase();
+  let query = supabase
+    .from("events")
+    .update(
+      { status: "dead" as const, error_message: "Cancelled: new session started" },
+      { count: "exact" },
+    )
+    .eq("platform_chat_id", platformChatId)
+    .eq("agent_id", agentId)
+    .or("status.eq.pending,status.eq.processing,status.eq.failed");
+
+  if (excludeEventId) {
+    query = query.neq("id", excludeEventId);
+  }
+
+  const { count } = await query;
+  return count ?? 0;
 }
 
 function backoffMs(retryCount: number): number {
