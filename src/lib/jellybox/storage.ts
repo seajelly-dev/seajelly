@@ -265,26 +265,35 @@ export interface PromoteResult {
 }
 
 export async function promoteFile(
-  fileId: string,
+  fileIdOrUrl: string,
   scope: FileAccessScope,
 ): Promise<PromoteResult> {
   const db = getSupabase();
 
-  const query = applyFileAccessScope(
-    db.from("jellybox_files")
-      .select("id, storage_id, file_key, original_name, channel_id, zone")
-      .eq("id", fileId)
-      .eq("zone", "temp"),
-    scope,
-  );
-  const { data: file, error: findErr } = await query.single();
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fileIdOrUrl);
+  const isUrl = fileIdOrUrl.startsWith("http://") || fileIdOrUrl.startsWith("https://");
+
+  let baseQuery = db.from("jellybox_files")
+    .select("id, storage_id, file_key, original_name, channel_id, zone")
+    .eq("zone", "temp");
+
+  if (isUuid) {
+    baseQuery = baseQuery.eq("id", fileIdOrUrl);
+  } else if (isUrl) {
+    baseQuery = baseQuery.eq("public_url", fileIdOrUrl);
+  } else {
+    baseQuery = baseQuery.eq("original_name", fileIdOrUrl);
+  }
+
+  const query = applyFileAccessScope(baseQuery, scope);
+  const { data: file, error: findErr } = await query.order("created_at", { ascending: false }).limit(1).single();
   if (findErr || !file) {
-    throw new Error(`Temp file not found or access denied: ${fileId}`);
+    throw new Error(`Temp file not found or access denied: ${fileIdOrUrl}`);
   }
 
   const storage = await getStorageById(file.storage_id);
   if (!storage) {
-    throw new Error(`Storage not found for file: ${fileId}`);
+    throw new Error(`Storage not found for file: ${file.id}`);
   }
 
   const newKey = buildFileKey(file.original_name, "persistent", file.channel_id ?? undefined);
@@ -295,13 +304,13 @@ export async function promoteFile(
   const { error: updateErr } = await db
     .from("jellybox_files")
     .update({ zone: "persistent", file_key: newKey, public_url: newUrl })
-    .eq("id", fileId);
+    .eq("id", file.id);
 
   if (updateErr) {
     throw new Error(`Failed to update file record: ${updateErr.message}`);
   }
 
-  return { fileId, publicUrl: newUrl, storageName: storage.name };
+  return { fileId: file.id, publicUrl: newUrl, storageName: storage.name };
 }
 
 export async function cleanupTempFile(fileId: string): Promise<void> {

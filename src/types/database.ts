@@ -166,7 +166,10 @@ export function stringifyContent(content: string | MessageContentPart[]): string
   return content
     .map((part) => {
       if (part.type === "text") return part.text;
-      if (part.type === "file") return `[File: ${part.name} (${part.mime}) -> ${part.url}]`;
+      if (part.type === "file") {
+        const idTag = part.file_id ? ` file_id=${part.file_id}` : "";
+        return `[File: ${part.name} (${part.mime})${idTag} -> ${part.url}]`;
+      }
       return "";
     })
     .filter(Boolean)

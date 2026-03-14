@@ -30,11 +30,16 @@ export function createJellyBoxToolkitTools({
     jellybox_persist: tool({
       description:
         "Persist a temporarily staged file to permanent JellyBox cloud storage. " +
-        "Use this when the user explicitly asks to save, store, or keep a file that was received this turn. " +
-        "The staged_file_id is provided in the system prompt under 'Current Turn File Context'. " +
+        "Use this when the user explicitly asks to save, store, or keep a file. " +
+        "The file_id can be found in the session history as `file_id=<uuid>` in file references, " +
+        "or in the system prompt under 'Current Turn File Context' as 'Staged File ID'. " +
+        "You can also pass the file's public URL instead of the ID. " +
         "Do NOT call this unless the user clearly requests storage.",
       inputSchema: z.object({
-        staged_file_id: z.string().describe("The staged file ID from the current turn file context"),
+        staged_file_id: z.string().describe(
+          "The file ID (UUID) or the public URL of the temp file to persist. " +
+          "Look for file_id=<uuid> in session history file references."
+        ),
       }),
       execute: async ({ staged_file_id }: { staged_file_id: string }) => {
         try {

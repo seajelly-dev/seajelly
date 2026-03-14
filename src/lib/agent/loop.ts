@@ -806,13 +806,19 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       systemPrompt +=
         "\n\n## Current Turn File Context\n" +
         "A file was received this turn and is temporarily staged in JellyBox.\n" +
-        `- Staged File ID: ${stagedFile.fileRecordId}\n` +
+        `- Staged File ID (UUID): ${stagedFile.fileRecordId}\n` +
         `- File: ${stagedFile.fileName ?? "unknown"}\n` +
         `- Type: ${stagedFile.mimeType}\n` +
         `- Size: ${stagedFile.sizeBytes} bytes\n` +
         "If the user wants to save/persist this file, call `jellybox_persist` with the staged_file_id above.\n" +
         "If no storage request, the temp file will be auto-cleaned.";
     }
+
+    systemPrompt +=
+      "\n\n## File References in History\n" +
+      "Files in conversation history appear as: [File: <name> (<mime>) file_id=<uuid> -> <url>]\n" +
+      "When the user asks to save/persist a previously sent file, extract the `file_id` UUID from the history " +
+      "and pass it to `jellybox_persist`. You can also pass the file URL instead of the UUID.";
 
     if (event.id) {
       lockRenewTimer = setInterval(() => {
