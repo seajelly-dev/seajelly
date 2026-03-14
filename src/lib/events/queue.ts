@@ -19,28 +19,55 @@ export async function claimPendingEvents(): Promise<AgentEvent[]> {
 
   const { data: pending } = await supabase
     .from("events")
-    .select("id")
+    .select("id, status, retry_count, max_retries")
     .or(`status.eq.pending,and(status.eq.processing,locked_until.lt.${now})`)
     .order("created_at", { ascending: true })
     .limit(BATCH_SIZE);
 
   if (!pending || pending.length === 0) return [];
 
-  const ids = pending.map((e) => e.id);
   const lockedUntil = new Date(
     Date.now() + LOCK_DURATION_SECONDS * 1000
   ).toISOString();
 
-  const { data: claimed } = await supabase
-    .from("events")
-    .update({
-      status: "processing",
-      locked_until: lockedUntil,
-    })
-    .in("id", ids)
-    .select("*");
+  const results: AgentEvent[] = [];
 
-  return (claimed as AgentEvent[]) ?? [];
+  for (const row of pending) {
+    const wasZombie = row.status === "processing";
+    const retryCount = (row.retry_count ?? 0) + (wasZombie ? 1 : 0);
+    const maxRetries = row.max_retries ?? 5;
+
+    if (retryCount >= maxRetries) {
+      await supabase
+        .from("events")
+        .update({
+          status: "dead",
+          error_message: "Exceeded max retries (zombie timeout recovery)",
+          retry_count: retryCount,
+        })
+        .eq("id", row.id);
+      continue;
+    }
+
+    const { data: claimed } = await supabase
+      .from("events")
+      .update({
+        status: "processing",
+        locked_until: lockedUntil,
+        retry_count: retryCount,
+        ...(wasZombie ? { error_message: `Recovered from zombie state (attempt ${retryCount + 1})` } : {}),
+      })
+      .eq("id", row.id)
+      .or(`status.eq.pending,status.eq.processing`)
+      .select("*")
+      .maybeSingle();
+
+    if (claimed) {
+      results.push(claimed as AgentEvent);
+    }
+  }
+
+  return results;
 }
 
 export async function renewEventLock(
