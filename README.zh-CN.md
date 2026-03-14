@@ -17,6 +17,7 @@
 - [第四步：运行 Setup 向导](#第四步运行-setup-向导)
 - [第五步：开始使用](#第五步开始使用)
 - [本地开发](#本地开发)
+- [Sub-App 开发](#sub-app-开发)
 - [架构](#架构)
 - [常见问题](#常见问题)
 
@@ -253,6 +254,21 @@ openssl rand -base64 32
 # 启动开发服务器 (http://localhost:3000)
 pnpm dev
 ```
+
+---
+
+## Sub-App 开发
+
+如果你准备开发新的 Sub-App，请先看这里：
+
+- [`src/app/api/app/README.md`](./src/app/api/app/README.md)
+
+这里整理了当前仓库推荐的安全开发模式，重点包括：
+
+- 页面可以公开，但业务表默认私有
+- 每个 `/api/app/*` 请求都必须校验签名 Token
+- 子应用专属密钥优先放进 `sub_app_settings`
+- Realtime 采用私有 Broadcast + Presence + 短时 JWT
 
 ---
 

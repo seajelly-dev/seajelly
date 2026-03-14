@@ -80,7 +80,7 @@ function DevGuideEn() {
     <article className={article}>
       <h2>What is a Sub-App?</h2>
       <p>
-        A <strong>Sub-App</strong> is SEAJelly&apos;s Agent-Native GUI interaction paradigm. Unlike Skills (text injection into system prompts) or MCP Servers (tool protocol extensions), a Sub-App provides a <strong>visual web interface</strong> that agents can create and share via IM links.
+        A <strong>Sub-App</strong> is SEAJelly&apos;s Agent-native GUI interaction model. The page can be public and login-free, but the underlying data should still stay private by default.
       </p>
       <p>The core flow:</p>
       <ol>
@@ -88,235 +88,179 @@ function DevGuideEn() {
         <li>Agent calls a tool to create an instance (e.g., a chatroom, poll, whiteboard)</li>
         <li>A unique URL with a <strong>signed token</strong> is generated and <strong>directly sent</strong> to IM channels</li>
         <li>Users open the link — identity is auto-recognized from the token, no login required</li>
-        <li>The agent can participate in real-time via the same interface</li>
+        <li>The public page calls server APIs with that token</li>
+        <li>If realtime is needed, the server exchanges the signed token for a <strong>short-lived Realtime JWT</strong></li>
       </ol>
+      <p>
+        Full reference: <code>src/app/api/app/README.md</code>
+      </p>
 
       <h2>Directory &amp; Routing Conventions</h2>
       <CodeBlock>{`Frontend page:  src/app/app/{slug}/[id]/page.tsx   →  /app/{slug}/{instance-id}
 Backend API:    src/app/api/app/{slug}/route.ts     →  /api/app/{slug}
+Realtime API:   src/app/api/app/{slug}/session/route.ts → /api/app/{slug}/session
 Database:       {slug}_* tables                     →  e.g., chat_rooms, chat_room_messages
 Agent tools:    src/lib/agent/tools.ts              →  createSubAppTools()
 Shared tooling: src/lib/agent/tooling/*             →  policy, toolkit, runtime resolution
-Token utils:    src/lib/room-token.ts               →  signRoomToken(), verifyRoomToken(), buildRoomUrl()`}</CodeBlock>
-      <p>The <code>slug</code> is a short, URL-safe identifier registered in the <code>sub_apps</code> table (e.g., <code>room</code>, <code>poll</code>, <code>board</code>).</p>
+Token utils:    src/lib/room-token.ts               →  signRoomToken(), verifyRoomToken(), buildRoomUrl()
+Realtime JWT:   src/lib/room-realtime.ts            →  create{Slug}RealtimeSession()
+Sub-App config: public.sub_app_settings + src/lib/sub-app-settings.ts`}</CodeBlock>
 
-      <h2>Development Checklist</h2>
-
-      <h3>1. Register in <code>sub_apps</code> table</h3>
-      <p>Add an <code>INSERT</code> statement to <code>supabase/migrations/001_initial_schema.sql</code>:</p>
-      <CodeBlock>{`INSERT INTO public.sub_apps (slug, name, description, tool_names, enabled)
-VALUES ('your-slug', 'Your App Name', 'Description', ARRAY['tool_name_1', 'tool_name_2'], true)
-ON CONFLICT (slug) DO NOTHING;`}</CodeBlock>
-
-      <h3>2. Create data tables</h3>
-      <CodeBlock>{`CREATE TABLE IF NOT EXISTS public.your_slug_instances (
-  id          text PRIMARY KEY DEFAULT encode(gen_random_bytes(8), 'hex'),
-  agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
-  created_by  uuid REFERENCES public.channels(id) ON DELETE SET NULL,
-  status      text NOT NULL DEFAULT 'active',
-  created_at  timestamptz NOT NULL DEFAULT now()
-);`}</CodeBlock>
-      <p><strong>RLS policies</strong> — follow the standard pattern:</p>
+      <h2>Security-First Baseline</h2>
+      <p>
+        A public Sub-App page does <strong>not</strong> mean the database should be public. This is the main rule to keep in mind.
+      </p>
       <div className="overflow-x-auto">
         <table>
-          <thead><tr><th>Role</th><th>Policy</th></tr></thead>
+          <thead><tr><th>Layer</th><th>Recommended model</th></tr></thead>
           <tbody>
-            <tr><td><code>anon</code></td><td><code>SELECT</code> (and <code>INSERT</code> if users post data from the public page)</td></tr>
-            <tr><td><code>authenticated</code> / admin</td><td><code>ALL</code> via <code>public.is_admin()</code></td></tr>
-            <tr><td><code>service_role</code></td><td><code>ALL</code></td></tr>
+            <tr><td>Page</td><td>Public, login-free, bearer-link based</td></tr>
+            <tr><td>Business tables</td><td>Private by default, no direct <code>anon</code> access</td></tr>
+            <tr><td>Server API</td><td>Verifies signed token, then uses <code>createStrictServiceClient()</code></td></tr>
+            <tr><td>Realtime</td><td>Private Broadcast + Presence, not public <code>postgres_changes</code></td></tr>
+            <tr><td>Sub-App secrets</td><td>Stored in <code>sub_app_settings</code>, not scattered across env vars</td></tr>
           </tbody>
         </table>
       </div>
-      <p><strong>Realtime</strong> — if your Sub-App needs real-time updates:</p>
-      <CodeBlock>{`DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables
-    WHERE pubname = 'supabase_realtime'
-      AND schemaname = 'public'
-      AND tablename = 'your_table_name'
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.your_table_name;
-  END IF;
-END $$;`}</CodeBlock>
-
-      <h3>3. Sync schema</h3>
-      <p>After modifying <code>001_initial_schema.sql</code>, copy the exact same SQL block into <code>src/app/api/admin/setup/route.ts</code> inside the <code>SCHEMA_SQL</code> template literal. Apply immediately via the Supabase MCP <code>execute_sql</code> tool.</p>
-
-      <h3>4. Add TypeScript types</h3>
-      <p>In <code>src/types/database.ts</code>:</p>
-      <CodeBlock>{`export interface YourInstance {
-  id: string;
-  agent_id: string;
-  status: string;
-  created_at: string;
-}`}</CodeBlock>
-
-      <h3>5. Create Agent tools — Critical Rules</h3>
-      <p>In <code>src/lib/agent/tools.ts</code>, add tools inside <code>createSubAppTools()</code>.</p>
-
-      <h4>Rule 1: Tools MUST send messages directly — never delegate to AI</h4>
-      <p>The AI may hallucinate, modify URLs, or generate HTML prototypes. All user-facing output (especially URLs) must be sent directly by the tool via <code>sender.sendMarkdown()</code>:</p>
-      <CodeBlock>{`create_something: tool({
-  description: "Create a new instance. IMPORTANT: The tool handles all user communication directly.",
-  inputSchema: z.object({ title: z.string().optional() }),
-  execute: async ({ title }: { title?: string }) => {
-    if (!isOwner) {
-      await sendToCurrent(t("ownerOnly"));
-      return { success: false, error: "owner_only" };
-    }
-    const url = buildUrl(instanceId, channelId, platform, displayName, true);
-    if (sender && platformChatId) {
-      await sender.sendMarkdown(platformChatId, t("instanceCreated", { title, url }));
-    }
-    return { success: true, url, title };
-  },
-}),`}</CodeBlock>
-
-      <h4>Rule 2: All tool messages MUST be internationalized</h4>
-      <p>Tools receive <code>locale</code> and must use <code>botT()</code> for every user-visible string:</p>
-      <CodeBlock>{`export function createSubAppTools({ agentId, channelId, isOwner, sender, platformChatId, platform, locale }: ToolsOptions) {
-  const botLocale = getBotLocaleOrDefault(locale);
-  const t = (k, p?) => botT(botLocale, k, p);
-  const sendToCurrent = async (message: string) => {
-    if (sender && platformChatId) await sender.sendMarkdown(platformChatId, message);
-  };
-}`}</CodeBlock>
-
-      <h4>Rule 3: Use real user identity, never hardcode</h4>
-      <p>Resolve the actual display name from the channel — never use <code>&quot;Owner&quot;</code> or any placeholder:</p>
-      <CodeBlock>{`async function getChannelDisplayName(): Promise<string> {
-  if (!channelId) return "User";
-  const { data } = await supabase
-    .from("channels")
-    .select("display_name, platform_uid")
-    .eq("id", channelId)
-    .single();
-  return data?.display_name || data?.platform_uid || "User";
-}`}</CodeBlock>
-
-      <h4>Rule 4: Use Markdown explicit link syntax for IM messages</h4>
-      <p>Long URLs with query parameters are often not auto-linked by IM platforms. Always use <code>[Link Text](url)</code> in bot messages.</p>
-
-      <h3>6. Configure AI behavior in shared tooling runtime</h3>
       <p>
-        Add Sub-App tool policy to <code>src/lib/agent/tooling/runtime.ts</code> via <code>buildToolPolicySections()</code>. Do not hardcode new policy text directly in <code>src/lib/agent/loop.ts</code>. If you are creating a builtin toolkit rather than a Sub-App tool, put the policy in <code>src/lib/agent/tooling/toolkits/&#123;name&#125;.ts</code> instead. See <code>src/lib/agent/tooling/README.md</code> for the architecture rules.
+        If a public page needs data, return it from <code>/api/app/&#123;slug&#125;</code> after verifying the signed token. Do not grant <code>anon</code> direct <code>SELECT</code> or <code>INSERT</code> on business tables just because the page itself is public.
       </p>
-      <CodeBlock>{`if (toolNames.has("create_something")) {
-  sections.push(
-    "## Your-App Tool Policy\\n" +
-    "- If user asks to create/open/start an instance, you MUST call \`create_something\`.\\n" +
-    "- Never generate HTML prototypes or fake links.\\n" +
-    "- After a tool succeeds, do not invent additional links or duplicate messages.",
-  );
-}`}</CodeBlock>
-      <p><strong>Suppress AI output</strong> when tools handle communication directly:</p>
-      <CodeBlock>{`const calledToolNames = extractToolNamesFromResult(result);
-const toolHandledOutput = calledToolNames.has("create_something");
-const reply = toolHandledOutput ? "" : (result.text || t("noResponseGenerated"));
-if (!toolHandledOutput) {
-  await sender.sendMarkdown(platformChatId, reply);
-}`}</CodeBlock>
 
-      <h3>7. Create backend API</h3>
-      <p><code>src/app/api/app/&#123;slug&#125;/route.ts</code>: <strong>GET</strong> (fetch data), <strong>POST</strong> (user actions), <strong>PATCH</strong> (owner actions).</p>
-
-      <h4>Vercel serverless requirements</h4>
-      <CodeBlock>{`export const runtime = "nodejs";  // MANDATORY for after()
-export const maxDuration = 60;`}</CodeBlock>
-      <p><code>runtime = &quot;nodejs&quot;</code> is <strong>mandatory</strong> if you use <code>after()</code>. Without it, <code>after()</code> callbacks are silently dropped in Vercel&apos;s Edge runtime.</p>
-
-      <h4>Token-based authentication</h4>
-      <CodeBlock>{`import { verifyRoomToken } from "@/lib/room-token";
-
-export async function POST(req: NextRequest) {
-  const { token: tokenStr, content } = await req.json();
-  const token = verifyRoomToken(tokenStr);
-  if (!token) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-  const { r: roomId, n: displayName, p: platform, o: isOwner } = token;
-}`}</CodeBlock>
-
-      <h4>Async agent replies with <code>after()</code></h4>
-      <CodeBlock>{`import { after } from "next/server";
-
-after(async () => {
-  try {
-    await runAgentLoop({ /* ... */ });
-  } catch (e) {
-    console.error("Agent reply failed:", e);
-  }
-});
-return NextResponse.json({ success: true });`}</CodeBlock>
-
-      <h4>@mention detection</h4>
-      <p>Support both <code>@agent</code> and the agent&apos;s actual name (including Chinese names):</p>
-      <CodeBlock>{`const normalized = content.trim();
-const aliasMentioned = /@agent(?=$|\\s|[,.!?，。！？:：;；])/i.test(normalized);
-const nameMentioned = normalized.includes(\`@\${agentName}\`);
-const mentionsAgent = aliasMentioned || nameMentioned;`}</CodeBlock>
-
-      <h3>8. Create frontend page</h3>
-      <p><code>src/app/app/&#123;slug&#125;/[id]/page.tsx</code>:</p>
-      <ul>
-        <li><strong>Token-based auto-identity</strong>: Parse <code>?t=</code> query parameter to auto-fill nickname, platform, and owner status</li>
-        <li>Use <code>createClient()</code> from <code>@/lib/supabase/client</code> for Realtime subscriptions</li>
-        <li>Subscribe to <code>postgres_changes</code> for real-time updates</li>
-        <li>Use Presence for online user tracking</li>
-      </ul>
-      <p><strong>Owner UX:</strong> Display badge next to owner name, show owner-only controls (close/reopen), highlight avatar with gold ring.</p>
-      <p><strong>Agent interaction UX:</strong> One-click <code>@&#123;agentName&#125;</code> button, dynamic placeholder, auto-insert mention on click.</p>
-      <p><strong>i18n:</strong> Use <code>useI18n()</code> hook, add language switcher in header.</p>
-
-      <h3>9. Add i18n strings</h3>
-      <p><code>en.ts</code>, <code>zh.ts</code> for UI text; <code>bot.ts</code> for IM bot messages. Bot messages with URLs <strong>must</strong> use <code>[text](url)</code> Markdown syntax.</p>
-
-      <h3>10. (Optional) Add IM command</h3>
-      <p>In <code>src/lib/agent/loop.ts</code>, add a command handler. Update <code>buildHelpText()</code> and <code>buildWelcomeText()</code> in <code>bot.ts</code>.</p>
-
-      <h2>Authentication Model</h2>
-      <h3>Signed Token (recommended)</h3>
-      <p>URL-only-ID is <strong>insecure</strong>. Use <strong>HMAC-SHA256 signed tokens</strong>:</p>
-      <CodeBlock>{`/app/{slug}/{id}?t={base64url_payload}.{base64url_signature}`}</CodeBlock>
-      <p>Token payload: <code>r</code> (instance ID), <code>c</code> (channel ID), <code>p</code> (platform), <code>n</code> (display name), <code>o</code> (is owner), <code>iat</code> (issued-at). Implementation: <code>src/lib/room-token.ts</code>.</p>
-
-      <h3>URL construction priority</h3>
+      <h2>Schema Workflow</h2>
       <ol>
-        <li><code>NEXT_PUBLIC_APP_URL</code> (custom domain, highest priority)</li>
-        <li><code>VERCEL_PROJECT_PRODUCTION_URL</code> (Vercel custom domain)</li>
-        <li><code>VERCEL_URL</code> (Vercel native URL, fallback)</li>
-        <li><code>localhost:3000</code> (local dev)</li>
+        <li>Apply DDL to the live Supabase project <strong>first</strong> via Supabase MCP</li>
+        <li>Do not create local incremental files like <code>002_*.sql</code></li>
+        <li>Sync the final SQL back into <code>supabase/migrations/001_initial_schema.sql</code></li>
+        <li>Copy the exact same SQL block into <code>src/app/api/admin/setup/route.ts</code></li>
       </ol>
-      <p><strong>Never hardcode or concatenate URLs manually in tools.</strong></p>
+      <p>
+        These three must stay aligned: live project, <code>001_initial_schema.sql</code>, and <code>setup/route.ts</code>.
+      </p>
 
-      <h2>Pitfalls &amp; Lessons Learned</h2>
+      <h2>Recommended DB Pattern</h2>
+      <CodeBlock>{`ALTER TABLE public.your_slug_instances ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "your_slug_instances_admin_all"
+ON public.your_slug_instances
+FOR ALL USING (public.is_admin());
+
+CREATE POLICY "your_slug_instances_service_all"
+ON public.your_slug_instances
+FOR ALL USING (current_setting('role') = 'service_role');
+
+GRANT ALL ON public.your_slug_instances TO service_role;
+REVOKE ALL ON TABLE public.your_slug_instances FROM PUBLIC, anon, authenticated;`}</CodeBlock>
+      <p>
+        Avoid blanket routine grants such as <code>GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon</code>. Only grant what is explicitly required.
+      </p>
+
+      <h2>Realtime Pattern</h2>
+      <p>
+        For bearer-link Sub-Apps, prefer private Realtime channels. The browser should not subscribe to business tables directly.
+      </p>
+      <CodeBlock>{`// 1. Browser fetches initial snapshot
+GET /api/app/{slug}
+
+// 2. Browser exchanges signed token for short-lived realtime session
+POST /api/app/{slug}/session
+→ { realtimeJwt, topic, expiresAt }
+
+// 3. Browser connects to private channel
+await supabase.realtime.setAuth(session.realtimeJwt)
+supabase.channel(session.topic, { config: { private: true } })`}</CodeBlock>
+      <p>
+        Recommended database side:
+      </p>
+      <ul>
+        <li>Use <code>realtime.broadcast_changes(...)</code> from triggers</li>
+        <li>Authorize channel access through <code>realtime.messages</code> RLS</li>
+        <li>Allow both <code>broadcast</code> and <code>presence</code> on the matching topic</li>
+      </ul>
+
+      <h2>Server API Rules</h2>
+      <ul>
+        <li><code>GET</code> for initial snapshot</li>
+        <li><code>POST</code> for user actions</li>
+        <li><code>PATCH</code> for owner actions</li>
+        <li><code>POST /session</code> for realtime-enabled Sub-Apps</li>
+      </ul>
+      <CodeBlock>{`export const runtime = "nodejs";
+export const maxDuration = 60;
+
+const token = await verifyYourSubAppToken(tokenStr);
+if (!token) {
+  return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+}
+
+const db = createStrictServiceClient();`}</CodeBlock>
+      <p>
+        Missing Sub-App config should fail closed with <code>503</code>. Do not silently fall back to weaker behavior.
+      </p>
+
+      <h2>Frontend Rules</h2>
+      <ul>
+        <li>Read identity from <code>?t=</code>, not from login state</li>
+        <li>Fetch the initial snapshot from your server API</li>
+        <li>Use private Broadcast + Presence for incremental updates</li>
+        <li>Refresh the short-lived realtime JWT before it expires</li>
+        <li>Show a lightweight connection-state indicator</li>
+      </ul>
+      <CodeBlock>{`const session = await fetch("/api/app/your-slug/session", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ instance_id, token }),
+}).then((res) => res.json());
+
+await supabase.realtime.setAuth(session.realtimeJwt);
+
+const channel = supabase
+  .channel(session.topic, { config: { private: true } })
+  .on("broadcast", { event: "INSERT" }, (rawPayload) => {
+    const payload =
+      rawPayload && typeof rawPayload === "object" && "payload" in rawPayload
+        ? rawPayload.payload
+        : rawPayload;
+
+    // payload.record / payload.old_record / payload.operation
+  });`}</CodeBlock>
+
+      <h2>Agent Tool Rules</h2>
+      <ul>
+        <li>Tools must send URLs directly with <code>sender.sendMarkdown()</code></li>
+        <li>All tool-facing strings must be internationalized</li>
+        <li>Do not hardcode names like <code>&quot;Owner&quot;</code></li>
+        <li>Use explicit Markdown links: <code>[Join](&#123;url&#125;)</code></li>
+      </ul>
+
+      <h2>Chatroom Lessons Learned</h2>
       <div className="space-y-4">
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1">AI will hallucinate if you let it</h4>
-          <p className="text-sm mb-1">If a tool returns a URL and expects the AI to relay it, the AI may modify/truncate the URL, generate HTML prototypes, or duplicate messages.</p>
-          <p className="text-sm font-medium">Solution: Tools send messages directly via <code>sender.sendMarkdown()</code>. Suppress AI text output after tool execution.</p>
+          <h4 className="text-destructive font-semibold mb-1">Public page does not mean public database</h4>
+          <p className="text-sm font-medium">Do not give business tables direct <code>anon</code> read/write access just because the page is public.</p>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1">IM platforms don&apos;t auto-link long URLs</h4>
-          <p className="text-sm font-medium">Solution: Always use <code>[Link Text](url)</code> Markdown syntax in bot messages.</p>
+          <h4 className="text-destructive font-semibold mb-1">Do not use <code>postgres_changes</code> for bearer-link Sub-Apps</h4>
+          <p className="text-sm font-medium">Private Broadcast + Presence keeps business tables private and scales better for this model.</p>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1"><code>after()</code> silently fails without <code>runtime = &quot;nodejs&quot;</code></h4>
-          <p className="text-sm font-medium">Solution: Always add <code>export const runtime = &quot;nodejs&quot;</code> to API routes that use <code>after()</code>.</p>
+          <h4 className="text-destructive font-semibold mb-1">Realtime insert policy must allow both <code>broadcast</code> and <code>presence</code></h4>
+          <p className="text-sm font-medium">If <code>broadcast</code> is missing from <code>realtime.messages</code> insert policy, messages will only show up after refresh.</p>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1">@mention detection must handle real names</h4>
-          <p className="text-sm mb-1"><code>/@agent\b/</code> doesn&apos;t work with Chinese names (no word boundaries in CJK).</p>
-          <p className="text-sm font-medium">Solution: Check both <code>@agent</code> (with delimiter lookahead) and <code>@&#123;actualAgentName&#125;</code> (substring match).</p>
+          <h4 className="text-destructive font-semibold mb-1">Supabase broadcast payloads are wrapped</h4>
+          <p className="text-sm font-medium">The useful fields may be under <code>payload.payload</code>. Normalize first, then type-check.</p>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1">Hardcoded identity breaks UX</h4>
-          <p className="text-sm font-medium">Solution: Resolve real display name from <code>channels</code> table. Never use role labels like &quot;Owner&quot;.</p>
+          <h4 className="text-destructive font-semibold mb-1">Realtime signing KID must be a UUID</h4>
+          <p className="text-sm font-medium">Generate it with <code>crypto.randomUUID()</code>, not random hex.</p>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1">Turbopack dev server can freeze your machine</h4>
-          <p className="text-sm font-medium">Solution: Set <code>turbopack.root: process.cwd()</code> in <code>next.config.ts</code>.</p>
+          <h4 className="text-destructive font-semibold mb-1">OpenCrab must import its own private signing key into Supabase</h4>
+          <p className="text-sm font-medium">The existing current ECC key shown in Supabase is not automatically reusable by the app.</p>
+        </div>
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+          <h4 className="text-destructive font-semibold mb-1">Missing Sub-App config must fail closed</h4>
+          <p className="text-sm font-medium">Return <code>503</code> and block startup. Do not silently downgrade to <code>anon</code> behavior.</p>
         </div>
       </div>
 
@@ -326,26 +270,25 @@ const mentionsAgent = aliasMentioned || nameMentioned;`}</CodeBlock>
           <thead><tr><th>Layer</th><th>File</th></tr></thead>
           <tbody>
             <tr><td>Database</td><td><code>001_initial_schema.sql</code> — <code>chat_rooms</code>, <code>chat_room_messages</code></td></tr>
-            <tr><td>Types</td><td><code>src/types/database.ts</code> — <code>ChatRoom</code>, <code>ChatRoomMessage</code></td></tr>
+            <tr><td>Sub-App config</td><td><code>public.sub_app_settings</code>, <code>src/lib/sub-app-settings.ts</code></td></tr>
             <tr><td>Token</td><td><code>src/lib/room-token.ts</code></td></tr>
+            <tr><td>Realtime JWT</td><td><code>src/lib/room-realtime.ts</code></td></tr>
             <tr><td>Agent tools</td><td><code>src/lib/agent/tools.ts</code> — <code>create_chat_room</code>, <code>close_chat_room</code>, <code>reopen_chat_room</code></td></tr>
-            <tr><td>IM command</td><td><code>src/lib/agent/loop.ts</code> — <code>/room</code></td></tr>
-            <tr><td>Backend API</td><td><code>src/app/api/app/room/route.ts</code> — GET/POST/PATCH</td></tr>
+            <tr><td>Backend API</td><td><code>src/app/api/app/room/route.ts</code></td></tr>
+            <tr><td>Realtime API</td><td><code>src/app/api/app/room/session/route.ts</code></td></tr>
             <tr><td>Frontend</td><td><code>src/app/app/room/[id]/page.tsx</code></td></tr>
-            <tr><td>Admin</td><td><code>src/app/(dashboard)/dashboard/sub-apps/page.tsx</code></td></tr>
-            <tr><td>i18n</td><td><code>en.ts</code>, <code>zh.ts</code>, <code>bot.ts</code></td></tr>
           </tbody>
         </table>
       </div>
 
-      <h2>Sub-App Ideas for Future Development</h2>
-      <ul>
-        <li><strong>Poll</strong> (<code>/app/poll/[id]</code>) — real-time voting with live result visualization</li>
-        <li><strong>Whiteboard</strong> (<code>/app/board/[id]</code>) — collaborative drawing/notes</li>
-        <li><strong>Form</strong> (<code>/app/form/[id]</code>) — data collection with agent-generated forms</li>
-        <li><strong>Dashboard</strong> (<code>/app/dash/[id]</code>) — real-time metrics/monitoring view</li>
-        <li><strong>Gallery</strong> (<code>/app/gallery/[id]</code>) — shared image/file collection</li>
-      </ul>
+      <h2>Pre-Launch Checklist</h2>
+      <ol>
+        <li>Business tables are not directly accessible to <code>anon</code></li>
+        <li>Every <code>/api/app/&#123;slug&#125;</code> request verifies the signed token</li>
+        <li>Missing Sub-App config returns <code>503</code></li>
+        <li>If realtime is enabled, the page refreshes the short-lived JWT before expiry</li>
+        <li><code>001_initial_schema.sql</code> and <code>setup/route.ts</code> match the production DDL</li>
+      </ol>
     </article>
   );
 }
@@ -355,7 +298,7 @@ function DevGuideZh() {
     <article className={article}>
       <h2>什么是 Sub-App？</h2>
       <p>
-        <strong>Sub-App</strong> 是 SEAJelly 的 <strong>Agent 原生 GUI 交互范式</strong>。与 Skill（文本注入系统提示词）或 MCP Server（工具协议扩展）不同，Sub-App 提供的是<strong>可视化 Web 交互界面</strong>——Agent 通过工具创建界面，通过 IM 发送链接，用户打开链接即进入 GUI 体验。
+        <strong>Sub-App</strong> 是 SEAJelly 的 <strong>Agent 原生 GUI 交互模式</strong>。页面可以公开、无登录，但底层业务数据默认仍然应该保持私有。
       </p>
       <p>核心流程：</p>
       <ol>
@@ -363,235 +306,177 @@ function DevGuideZh() {
         <li>Agent 调用工具创建实例（如聊天室、投票、白板）</li>
         <li>生成带<strong>签名 Token</strong> 的唯一 URL，<strong>由工具直接发送</strong>到 IM 频道</li>
         <li>用户打开链接——身份从 Token 自动识别，无需登录</li>
-        <li>Agent 可通过同一界面实时参与</li>
+        <li>公开页面带着这个 Token 调服务端 API</li>
+        <li>如果需要 Realtime，再由服务端换取一个<strong>短时有效</strong>的 Realtime JWT</li>
       </ol>
+      <p>
+        完整版参考：<code>src/app/api/app/README.md</code>
+      </p>
 
       <h2>目录与路由约定</h2>
       <CodeBlock>{`前端页面:    src/app/app/{slug}/[id]/page.tsx   →  /app/{slug}/{实例ID}
 后端 API:    src/app/api/app/{slug}/route.ts     →  /api/app/{slug}
+Realtime API: src/app/api/app/{slug}/session/route.ts → /api/app/{slug}/session
 数据表:      {slug}_* 表                         →  如 chat_rooms, chat_room_messages
 Agent 工具:  src/lib/agent/tools.ts              →  createSubAppTools()
 Shared tooling: src/lib/agent/tooling/*          →  策略、toolkit、运行时解析
-Token 工具:  src/lib/room-token.ts               →  signRoomToken(), verifyRoomToken(), buildRoomUrl()`}</CodeBlock>
-      <p><code>slug</code> 是注册在 <code>sub_apps</code> 表中的短标识符，需 URL 安全（如 <code>room</code>、<code>poll</code>、<code>board</code>）。</p>
+Token 工具:  src/lib/room-token.ts               →  signRoomToken(), verifyRoomToken(), buildRoomUrl()
+Realtime JWT: src/lib/room-realtime.ts           →  create{Slug}RealtimeSession()
+子应用配置:   public.sub_app_settings + src/lib/sub-app-settings.ts`}</CodeBlock>
 
-      <h2>开发步骤清单</h2>
-
-      <h3>1. 在 <code>sub_apps</code> 表中注册</h3>
-      <p>在 <code>supabase/migrations/001_initial_schema.sql</code> 末尾添加：</p>
-      <CodeBlock>{`INSERT INTO public.sub_apps (slug, name, description, tool_names, enabled)
-VALUES ('your-slug', '应用名称', '应用描述', ARRAY['tool_name_1', 'tool_name_2'], true)
-ON CONFLICT (slug) DO NOTHING;`}</CodeBlock>
-
-      <h3>2. 创建数据表</h3>
-      <CodeBlock>{`CREATE TABLE IF NOT EXISTS public.your_slug_instances (
-  id          text PRIMARY KEY DEFAULT encode(gen_random_bytes(8), 'hex'),
-  agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
-  created_by  uuid REFERENCES public.channels(id) ON DELETE SET NULL,
-  status      text NOT NULL DEFAULT 'active',
-  created_at  timestamptz NOT NULL DEFAULT now()
-);`}</CodeBlock>
-      <p><strong>RLS 策略</strong>——遵循标准模式：</p>
+      <h2>安全基线</h2>
+      <p>
+        公开 Sub-App 页面，不等于公开数据库。这是后续所有设计的前提。
+      </p>
       <div className="overflow-x-auto">
         <table>
-          <thead><tr><th>角色</th><th>策略</th></tr></thead>
+          <thead><tr><th>层</th><th>推荐模型</th></tr></thead>
           <tbody>
-            <tr><td><code>anon</code></td><td><code>SELECT</code>（如用户需从公开页面提交数据，则加 <code>INSERT</code>）</td></tr>
-            <tr><td><code>authenticated</code> / admin</td><td><code>ALL</code>，通过 <code>public.is_admin()</code></td></tr>
-            <tr><td><code>service_role</code></td><td><code>ALL</code></td></tr>
+            <tr><td>页面</td><td>公开、免登录、bearer link</td></tr>
+            <tr><td>业务表</td><td>默认私有，不直接给 <code>anon</code> 权限</td></tr>
+            <tr><td>服务端 API</td><td>先校验签名 Token，再用 <code>createStrictServiceClient()</code></td></tr>
+            <tr><td>Realtime</td><td>私有 Broadcast + Presence，不走公开 <code>postgres_changes</code></td></tr>
+            <tr><td>子应用密钥</td><td>放在 <code>sub_app_settings</code>，不要四处分散在 env</td></tr>
           </tbody>
         </table>
       </div>
-      <p><strong>Realtime</strong>——如需实时更新：</p>
-      <CodeBlock>{`DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables
-    WHERE pubname = 'supabase_realtime'
-      AND schemaname = 'public'
-      AND tablename = 'your_table_name'
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.your_table_name;
-  END IF;
-END $$;`}</CodeBlock>
-
-      <h3>3. 同步 Schema</h3>
-      <p>修改 <code>001_initial_schema.sql</code> 后，将完全相同的 SQL 块复制到 <code>src/app/api/admin/setup/route.ts</code> 的 <code>SCHEMA_SQL</code> 模板字符串中。通过 Supabase MCP 的 <code>execute_sql</code> 工具立即应用。</p>
-
-      <h3>4. 添加 TypeScript 类型</h3>
-      <p>在 <code>src/types/database.ts</code> 中：</p>
-      <CodeBlock>{`export interface YourInstance {
-  id: string;
-  agent_id: string;
-  status: string;
-  created_at: string;
-}`}</CodeBlock>
-
-      <h3>5. 创建 Agent 工具——关键规则</h3>
-      <p>在 <code>src/lib/agent/tools.ts</code> 的 <code>createSubAppTools()</code> 函数中添加工具。</p>
-
-      <h4>规则一：工具必须直接发送消息——绝不交给 AI 中转</h4>
-      <p>AI 可能会篡改 URL、生成 HTML 原型、或产生幻觉内容。所有面向用户的输出（尤其是 URL）必须由工具通过 <code>sender.sendMarkdown()</code> 直接发送：</p>
-      <CodeBlock>{`create_something: tool({
-  description: "创建新实例。重要：工具直接处理所有用户通信。",
-  inputSchema: z.object({ title: z.string().optional() }),
-  execute: async ({ title }: { title?: string }) => {
-    if (!isOwner) {
-      await sendToCurrent(t("ownerOnly"));
-      return { success: false, error: "owner_only" };
-    }
-    const url = buildUrl(instanceId, channelId, platform, displayName, true);
-    if (sender && platformChatId) {
-      await sender.sendMarkdown(platformChatId, t("instanceCreated", { title, url }));
-    }
-    return { success: true, url, title };
-  },
-}),`}</CodeBlock>
-
-      <h4>规则二：工具消息必须国际化</h4>
-      <p>工具接收 <code>locale</code> 参数，所有用户可见的字符串必须使用 <code>botT()</code>：</p>
-      <CodeBlock>{`export function createSubAppTools({ agentId, channelId, isOwner, sender, platformChatId, platform, locale }: ToolsOptions) {
-  const botLocale = getBotLocaleOrDefault(locale);
-  const t = (k, p?) => botT(botLocale, k, p);
-  const sendToCurrent = async (message: string) => {
-    if (sender && platformChatId) await sender.sendMarkdown(platformChatId, message);
-  };
-}`}</CodeBlock>
-
-      <h4>规则三：使用真实用户身份，禁止硬编码</h4>
-      <p>生成 URL 或记录所有权时，必须从 channel 解析真实的显示名称——绝不使用 <code>&quot;Owner&quot;</code> 等占位符：</p>
-      <CodeBlock>{`async function getChannelDisplayName(): Promise<string> {
-  if (!channelId) return "User";
-  const { data } = await supabase
-    .from("channels")
-    .select("display_name, platform_uid")
-    .eq("id", channelId)
-    .single();
-  return data?.display_name || data?.platform_uid || "User";
-}`}</CodeBlock>
-
-      <h4>规则四：IM 消息中使用 Markdown 显式链接语法</h4>
-      <p>带查询参数的长 URL 在 IM 平台（Telegram、飞书等）中经常无法自动识别为可点击链接。必须使用 <code>[链接文本](url)</code>。</p>
-
-      <h3>6. 在共享 tooling runtime 中配置 AI 行为</h3>
       <p>
-        Sub-App 的工具策略应添加到 <code>src/lib/agent/tooling/runtime.ts</code> 的 <code>buildToolPolicySections()</code> 中，不要再把新的策略文案直接硬编码进 <code>src/lib/agent/loop.ts</code>。如果你做的是 builtin toolkit，而不是 Sub-App 工具，则把策略写到 <code>src/lib/agent/tooling/toolkits/&#123;name&#125;.ts</code>。整体架构说明见 <code>src/lib/agent/tooling/README.md</code>。
+        如果公开页面需要数据，应由 <code>/api/app/&#123;slug&#125;</code> 在服务端校验 Token 后返回。不要因为页面公开，就给业务表直接开放 <code>anon</code> 读写。
       </p>
-      <CodeBlock>{`if (toolNames.has("create_something")) {
-  sections.push(
-    "## Your-App Tool Policy\\n" +
-    "- If user asks to create/open/start an instance, you MUST call \`create_something\`.\\n" +
-    "- Never generate HTML prototypes or fake links.\\n" +
-    "- After a tool succeeds, do not invent additional links or duplicate messages.",
-  );
-}`}</CodeBlock>
-      <p><strong>工具直接发送消息后，抑制 AI 的默认输出：</strong></p>
-      <CodeBlock>{`const calledToolNames = extractToolNamesFromResult(result);
-const toolHandledOutput = calledToolNames.has("create_something");
-const reply = toolHandledOutput ? "" : (result.text || t("noResponseGenerated"));
-if (!toolHandledOutput) {
-  await sender.sendMarkdown(platformChatId, reply);
-}`}</CodeBlock>
 
-      <h3>7. 创建后端 API</h3>
-      <p><code>src/app/api/app/&#123;slug&#125;/route.ts</code>：<strong>GET</strong>（获取数据）、<strong>POST</strong>（用户操作）、<strong>PATCH</strong>（实控人操作）。</p>
-
-      <h4>Vercel Serverless 必要配置</h4>
-      <CodeBlock>{`export const runtime = "nodejs";  // 使用 after() 时必须设置
-export const maxDuration = 60;`}</CodeBlock>
-      <p>如果使用 <code>after()</code> 处理异步任务，<code>runtime = &quot;nodejs&quot;</code> 是<strong>必须的</strong>。没有它，<code>after()</code> 回调在 Vercel 的 Edge Runtime 中会被静默丢弃。</p>
-
-      <h4>基于 Token 的认证</h4>
-      <CodeBlock>{`import { verifyRoomToken } from "@/lib/room-token";
-
-export async function POST(req: NextRequest) {
-  const { token: tokenStr, content } = await req.json();
-  const token = verifyRoomToken(tokenStr);
-  if (!token) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-  const { r: roomId, n: displayName, p: platform, o: isOwner } = token;
-}`}</CodeBlock>
-
-      <h4>使用 <code>after()</code> 处理异步 Agent 回复</h4>
-      <CodeBlock>{`import { after } from "next/server";
-
-after(async () => {
-  try {
-    await runAgentLoop({ /* ... */ });
-  } catch (e) {
-    console.error("Agent reply failed:", e);
-  }
-});
-return NextResponse.json({ success: true });`}</CodeBlock>
-
-      <h4>@提及检测</h4>
-      <p>需同时支持通用的 <code>@agent</code> 关键词和 Agent 的真实名字（包括中文名）：</p>
-      <CodeBlock>{`const normalized = content.trim();
-const aliasMentioned = /@agent(?=$|\\s|[,.!?，。！？:：;；])/i.test(normalized);
-const nameMentioned = normalized.includes(\`@\${agentName}\`);
-const mentionsAgent = aliasMentioned || nameMentioned;`}</CodeBlock>
-
-      <h3>8. 创建前端页面</h3>
-      <p><code>src/app/app/&#123;slug&#125;/[id]/page.tsx</code>：</p>
-      <ul>
-        <li><strong>Token 自动识别身份</strong>：解析 URL 中的 <code>?t=</code> 参数，自动填充昵称、平台和实控人状态</li>
-        <li>使用 <code>@/lib/supabase/client</code> 的 <code>createClient()</code> 订阅 Realtime</li>
-        <li>订阅 <code>postgres_changes</code> 获取实时更新</li>
-        <li>使用 Presence 追踪在线用户</li>
-      </ul>
-      <p><strong>实控人体验：</strong>在实控人名字旁显示标记（盾牌图标），头部显示专属控制按钮（关闭/重启），在线列表中高亮头像（金色边框）。</p>
-      <p><strong>Agent 交互体验：</strong>一键 <code>@&#123;agentName&#125;</code> 按钮，动态占位符，点击自动插入提及。</p>
-      <p><strong>国际化：</strong>使用 <code>useI18n()</code> Hook，在页面头部添加语言切换按钮。</p>
-
-      <h3>9. 添加国际化文案</h3>
-      <p><code>en.ts</code>、<code>zh.ts</code> 用于 UI 文本；<code>bot.ts</code> 用于 IM 机器人消息。包含 URL 的 Bot 消息<strong>必须</strong>使用 <code>[文本](url)</code> Markdown 语法。</p>
-
-      <h3>10.（可选）添加 IM 命令</h3>
-      <p>在 <code>src/lib/agent/loop.ts</code> 中添加命令处理器。同步更新 <code>bot.ts</code> 中的 <code>buildHelpText()</code> 和 <code>buildWelcomeText()</code>。</p>
-
-      <h2>鉴权模型</h2>
-      <h3>签名 Token（推荐）</h3>
-      <p>仅靠 URL ID 是<strong>不安全的</strong>。使用 <strong>HMAC-SHA256 签名 Token</strong> 携带已验证的身份：</p>
-      <CodeBlock>{`/app/{slug}/{id}?t={base64url_payload}.{base64url_signature}`}</CodeBlock>
-      <p>Token 载荷：<code>r</code>（实例 ID）、<code>c</code>（频道 ID）、<code>p</code>（平台）、<code>n</code>（显示名称）、<code>o</code>（是否实控人）、<code>iat</code>（签发时间戳）。实现参考：<code>src/lib/room-token.ts</code>。</p>
-
-      <h3>URL 构造优先级</h3>
+      <h2>Schema 流程</h2>
       <ol>
-        <li><code>NEXT_PUBLIC_APP_URL</code>（自定义域名，最高优先级）</li>
-        <li><code>VERCEL_PROJECT_PRODUCTION_URL</code>（Vercel 自定义域名）</li>
-        <li><code>VERCEL_URL</code>（Vercel 原生 URL，兜底）</li>
-        <li><code>localhost:3000</code>（本地开发）</li>
+        <li>先通过 Supabase MCP 把 DDL 作用到线上项目</li>
+        <li>不要创建本地增量迁移文件，例如 <code>002_*.sql</code></li>
+        <li>把最终 SQL 回写到 <code>supabase/migrations/001_initial_schema.sql</code></li>
+        <li>再把完全相同的 SQL 同步到 <code>src/app/api/admin/setup/route.ts</code></li>
       </ol>
-      <p><strong>绝不在工具中手动硬编码或拼接 URL。</strong></p>
+      <p>
+        线上项目、<code>001_initial_schema.sql</code>、<code>setup/route.ts</code> 这三处必须保持一致。
+      </p>
 
-      <h2>踩坑记录与经验教训</h2>
+      <h2>推荐的数据层模式</h2>
+      <CodeBlock>{`ALTER TABLE public.your_slug_instances ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "your_slug_instances_admin_all"
+ON public.your_slug_instances
+FOR ALL USING (public.is_admin());
+
+CREATE POLICY "your_slug_instances_service_all"
+ON public.your_slug_instances
+FOR ALL USING (current_setting('role') = 'service_role');
+
+GRANT ALL ON public.your_slug_instances TO service_role;
+REVOKE ALL ON TABLE public.your_slug_instances FROM PUBLIC, anon, authenticated;`}</CodeBlock>
+      <p>
+        不要再使用 <code>GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon</code> 这种整库放开的方式。函数权限应按白名单逐个授权。
+      </p>
+
+      <h2>Realtime 模式</h2>
+      <p>
+        对 bearer-link 类型的 Sub-App，推荐私有 Realtime 频道。浏览器不应直接订阅业务表。
+      </p>
+      <CodeBlock>{`// 1. 浏览器先拉初始快照
+GET /api/app/{slug}
+
+// 2. 浏览器用签名 Token 换一个短时 realtime session
+POST /api/app/{slug}/session
+→ { realtimeJwt, topic, expiresAt }
+
+// 3. 浏览器连接私有频道
+await supabase.realtime.setAuth(session.realtimeJwt)
+supabase.channel(session.topic, { config: { private: true } })`}</CodeBlock>
+      <p>数据库侧推荐：</p>
+      <ul>
+        <li>通过 trigger 调用 <code>realtime.broadcast_changes(...)</code></li>
+        <li>用 <code>realtime.messages</code> 的 RLS 控制频道权限</li>
+        <li>对同一个频道同时放行 <code>broadcast</code> 和 <code>presence</code></li>
+      </ul>
+
+      <h2>服务端 API 规则</h2>
+      <ul>
+        <li><code>GET</code>：初始快照</li>
+        <li><code>POST</code>：用户操作</li>
+        <li><code>PATCH</code>：实控人操作</li>
+        <li><code>POST /session</code>：Realtime 子应用专用</li>
+      </ul>
+      <CodeBlock>{`export const runtime = "nodejs";
+export const maxDuration = 60;
+
+const token = await verifyYourSubAppToken(tokenStr);
+if (!token) {
+  return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+}
+
+const db = createStrictServiceClient();`}</CodeBlock>
+      <p>
+        如果子应用配置缺失，应 fail-close 返回 <code>503</code>，不要做静默降级。
+      </p>
+
+      <h2>前端规则</h2>
+      <ul>
+        <li>从 <code>?t=</code> 读取身份，而不是依赖登录态</li>
+        <li>初始快照走服务端 API</li>
+        <li>增量更新走私有 Broadcast + Presence</li>
+        <li>在 realtime JWT 到期前自动刷新</li>
+        <li>页面里最好有一个轻量的连接状态提示</li>
+      </ul>
+      <CodeBlock>{`const session = await fetch("/api/app/your-slug/session", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ instance_id, token }),
+}).then((res) => res.json());
+
+await supabase.realtime.setAuth(session.realtimeJwt);
+
+const channel = supabase
+  .channel(session.topic, { config: { private: true } })
+  .on("broadcast", { event: "INSERT" }, (rawPayload) => {
+    const payload =
+      rawPayload && typeof rawPayload === "object" && "payload" in rawPayload
+        ? rawPayload.payload
+        : rawPayload;
+
+    // payload.record / payload.old_record / payload.operation
+  });`}</CodeBlock>
+
+      <h2>Agent 工具规则</h2>
+      <ul>
+        <li>工具必须直接通过 <code>sender.sendMarkdown()</code> 发送 URL</li>
+        <li>所有面向用户的文案都必须国际化</li>
+        <li>不要硬编码 <code>&quot;Owner&quot;</code> 之类的身份名</li>
+        <li>IM 链接使用显式 Markdown 语法：<code>[加入](&#123;url&#125;)</code></li>
+      </ul>
+
+      <h2>聊天室踩坑总结</h2>
       <div className="space-y-4">
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1">AI 会产生幻觉——如果你放任它</h4>
-          <p className="text-sm mb-1">如果工具返回 URL 并期望 AI 转发，AI 可能会修改/截断 URL、生成 HTML 原型、或用虚构内容重复发送消息。</p>
-          <p className="text-sm font-medium">解决方案：工具通过 <code>sender.sendMarkdown()</code> 直接发送消息。工具执行后抑制 AI 的文本输出。</p>
+          <h4 className="text-destructive font-semibold mb-1">公开页面不等于公开数据库</h4>
+          <p className="text-sm font-medium">不要因为页面公开，就给业务表直接开放 <code>anon</code> 读写。</p>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1">IM 平台不会自动识别长 URL</h4>
-          <p className="text-sm font-medium">解决方案：Bot 消息中始终使用 <code>[链接文本](url)</code> Markdown 语法。</p>
+          <h4 className="text-destructive font-semibold mb-1">bearer-link 类型子应用不要继续走 <code>postgres_changes</code></h4>
+          <p className="text-sm font-medium">私有 Broadcast + Presence 更适合这类模式，也更容易收住安全边界。</p>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1"><code>after()</code> 在没有 <code>runtime = &quot;nodejs&quot;</code> 时静默失效</h4>
-          <p className="text-sm font-medium">解决方案：使用 <code>after()</code> 的 API 路由必须添加 <code>export const runtime = &quot;nodejs&quot;</code>。</p>
+          <h4 className="text-destructive font-semibold mb-1">Realtime 写策略必须同时放行 <code>broadcast</code> 和 <code>presence</code></h4>
+          <p className="text-sm font-medium">如果漏掉 <code>broadcast</code>，前端通常就会表现成“刷新后才看到消息”。</p>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1">@提及检测必须支持真实名字</h4>
-          <p className="text-sm mb-1"><code>/@agent\b/</code> 在 Agent 使用中文名时不起作用（CJK 字符没有词边界）。</p>
-          <p className="text-sm font-medium">解决方案：同时检查 <code>@agent</code>（带分隔符前瞻）和 <code>@&#123;实际Agent名&#125;</code>（子串匹配）。</p>
+          <h4 className="text-destructive font-semibold mb-1">Supabase 的广播 payload 有一层包裹</h4>
+          <p className="text-sm font-medium">真正有用的字段可能在 <code>payload.payload</code>，要先归一化再做类型判断。</p>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1">硬编码身份破坏用户体验</h4>
-          <p className="text-sm font-medium">解决方案：从 <code>channels</code> 表解析真实显示名称。绝不使用 &quot;Owner&quot; 等角色标签。</p>
+          <h4 className="text-destructive font-semibold mb-1">Realtime 签名 KID 必须是 UUID</h4>
+          <p className="text-sm font-medium">请统一用 <code>crypto.randomUUID()</code>，不要自己生成随机 hex。</p>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h4 className="text-destructive font-semibold mb-1">Turbopack 开发服务器可能卡死你的机器</h4>
-          <p className="text-sm font-medium">解决方案：在 <code>next.config.ts</code> 中设置 <code>turbopack.root: process.cwd()</code>。</p>
+          <h4 className="text-destructive font-semibold mb-1">OpenCrab 必须导入一把自己持有私钥的签名 key 到 Supabase</h4>
+          <p className="text-sm font-medium">Supabase 里当前显示的 ECC key 不能默认直接拿来给应用签 JWT。</p>
+        </div>
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+          <h4 className="text-destructive font-semibold mb-1">子应用配置缺失时必须 fail-close</h4>
+          <p className="text-sm font-medium">直接返回 <code>503</code>，阻止页面完整拉起，不要静默降级成更弱的安全模型。</p>
         </div>
       </div>
 
@@ -601,26 +486,25 @@ const mentionsAgent = aliasMentioned || nameMentioned;`}</CodeBlock>
           <thead><tr><th>层级</th><th>文件</th></tr></thead>
           <tbody>
             <tr><td>数据库</td><td><code>001_initial_schema.sql</code> — <code>chat_rooms</code>、<code>chat_room_messages</code></td></tr>
-            <tr><td>类型</td><td><code>src/types/database.ts</code> — <code>ChatRoom</code>、<code>ChatRoomMessage</code></td></tr>
+            <tr><td>子应用配置</td><td><code>public.sub_app_settings</code>、<code>src/lib/sub-app-settings.ts</code></td></tr>
             <tr><td>Token</td><td><code>src/lib/room-token.ts</code></td></tr>
+            <tr><td>Realtime JWT</td><td><code>src/lib/room-realtime.ts</code></td></tr>
             <tr><td>Agent 工具</td><td><code>src/lib/agent/tools.ts</code> — <code>create_chat_room</code>、<code>close_chat_room</code>、<code>reopen_chat_room</code></td></tr>
-            <tr><td>IM 命令</td><td><code>src/lib/agent/loop.ts</code> — <code>/room</code></td></tr>
-            <tr><td>后端 API</td><td><code>src/app/api/app/room/route.ts</code> — GET/POST/PATCH</td></tr>
+            <tr><td>后端 API</td><td><code>src/app/api/app/room/route.ts</code></td></tr>
+            <tr><td>Realtime API</td><td><code>src/app/api/app/room/session/route.ts</code></td></tr>
             <tr><td>前端页面</td><td><code>src/app/app/room/[id]/page.tsx</code></td></tr>
-            <tr><td>管理后台</td><td><code>src/app/(dashboard)/dashboard/sub-apps/page.tsx</code></td></tr>
-            <tr><td>国际化</td><td><code>en.ts</code>、<code>zh.ts</code>、<code>bot.ts</code></td></tr>
           </tbody>
         </table>
       </div>
 
-      <h2>未来 Sub-App 方向</h2>
-      <ul>
-        <li><strong>投票</strong>（<code>/app/poll/[id]</code>）— 实时投票 + 结果可视化</li>
-        <li><strong>白板</strong>（<code>/app/board/[id]</code>）— 协作绘图/笔记</li>
-        <li><strong>表单</strong>（<code>/app/form/[id]</code>）— Agent 生成的数据收集表单</li>
-        <li><strong>仪表盘</strong>（<code>/app/dash/[id]</code>）— 实时指标/监控视图</li>
-        <li><strong>画廊</strong>（<code>/app/gallery/[id]</code>）— 共享图片/文件集合</li>
-      </ul>
+      <h2>上线前检查</h2>
+      <ol>
+        <li>业务表没有直接开放给 <code>anon</code> 读写</li>
+        <li>每个 <code>/api/app/&#123;slug&#125;</code> 请求都会校验签名 Token</li>
+        <li>子应用缺配置时会返回 <code>503</code></li>
+        <li>如果启用了 Realtime，页面会在 JWT 过期前自动刷新</li>
+        <li><code>001_initial_schema.sql</code> 和 <code>setup/route.ts</code> 已与线上 DDL 同步</li>
+      </ol>
     </article>
   );
 }

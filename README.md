@@ -17,6 +17,7 @@ No server. No Docker. No SSH. Just Supabase + Vercel free tier.
 - [Step 4: Run Setup Wizard](#step-4-run-setup-wizard)
 - [Step 5: Start Using](#step-5-start-using)
 - [Local Development](#local-development)
+- [Sub-App Development](#sub-app-development)
 - [Architecture](#architecture)
 - [FAQ](#faq)
 
@@ -246,6 +247,21 @@ openssl rand -base64 32
 # Start dev server (http://localhost:3000)
 pnpm dev
 ```
+
+---
+
+## Sub-App Development
+
+If you plan to build a new Sub-App, start here:
+
+- [`src/app/api/app/README.md`](./src/app/api/app/README.md)
+
+This guide documents the current secure pattern for bearer-link Sub-Apps:
+
+- public page, private business tables
+- signed token verified on every server API request
+- `sub_app_settings` for Sub-App-specific secrets
+- private Broadcast + Presence with short-lived Realtime JWTs
 
 ---
 
