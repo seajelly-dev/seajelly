@@ -25,6 +25,9 @@ import {
   PowerOff,
   Globe,
   AlertTriangle,
+  Wifi,
+  WifiOff,
+  RefreshCw,
 } from "lucide-react";
 import {
   TelegramIcon,
@@ -35,6 +38,7 @@ import {
   WhatsAppIcon,
 } from "@/components/icons/platform-icons";
 import type { ChatRoom, ChatRoomMessage } from "@/types/database";
+import { cn } from "@/lib/utils";
 
 const PLATFORM_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   telegram: TelegramIcon,
@@ -70,6 +74,13 @@ interface RoomRealtimeSession {
   realtimeJwt: string;
   topic: string;
 }
+
+type RealtimeConnectionState =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected";
 
 interface RoomRealtimeBroadcastPayload<T> {
   id: string;
@@ -155,6 +166,7 @@ export default function ChatRoomPage() {
   const [sending, setSending] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeConnectionState>("idle");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
@@ -208,6 +220,48 @@ export default function ChatRoomPage() {
   }, [fetchRoom]);
 
   const effectiveNickname = nicknameConfirmed ? nickname : identity?.display_name || "";
+  const realtimeStatusMeta = (() => {
+    switch (realtimeStatus) {
+      case "connected":
+        return {
+          label: t("room.realtimeConnected"),
+          hint: null,
+          icon: Wifi,
+          badgeClassName:
+            "border-emerald-200 bg-emerald-50 text-emerald-700",
+          iconClassName: "text-emerald-600",
+        };
+      case "reconnecting":
+        return {
+          label: t("room.realtimeReconnecting"),
+          hint: t("room.realtimeReconnectingHint"),
+          icon: RefreshCw,
+          badgeClassName:
+            "border-amber-200 bg-amber-50 text-amber-700",
+          iconClassName: "text-amber-600",
+        };
+      case "disconnected":
+        return {
+          label: t("room.realtimeDisconnected"),
+          hint: t("room.realtimeDisconnectedHint"),
+          icon: WifiOff,
+          badgeClassName:
+            "border-destructive/20 bg-destructive/5 text-destructive",
+          iconClassName: "text-destructive",
+        };
+      case "connecting":
+      case "idle":
+      default:
+        return {
+          label: t("room.realtimeConnecting"),
+          hint: t("room.realtimeConnectingHint"),
+          icon: Loader2,
+          badgeClassName:
+            "border-sky-200 bg-sky-50 text-sky-700",
+          iconClassName: "text-sky-600",
+        };
+    }
+  })();
 
   useEffect(() => {
     if (!room?.id || !nicknameConfirmed || !effectiveNickname) return;
@@ -260,79 +314,97 @@ export default function ChatRoomPage() {
     };
 
     const connectRealtime = async () => {
-      const response = await fetch("/api/app/room/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          room_id: roomId,
-          token: tokenStr,
-        }),
-      });
+      try {
+        setRealtimeStatus(channel ? "reconnecting" : "connecting");
 
-      if (cancelled) return;
-
-      const data = (await response.json()) as Partial<RoomRealtimeSession> & { error?: string };
-      if (!response.ok || !data.realtimeJwt || !data.topic || !data.expiresAt) {
-        if (response.status === 401) {
-          setError("unauthorized");
-        } else if (response.status === 404) {
-          setError("not_found");
-        } else if (response.status === 503) {
-          setError("unavailable");
-        } else {
-          console.error("Realtime session failed:", data.error || "Unknown error");
-        }
-        return;
-      }
-
-      await supabase.realtime.setAuth(data.realtimeJwt);
-      if (cancelled) return;
-
-      scheduleRefresh(data.expiresAt);
-
-      if (channel) {
-        return;
-      }
-
-      channel = supabase
-        .channel(data.topic, { config: { private: true } })
-        .on("broadcast", { event: "INSERT" }, (payload) => {
-          const broadcastPayload = extractRoomRealtimeBroadcastPayload(payload);
-          if (broadcastPayload) {
-            handleBroadcast(broadcastPayload);
-          }
-        })
-        .on("broadcast", { event: "UPDATE" }, (payload) => {
-          const broadcastPayload = extractRoomRealtimeBroadcastPayload(payload);
-          if (broadcastPayload) {
-            handleBroadcast(broadcastPayload);
-          }
-        })
-        .on("broadcast", { event: "DELETE" }, (payload) => {
-          const broadcastPayload = extractRoomRealtimeBroadcastPayload(payload);
-          if (broadcastPayload) {
-            handleBroadcast(broadcastPayload);
-          }
-        })
-        .on("presence", { event: "sync" }, () => {
-          if (!channel) return;
-          setOnlineUsers(flattenPresenceUsers(channel.presenceState<PresenceUser>()));
-        })
-        .subscribe(async (status) => {
-          if (status === "SUBSCRIBED" && channel) {
-            await channel.track({
-              nickname: effectiveNickname,
-              platform: identity?.platform || "web",
-              is_owner: identity?.is_owner || false,
-              joined_at: new Date().toISOString(),
-            });
-            return;
-          }
-
-          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            console.error(`Room realtime status: ${status}`);
-          }
+        const response = await fetch("/api/app/room/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            room_id: roomId,
+            token: tokenStr,
+          }),
         });
+
+        if (cancelled) return;
+
+        const data = (await response.json()) as Partial<RoomRealtimeSession> & { error?: string };
+        if (!response.ok || !data.realtimeJwt || !data.topic || !data.expiresAt) {
+          setRealtimeStatus("disconnected");
+          if (response.status === 401) {
+            setError("unauthorized");
+          } else if (response.status === 404) {
+            setError("not_found");
+          } else if (response.status === 503) {
+            setError("unavailable");
+          } else {
+            console.error("Realtime session failed:", data.error || "Unknown error");
+          }
+          return;
+        }
+
+        await supabase.realtime.setAuth(data.realtimeJwt);
+        if (cancelled) return;
+
+        scheduleRefresh(data.expiresAt);
+
+        if (channel) {
+          setRealtimeStatus("connected");
+          return;
+        }
+
+        channel = supabase
+          .channel(data.topic, { config: { private: true } })
+          .on("broadcast", { event: "INSERT" }, (payload) => {
+            const broadcastPayload = extractRoomRealtimeBroadcastPayload(payload);
+            if (broadcastPayload) {
+              handleBroadcast(broadcastPayload);
+            }
+          })
+          .on("broadcast", { event: "UPDATE" }, (payload) => {
+            const broadcastPayload = extractRoomRealtimeBroadcastPayload(payload);
+            if (broadcastPayload) {
+              handleBroadcast(broadcastPayload);
+            }
+          })
+          .on("broadcast", { event: "DELETE" }, (payload) => {
+            const broadcastPayload = extractRoomRealtimeBroadcastPayload(payload);
+            if (broadcastPayload) {
+              handleBroadcast(broadcastPayload);
+            }
+          })
+          .on("presence", { event: "sync" }, () => {
+            if (!channel) return;
+            setOnlineUsers(flattenPresenceUsers(channel.presenceState<PresenceUser>()));
+          })
+          .subscribe(async (status) => {
+            if (status === "SUBSCRIBED" && channel) {
+              setRealtimeStatus("connected");
+              await channel.track({
+                nickname: effectiveNickname,
+                platform: identity?.platform || "web",
+                is_owner: identity?.is_owner || false,
+                joined_at: new Date().toISOString(),
+              });
+              return;
+            }
+
+            if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+              setRealtimeStatus("disconnected");
+              console.error(`Room realtime status: ${status}`);
+              return;
+            }
+
+            if (status === "CLOSED" && !cancelled) {
+              setRealtimeStatus("disconnected");
+            }
+          });
+      } catch (err) {
+        if (!cancelled) {
+          setRealtimeStatus("disconnected");
+          console.error("Room realtime connection failed:", err);
+        }
+      }
     };
 
     void connectRealtime();
@@ -344,6 +416,7 @@ export default function ChatRoomPage() {
         refreshTimerRef.current = null;
       }
       setOnlineUsers([]);
+      setRealtimeStatus("idle");
       if (channel) {
         void supabase.removeChannel(channel);
       }
@@ -610,6 +683,20 @@ export default function ChatRoomPage() {
             <Users className="size-3" />
             {onlineUsers.length}
           </Badge>
+          <Badge
+            variant="outline"
+            className={cn("gap-1 text-xs", realtimeStatusMeta.badgeClassName)}
+          >
+            <realtimeStatusMeta.icon
+              className={cn(
+                "size-3.5",
+                realtimeStatusMeta.iconClassName,
+                (realtimeStatus === "connecting" || realtimeStatus === "reconnecting") &&
+                  "animate-spin"
+              )}
+            />
+            <span className="hidden sm:inline">{realtimeStatusMeta.label}</span>
+          </Badge>
           <div className="flex -space-x-1">
             {onlineUsers.slice(0, 5).map((u, i) => (
               <div
@@ -700,6 +787,24 @@ export default function ChatRoomPage() {
 
       {/* Input */}
       <div className="border-t bg-card px-4 py-3 shrink-0">
+        {realtimeStatusMeta.hint && room?.status !== "closed" && (
+          <div
+            className={cn(
+              "mb-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs",
+              realtimeStatusMeta.badgeClassName
+            )}
+          >
+            <realtimeStatusMeta.icon
+              className={cn(
+                "size-3.5 shrink-0",
+                realtimeStatusMeta.iconClassName,
+                (realtimeStatus === "connecting" || realtimeStatus === "reconnecting") &&
+                  "animate-spin"
+              )}
+            />
+            <span>{realtimeStatusMeta.hint}</span>
+          </div>
+        )}
         {room?.status === "closed" ? (
           <div className="flex items-center justify-center gap-2 py-2 text-muted-foreground">
             <Lock className="size-4" />

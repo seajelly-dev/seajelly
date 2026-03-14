@@ -1140,6 +1140,15 @@ const en = {
     actionFailed: "Operation failed",
     language: "Language",
     you: "You",
+    realtimeConnecting: "Connecting",
+    realtimeConnected: "Live",
+    realtimeReconnecting: "Reconnecting",
+    realtimeDisconnected: "Disconnected",
+    realtimeConnectingHint: "Joining realtime now. New messages should appear in a moment.",
+    realtimeReconnectingHint:
+      "Re-establishing realtime connection. New messages may be briefly delayed.",
+    realtimeDisconnectedHint:
+      "Realtime is currently disconnected. If it does not recover automatically, refresh this page once.",
   },
 } as const;
 

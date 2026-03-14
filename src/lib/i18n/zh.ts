@@ -1137,6 +1137,13 @@ const zh: TranslationKeys = {
     actionFailed: "操作失败",
     language: "语言",
     you: "你",
+    realtimeConnecting: "连接中",
+    realtimeConnected: "实时已连接",
+    realtimeReconnecting: "重连中",
+    realtimeDisconnected: "实时已断开",
+    realtimeConnectingHint: "正在加入实时连接，新的消息应该很快就会出现。",
+    realtimeReconnectingHint: "正在恢复实时连接，新的消息可能会短暂延迟。",
+    realtimeDisconnectedHint: "实时连接当前已断开。如果一段时间后仍未自动恢复，请刷新一次页面。",
   },
 } as const;
 
