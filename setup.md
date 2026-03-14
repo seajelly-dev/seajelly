@@ -1,0 +1,180 @@
+# SEAJelly Setup Guide
+
+Beginner-friendly setup walkthrough for first-time users.
+
+Official domain: [seajelly.ai](https://seajelly.ai)
+
+> 中文版: [setup.zh-CN.md](./setup.zh-CN.md)
+
+## Before You Start
+
+Prepare these first:
+
+| Item | Required | Notes |
+| --- | --- | --- |
+| Supabase account and project | Yes | Used for Auth, Postgres, pgvector, and scheduling |
+| Vercel account and deployment | Yes | Recommended production host |
+| Public app URL | Yes | Needed for setup, webhooks, previews, voice links, and cron callbacks |
+| At least one LLM API key | Yes | Setup requires at least one provider key |
+| IM platform credentials | Optional | You can skip this during setup and add them later |
+
+If you have not deployed yet, the fastest route is the Vercel button in [README.md](./README.md).
+
+## Bootstrap Environment Variables
+
+Before opening `/setup`, make sure your deployment has:
+
+| Variable | Why it matters |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Connects the app to your Supabase project |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser and session-auth client |
+| `SUPABASE_SERVICE_ROLE_KEY` | Needed for strict server-side access and security-sensitive flows |
+| `ENCRYPTION_KEY` | Encrypts stored secrets |
+| `NEXT_PUBLIC_APP_URL` | Public base URL for redirects, webhooks, previews, and cron |
+| `CRON_SECRET` | Protects worker endpoints |
+
+Generate `ENCRYPTION_KEY` and `CRON_SECRET` with:
+
+```bash
+openssl rand -base64 32
+```
+
+## Step 1: Connect Supabase
+
+Open `/setup`. The first step asks for:
+
+- `Supabase Access Token (PAT)`
+- `Project Ref`
+
+### Where to get them
+
+- PAT: Supabase dashboard -> avatar -> `Account` -> `Access Tokens`
+- Project Ref: the `<ref>` part of `https://<ref>.supabase.co`
+
+### What happens when you click Connect
+
+SEAJelly will:
+
+- verify it can reach your project
+- create the required tables and functions
+- enable the required extensions
+- save your Supabase bootstrap credentials securely
+
+You do not need to run SQL manually for the normal setup path.
+
+## Step 2: Create the First Admin
+
+Enter:
+
+- email
+- password
+- password confirmation
+
+This account becomes the first dashboard admin. Use a real email you control and a password you will remember.
+
+## Step 3: Save Required Keys
+
+This step requires:
+
+- `Supabase Service Role Key`
+- at least one LLM provider API key
+
+The built-in setup form currently accepts provider keys for:
+
+- Anthropic
+- OpenAI
+- Google
+- DeepSeek
+
+Notes:
+
+- You only need one provider key to finish setup.
+- You can add more providers and models later in the dashboard.
+- The service-role key is especially important for worker routes, strict server access, and other privileged flows.
+
+## Step 4: Create the First Agent
+
+This step creates your first working SEAJelly agent.
+
+### Required fields
+
+- `Agent Name`
+- `Model`
+- `System Prompt`
+
+### Optional platform setup
+
+You can also connect an IM platform now, or skip it and configure it later.
+
+Current setup options include:
+
+- Telegram
+- Feishu
+- WeCom
+- Slack
+- QQ Bot
+- WhatsApp
+- Skip for now
+
+If you are unsure, skip the platform step and finish the dashboard first.
+
+### Platform notes
+
+- Telegram: requires a Bot Token from `@BotFather`
+- Feishu / WeCom / Slack / QQ Bot / WhatsApp: setup can save the core credentials, but you may still want to verify webhook settings afterward
+- Some platforms use generated verification tokens; setup can help create them
+
+## Important Production Note: Save The Security Login URL
+
+At the end of setup, production deployments may show a **security login URL**.
+
+Save it immediately.
+
+Why it matters:
+
+- production login gate can be enabled automatically
+- the generated login URL is the easiest way to reach the login page safely
+- if you lose it before entering the dashboard, recovery is more annoying
+
+## After Setup
+
+Once setup finishes:
+
+1. open the dashboard
+2. confirm your first agent exists
+3. test the agent on your chosen channel, or finish platform setup later
+4. add knowledge bases, skills, MCP servers, and multimodal settings
+5. explore the self-evolution workflow when you are ready
+
+Useful next reads:
+
+- [README.md](./README.md)
+- [skills/self-evolution-guide/SKILL.md](./skills/self-evolution-guide/SKILL.md)
+- [src/lib/agent/README.md](./src/lib/agent/README.md)
+
+## Common Problems
+
+### Setup says connection failed
+
+Double-check:
+
+- your Supabase PAT
+- your project ref
+- your deployment can reach Supabase
+
+### No models appear in the final step
+
+Go back to step 3 and make sure at least one provider key was saved successfully.
+
+### Telegram bot does not respond after setup
+
+Check:
+
+- the bot token is correct
+- `NEXT_PUBLIC_APP_URL` matches your real public domain
+- the agent exists in the dashboard
+- webhook status and event logs in the dashboard
+
+### Login page is hard to reopen in production
+
+Use the saved security login URL from the final setup step.

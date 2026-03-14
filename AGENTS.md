@@ -1,13 +1,22 @@
-# SeaJelly Agent Notes
+# SEAJelly Agent Guide
+
+## Product Name
+
+- The project name is `SEAJelly`.
+- `SEA` means `Self Evolution Agent`.
+- `Jelly` matches the jellyfish/jelly mascot and the current brand identity.
 
 ## Project Snapshot
 
-- Stack: Next.js App Router, React 19, TypeScript, Supabase, Vercel.
-- Purpose: multi-channel AI agent platform with admin dashboard, webhook ingestion, task scheduling, knowledge base, coding sandbox, voice/live ASR, and sub-app chat rooms.
-- Main runtime surface:
-  - `src/app/api/**`: server routes
-  - `src/lib/**`: core business logic
-  - `supabase/migrations/**`: database schema and RLS
+- Stack: Next.js App Router, React 19, TypeScript, Supabase, Vercel
+- Shape: serverless multi-channel AI agent platform with an admin dashboard
+- Major modules: self-evolution pipeline, agent runtime, webhook ingestion, async worker queue, knowledge base, skills, MCP, coding sandbox, multimodal voice, sub-apps, JellyBox storage, subscriptions
+
+Primary runtime surfaces:
+
+- `src/app/api/**`: API routes
+- `src/lib/**`: business logic
+- `supabase/migrations/**`: schema and RLS
 
 ## Common Commands
 
@@ -15,118 +24,117 @@
 pnpm dev
 pnpm lint
 pnpm test:unit
+pnpm build
 ```
 
 ## Important Directories
 
 - `src/app/(dashboard)`: authenticated dashboard pages
 - `src/app/api/admin`: admin APIs
-- `src/app/api/webhook`: platform webhook entrypoints
+- `src/app/api/webhook`: channel webhook entrypoints
+- `src/app/api/worker`: queue and scheduler workers
 - `src/app/api/voice`: voice temp-link and config APIs
-- `src/app/api/app/room`: sub-app chat room APIs
-- `src/lib/agent`: agent loop, tools, command handlers
-- `src/lib/platform`: sender adapters and webhook handling
-- `src/lib/supabase`: auth/admin client helpers and middleware
-- `src/lib/security`: URL validation and login gate
-- `supabase/migrations/001_initial_schema.sql`: current DB schema
+- `src/app/api/app`: public bearer-link sub-app APIs
+- `src/lib/agent`: loop, commands, tools, media, runtime assembly
+- `src/lib/agent/tooling`: builtin tool and toolkit policy
+- `src/lib/platform`: sender adapters, approval flows, webhook helpers
+- `src/lib/supabase`: auth/session helpers, admin/service clients, middleware
+- `src/lib/security`: login gate and network/security utilities
+- `supabase/migrations/001_initial_schema.sql`: schema source tracked in git
+- `skills/self-evolution-guide/SKILL.md`: self-evolution workflow guide
 
-## Auth And Access Model
+## Durable Repo Rules
 
-- Global auth gate lives in `src/lib/supabase/middleware.ts`.
-- Dashboard layout only checks `supabase.auth.getUser()`, not admin role.
-- Real admin authorization is implemented in `src/lib/supabase/server.ts` via `requireAdmin()`.
-- Any `/api/admin/**` route that uses `createAdminClient()` but skips `requireAdmin()` should be treated as privilege-escalation sensitive.
+### 1. Auth and admin boundaries
 
-## Database Source Of Truth
+- Global auth gating lives in `src/lib/supabase/middleware.ts`.
+- The dashboard layout checks for a logged-in user, not admin role.
+- Real admin authorization is `requireAdmin()` in `src/lib/supabase/server.ts`.
+- Any `/api/admin/**` route that mutates or reads privileged data should explicitly call `requireAdmin()`.
 
-There are two schema sources that must stay aligned:
+### 2. Pick the right Supabase client
+
+- `createClient()`: session-scoped SSR client, subject to RLS
+- `createAdminClient()`: bypasses RLS, okay for trusted admin paths after `requireAdmin()`
+- `createStrictServiceClient()`: strict service-role client for public or cryptographically gated server paths
+
+Do not add new public routes that quietly rely on `createAdminClient()` or `SUPABASE_SERVICE_ROLE_KEY || anon` fallback patterns.
+
+### 3. Database source of truth must stay aligned
+
+There are two schema definitions that must match whenever you change tables, grants, policies, triggers, or functions:
 
 1. `supabase/migrations/001_initial_schema.sql`
 2. `src/app/api/admin/setup/route.ts` inside `SCHEMA_SQL`
 
-If you fix a policy, grant, trigger, or table definition in only one place, new installs and existing installs will diverge.
+The live project, `001_initial_schema.sql`, and `SCHEMA_SQL` should always converge back to the same final DDL.
 
-## Security-Critical Surfaces
+### 4. Public routes are security-sensitive
 
-### 1. Public And Semi-Public Routes
+Current public or semi-public surfaces include:
 
-- `src/lib/supabase/middleware.ts` explicitly leaves these public:
-  - `/api/webhook/**`
-  - `/api/worker/**`
-  - `/api/admin/setup`
-  - `/api/voice/live-config`
-  - `/api/voice/asr-config`
-  - `/api/voice/temp-link`
-  - `/api/app/**`
-  - `/preview/**`
+- `/setup`
+- `/login`
+- `/preview/**`
+- `/voice/live/**`
+- `/voice/asr/**`
+- `/app/**`
+- `/api/app/**`
+- `/api/auth/login`
+- `/api/webhook/**`
+- `/api/worker/**`
+- `/api/admin/setup`
+- `/api/voice/live-config`
+- `/api/voice/asr-config`
+- `/api/voice/temp-link`
 
-### 2. Service-Role Reads/Writes
+Any change here needs an explicit review of auth, secret exposure, replay resistance, and service-role usage.
 
-- Many server routes build a Supabase client with:
-  - `SUPABASE_SERVICE_ROLE_KEY || NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- For public routes, this fallback is security-sensitive because it can silently widen access patterns.
+### 5. Self-evolution is a first-class feature
 
-### 3. Webhook Verification
+- Treat self-evolution behavior as core product behavior, not a side experiment.
+- If you change the GitHub/Vercel workflow, also update `skills/self-evolution-guide/SKILL.md`.
+- Self-evolution changes should stay review-first and explicit about approval boundaries.
 
-- Telegram and Slack have signature/secret checks.
-- Feishu and WhatsApp handlers need extra scrutiny before trusting payloads.
+### 6. Sub-App baseline
 
-### 4. HTML Preview
+For bearer-link sub-apps:
 
-- Coding preview data is stored in `html_previews`.
-- Preview rendering is served from `/preview/[id]`.
-- Treat any `srcDoc`, iframe sandbox, or stored HTML path as XSS-sensitive.
+- Public page does not mean public database tables.
+- Verify the signed token on every `/api/app/*` request.
+- Keep business tables private to `service_role`/admin by default.
+- Use `createStrictServiceClient()` for real data access.
+- Prefer private Broadcast + Presence channels over public `postgres_changes`.
 
-### 5. Voice Temp Links
+Useful references:
 
-- `voice_temp_links` are used to unlock live/ASR config endpoints.
-- Those config routes return decrypted upstream API credentials to the browser.
-- Any weakness in temp-link issuance or selection becomes a key-exfiltration issue.
+- `src/app/api/app/README.md`
+- `src/lib/agent/README.md`
 
-### 6. Sub-App Chat Rooms
+### 7. HTML preview and voice links
 
-- `chat_rooms` and `chat_room_messages` are the sub-app collaboration surface.
-- Room token checks exist in `src/lib/room-token.ts` and `src/app/api/app/room/route.ts`.
-- RLS must not be broader than the room-token assumptions.
+- `html_previews` and `/preview/[id]` should always treat stored HTML as untrusted.
+- `voice_temp_links` gate pages that can expose upstream voice config to the browser.
+- Preview and voice flows need careful review whenever sandboxing, token lookup, or config payload shape changes.
 
-## Current Audit Findings To Keep In Mind
+### 8. SQL and function grants
 
-### Critical
+- Avoid blanket routine grants.
+- New SQL functions should have explicit `GRANT EXECUTE` decisions.
+- Tool-driven SQL access should default to the narrowest practical surface.
 
-- `voice_temp_links` are exposed to `anon` at the database layer, and `/api/voice/temp-link` is public. Combined with `/api/voice/live-config` and `/api/voice/asr-config`, this can expose decrypted voice provider API keys.
-- `chat_rooms` and `chat_room_messages` are readable by `anon`, and `chat_room_messages` is insertable by `anon`. This bypasses the room-token control model and exposes conversation data directly through Supabase.
+## Documentation Sync Rules
 
-### High
-
-- Feishu webhook handler does not verify request authenticity before processing event bodies.
-- WhatsApp webhook POST handler accepts payloads without verifying Meta request signatures.
-- `/api/admin/coding/e2b/preview` skips `requireAdmin()` and writes with `createAdminClient()`.
-- `/preview/[id]` renders stored HTML with `sandbox="allow-scripts allow-same-origin"`, which is unsafe for untrusted preview content.
-
-### High / Structural
-
-- The schema grants `ALL ON ALL ROUTINES IN SCHEMA public` to `anon`, while several RPCs are `SECURITY DEFINER`. This makes future database changes easy to accidentally expose, and some current RPCs already surface internal data.
+- Keep `README.md` and `README.zh-CN.md` structurally aligned.
+- Keep `setup.md` and `setup.zh-CN.md` aligned with the real setup flow.
+- If you change setup flow, supported channels, environment requirements, or major capabilities, update both READMEs and both setup guides.
+- If you change self-evolution workflow behavior, update `skills/self-evolution-guide/SKILL.md`.
 
 ## Safe Change Checklist
 
-- When changing RLS or grants, update both schema locations.
-- Prefer `requireAdmin()` for admin APIs; do not rely on “logged-in user” checks alone.
-- Do not add public routes that use `createAdminClient()` or service-role access unless the route has an independent cryptographic gate.
-- For webhooks, verify signatures before parsing business payloads.
-- For preview/HTML features, do not combine `allow-scripts` with `allow-same-origin` for untrusted content.
-- For tokenized public access, ensure database RLS matches the token boundary instead of relying only on application routes.
-- Before adding new SQL functions, decide explicitly who may `EXECUTE` them; do not rely on blanket routine grants.
-
-## Good Existing Controls
-
-- `src/lib/security/url-validator.ts` implements solid SSRF protections and is already used in MCP/skills paths.
-- Secret material is encrypted with AES-256-GCM in `src/lib/crypto/encrypt.ts`.
-- Slack and Telegram webhook handlers show the intended verification pattern.
-
-## Suggested Next Fix Order
-
-1. Lock down `voice_temp_links`, `chat_rooms`, and `chat_room_messages` RLS/grants.
-2. Add strict auth to `/api/voice/temp-link` and admin-only auth to `/api/admin/coding/e2b/preview`.
-3. Fix preview sandboxing and treat stored preview HTML as untrusted.
-4. Add Feishu and WhatsApp signature verification.
-5. Replace blanket routine grants with explicit `GRANT EXECUTE` only where needed.
+- Run `pnpm lint` and `pnpm test:unit` for non-trivial code changes when feasible.
+- Update both schema locations when changing DDL.
+- Prefer `requireAdmin()` over “logged-in user” checks on admin APIs.
+- Fail closed when required config or secrets are missing.
+- Keep public routes minimal and independently verifiable.
+- Do not broaden RLS or grants just to make a public page work.

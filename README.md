@@ -1,364 +1,231 @@
-# SEAJelly 🪼
+# SEAJelly
 
-**Self Evolution Agent** — Get your own cloud AI Agent in 5 minutes. Powered by [seaJelly.ai](https://seajelly.ai).
+Serverless multi-channel AI agent platform with self-evolution built in.
 
-No server. No Docker. No SSH. Just Supabase + Vercel free tier.
+Official domain: [seajelly.ai](https://seajelly.ai)
 
-> 🇨🇳 [中文文档](./README.zh-CN.md)
+`SEAJelly` stands for **Self Evolution Agent Jelly**.
 
----
+- `SEA` means **Self Evolution Agent** and also echoes the ocean-native, serverless philosophy of the product.
+- `Jelly` matches the jellyfish mascot, the playful brand tone, and the current visual identity of the app.
 
-## Table of Contents
+> 中文说明: [README.zh-CN.md](./README.zh-CN.md)
 
-- [Prerequisites](#prerequisites)
-- [Step 1: Register Services](#step-1-register-services)
-- [Step 2: Deploy to Vercel](#step-2-deploy-to-vercel)
-- [Step 3: Custom Domain](#step-3-custom-domain)
-- [Step 4: Run Setup Wizard](#step-4-run-setup-wizard)
-- [Step 5: Start Using](#step-5-start-using)
-- [Local Development](#local-development)
-- [Agent Development](#agent-development)
-- [Sub-App Development](#sub-app-development)
-- [Architecture](#architecture)
-- [FAQ](#faq)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/shepherdwitty/opencrab)
 
----
+## Why SEAJelly
 
-## Prerequisites
+The most distinctive part of SEAJelly is **self-evolution**.
 
-You'll need the following (all free):
+SEAJelly is not only a chat agent platform. It can also read its own codebase, propose edits, push reviewed changes through GitHub, and watch Vercel deployments through its self-evolution pipeline. That loop is the sharp edge of the project and the reason the `SEA` name matters.
 
-| Item | Description |
-|---|---|
-| A custom domain | Chinese users **must** use a custom domain — `.vercel.app` is blocked in China |
-| GitHub account | For forking the repo and Vercel deployment |
+The behavior contract for that loop is documented in [skills/self-evolution-guide/SKILL.md](./skills/self-evolution-guide/SKILL.md). That guide matters because it gives a lightweight codebase a strong execution discipline: search first, propose before push, wait for approval, patch carefully, monitor deploys, and revert explicitly when needed. In practice, that kind of explicit workflow contract is what helps instruction-following stay reliable without turning the whole framework into a heavyweight orchestration system.
 
----
+SEAJelly is for teams who want an agent platform that is:
 
-## Step 1: Register Services
+- Serverless-first: no VPS, no Docker requirement, no always-on process
+- Multi-channel: IM/webhook adapters feed a shared event and agent runtime
+- Admin-friendly: setup wizard plus dashboard-managed secrets, models, agents, and tools
+- Extensible: skills, MCP servers, coding tools, sub-apps, and storage integrations
+- Data-aware: memories, vector knowledge base, event logs, usage analytics, and subscriptions
 
-### 1.1 Supabase (Database)
+## Core Product Concepts
 
-> Website: **https://supabase.com**
+| Concept | Why it matters |
+| --- | --- |
+| `SEA` self-evolution | The project can evolve its own code through a review-first GitHub/Vercel loop, guided by the self-evolution skill contract. |
+| LLM load balancing | Provider keys are stored as a weighted key pool with per-key call counts and automatic cooldown when keys hit rate limits or overload. This is designed for higher concurrency and better resilience than a single-key setup. |
+| Sub-Apps | Sub-Apps are agent-native GUI applications, not just links or embedded forms. They let agents create real browser experiences with bearer-link access and private server-side data boundaries. |
+| Agent subscriptions | The subscription system is an early "OnlyFans for agents" prototype: creators can run paid agents with trial messages, approvals, Stripe payment links, and per-channel subscriptions. |
+| Sandboxes plus scheduling | SEAJelly combines secure E2B code sandboxes with scheduled agent invocations and reminders via `pg_cron`, so agents can both execute work and schedule future work. |
 
-1. Sign up (GitHub login supported)
-2. Click **New Project**, choose free plan
-3. Set project name and DB password (remember it)
-4. Region: recommend **Southeast Asia (Singapore)**
-5. Wait for project creation (~1-2 min)
+## One-Click Deploy
 
-**Info to note:**
+The Vercel button above opens Vercel's import flow and lets a user create their own deployment from this repository with minimal manual setup.
 
-| Info | Where to find |
-|---|---|
-| Project URL | Settings → API → Project URL (like `https://xxxxx.supabase.co`) |
-| Anon Key | Settings → API → `anon` `public` (long string starting with `eyJ`) |
-| Service Role Key | Settings → API → `service_role` `secret` (**Keep secret!**) |
-| Project Ref | The part between `https://` and `.supabase.co` in your project URL |
-| Access Token (PAT) | Click avatar (bottom-left) → Account → Access Tokens → **Generate new token** |
+For a beginner-friendly walkthrough, use:
 
-### 1.2 Vercel (Hosting)
+- English: [setup.md](./setup.md)
+- Chinese: [setup.zh-CN.md](./setup.zh-CN.md)
 
-> Website: **https://vercel.com**
+Typical flow:
 
-1. Sign in with GitHub
-2. That's it — deployment will link automatically later
+1. Click `Deploy with Vercel`.
+2. Fill in the bootstrap environment variables listed below.
+3. Finish the deployment.
+4. Open `/setup`.
+5. Follow the detailed setup guide.
 
-### 1.3 LLM API Key (at least one)
-
-SEAJelly supports multiple LLM providers. You need **at least one** API Key:
-
-| Provider | Sign Up | Key Location | Why |
-|---|---|---|---|
-| **Google Gemini** ⭐ | https://aistudio.google.com/apikey | Generate directly on page | **Best free tier, recommended for beginners** |
-| Anthropic (Claude) | https://console.anthropic.com | Settings → API Keys | Best reasoning |
-| OpenAI (GPT) | https://platform.openai.com/api-keys | Create on page | Largest ecosystem |
-| DeepSeek | https://platform.deepseek.com/api_keys | Create on page | Best value |
-
-> 💡 **Recommendation**: Start with Google Gemini — the free tier is generous enough for daily use.
-
-### 1.4 Telegram Bot Token (optional)
-
-> Search **@BotFather** in Telegram
-
-1. Send `/newbot`
-2. Follow prompts to set name and username
-3. Get a token like `123456789:ABCdef...`
-
-> Can also be configured later after Setup.
-
----
-
-## Step 2: Deploy to Vercel
-
-### 2.1 Fork the Repository
-
-1. Open this project's GitHub page
-2. Click **Fork** in the top right
-3. Fork to your own GitHub account
-
-### 2.2 Import in Vercel
-
-1. Go to https://vercel.com/new
-2. Select the forked `seajelly` repo
-3. Add these **Environment Variables**:
-
-| Variable | Value | Description |
-|---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://xxxxx.supabase.co` | Supabase Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJhbGci...` | Supabase Anon Key |
-| `ENCRYPTION_KEY` | *(generate, see below)* | Encryption key |
-| `NEXT_PUBLIC_APP_URL` | `https://yourdomain.com` | Your custom domain (**critical!**) |
-| `CRON_SECRET` | *(generate, see below)* | Cron job secret |
-
-**Generate ENCRYPTION_KEY and CRON_SECRET:**
-
-Run in terminal (twice, one for each):
-
-```bash
-openssl rand -base64 32
-```
-
-Or in browser console:
-
-```javascript
-crypto.getRandomValues(new Uint8Array(32)).reduce((a,b) => a + b.toString(16).padStart(2,'0'), '')
-```
-
-4. Click **Deploy** and wait
-
----
-
-## Step 3: Custom Domain
-
-> ⚠️ `.vercel.app` domains are blocked in mainland China. You **must** bind a custom domain.
-
-1. In Vercel project, go to **Settings → Domains**
-2. Enter your domain (e.g. `oc.yourdomain.com`)
-3. Add a CNAME record at your DNS provider:
-   - Type: `CNAME`
-   - Name: `oc` (or your chosen subdomain)
-   - Value: `cname.vercel-dns.com`
-4. Wait for DNS propagation (minutes to hours)
-5. **Important**: Go back to Vercel → Settings → Environment Variables, confirm `NEXT_PUBLIC_APP_URL` matches your custom domain
-
----
-
-## Step 4: Run Setup Wizard
-
-Open in browser:
-
-```
-https://yourdomain.com/setup
-```
-
-### Step 1 of 4: Connect Supabase
-
-| Field | What to fill |
-|---|---|
-| Supabase Access Token (PAT) | The Access Token from [1.1](#11-supabase-database) |
-| Project Ref | The middle part of your project URL (e.g. `gjtcqawhjgaohawslmbs`) |
-
-> Click "Connect & Initialize" — all tables and extensions are created automatically. **No manual SQL needed.**
-
-### Step 2 of 4: Create Admin
-
-Enter email and password (min 6 chars). This is your Dashboard login.
-
-### Step 3 of 4: Configure API Keys
-
-| Field | Required | Description |
-|---|---|---|
-| Supabase Service Role Key | ✅ Yes | Settings → API → `service_role` |
-| Anthropic API Key | At least | Claude models |
-| OpenAI API Key | one LLM | GPT models |
-| Google AI API Key | key | Gemini models ⭐ Recommended |
-| DeepSeek API Key | | DeepSeek models |
-
-### Step 4 of 4: Create Agent
-
-| Field | Description |
-|---|---|
-| Agent Name | Your AI assistant's name |
-| Telegram Bot Token | Optional, from @BotFather |
-| Model | Auto-shows available models based on your keys |
-| System Prompt | Has a sensible default, fully customizable |
-
-> 💡 If you provide a Telegram Bot Token, the Webhook is **set automatically** — no extra steps needed.
-
----
-
-## Step 5: Start Using
-
-### Dashboard
-
-After Setup you'll be redirected to Dashboard (`https://yourdomain.com/dashboard`).
-
-| Module | Function |
-|---|---|
-| **Agents** | Manage AI assistants: model, prompt, Bot Token, Webhook status |
-| **Channels** | Manage user access and identity profiles |
-| **Secrets** | Manage encrypted API keys |
-| **Sessions** | View conversation history |
-| **Tasks** | Manage scheduled cron jobs |
-| **MCP Servers** | Connect external MCP tool services |
-| **Skills** | Manage agent knowledge skills |
-| **Events** | Event queue debug panel |
-
-### Telegram Bot
-
-If you configured a Bot Token in Setup:
-
-1. Find your bot in Telegram
-2. Send `/start` to begin
-3. Just send messages to chat
-
-**Available commands:**
-
-| Command | Function |
-|---|---|
-| `/new` | Start new session (clear history) |
-| `/status` | Show agent and session status |
-| `/whoami` | Show your identity profile |
-| `/help` | Show command list |
-
-### Verify Webhook
-
-On Dashboard → Agents page, each Agent card with a Bot Token shows Webhook status:
-
-- ✅ **Green "Webhook Active"** — all good
-- ⚠️ **Orange "Webhook Not Set"** — click "Set Webhook" button
-
----
+If your users are mainly in mainland China, bind a custom domain instead of relying on `*.vercel.app`.
 
 ## Local Development
 
 ```bash
-git clone https://github.com/your-username/seajelly.git
-cd seajelly
+git clone https://github.com/shepherdwitty/opencrab.git
+cd opencrab
 pnpm install
-
 cp .env.example .env.local
-# Edit .env.local with your Supabase credentials
-
-# Generate encryption key
-openssl rand -base64 32
-# Add to .env.local as ENCRYPTION_KEY
-
-# Start dev server (http://localhost:3000)
 pnpm dev
 ```
 
----
+Open [http://localhost:3000](http://localhost:3000), then visit `/setup`.
 
-## Agent Development
+## Minimal Environment Variables
 
-If you plan to extend the agent runtime, start here:
+Most runtime secrets are designed to be entered in `/setup` or the dashboard and stored encrypted in Supabase. For local development or first deployment, you still need the bootstrap environment below:
 
-- [`src/lib/agent/README.md`](./src/lib/agent/README.md)
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Browser/server session client |
+| `SUPABASE_SERVICE_ROLE_KEY` | Recommended | Required for strict server-side access and security-sensitive routes |
+| `ENCRYPTION_KEY` | Yes | AES-256-GCM key for encrypting stored secrets |
+| `NEXT_PUBLIC_APP_URL` | Yes | Public base URL used by webhook, preview, cron, and voice-link flows |
+| `CRON_SECRET` | Yes | Protects worker and agent invocation endpoints |
 
-This guide documents the recommended architecture for:
+Generate secrets with:
 
-- builtin/system tools
-- toolkits and tool policy injection
-- slash command registration
-- `loop.ts` integration boundaries
-- componentized loop-stage development
+```bash
+openssl rand -base64 32
+```
 
----
+Important:
 
-## Sub-App Development
+- `NEXT_PUBLIC_APP_URL` must be publicly reachable from Supabase if you use `pg_cron`, webhook callbacks, previews, or voice temp links.
+- For local webhook or scheduled-task testing, use a tunnel such as ngrok or Cloudflare Tunnel instead of `localhost`.
 
-If you plan to build a new Sub-App, start here:
+## Setup Guide
 
-- [`src/app/api/app/README.md`](./src/app/api/app/README.md)
+README only keeps the short version. The detailed setup walkthrough lives here:
 
-This guide documents the current secure pattern for bearer-link Sub-Apps:
+- English: [setup.md](./setup.md)
+- Chinese: [setup.zh-CN.md](./setup.zh-CN.md)
 
-- public page, private business tables
-- signed token verified on every server API request
-- `sub_app_settings` for Sub-App-specific secrets
-- private Broadcast + Presence with short-lived Realtime JWTs
+In short, `/setup` does four things:
 
----
+1. Connect Supabase with a PAT and project ref
+2. Create the first admin account
+3. Save the service-role key and at least one model provider key
+4. Create the first agent and optionally attach an IM platform
+
+If setup shows a **security login URL** at the end in production, save it immediately.
+
+## What Exists Today
+
+| Area | Current scope |
+| --- | --- |
+| Self-evolution | GitHub/Vercel pipeline, self-evolution skill contract, review-first code change flow |
+| Agent runtime | Multi-step agent loop, slash commands, toolkits, event queue, retries, tracing |
+| LLM routing | Weighted multi-key provider pool, per-key usage tracking, automatic cooldown and failover behavior |
+| Channels | Telegram, Feishu, WeCom, Slack, QQ Bot, WhatsApp |
+| Knowledge | Knowledge bases, article chunking, vector search, image-media embedding search |
+| Agent capabilities | Skills, MCP servers, model/provider management, scheduled tasks |
+| Multimodal | TTS, live voice, ASR, image generation |
+| Coding sandboxes | E2B sandbox execution, HTML preview, and agent-triggerable code workflows |
+| Sub-apps | Agent-native GUI apps with bearer-link access, built-in realtime chat room, and private-data server pattern |
+| Monetization | Subscription plans, channel subscriptions, approval fallback, Stripe webhook scaffolding |
+| Scheduling | Reminders, agent-invoke tasks, worker queue processing, and cron-backed automation |
+| Storage | JellyBox object storage management backed by Cloudflare R2-compatible storage |
+| Operations | Dashboard analytics, events queue inspection, usage stats, and admin controls |
+
+## Project Status
+
+SEAJelly is in active development and still being hardened for public release.
+
+- The core product is already feature-rich.
+- The self-evolution path is implemented and central to the project direction.
+- Public-route and security hardening work is still ongoing before broader exposure.
+
+## Supported Providers And Channels
+
+### Channels
+
+- Telegram
+- Feishu
+- WeCom
+- Slack
+- QQ Bot
+- WhatsApp
+
+### Model providers
+
+Built-in providers include:
+
+- Anthropic
+- OpenAI
+- Google
+- DeepSeek
+- OpenAI-compatible providers such as Groq, OpenRouter, Zhipu AI, Moonshot, MiniMax, DashScope, SiliconFlow, and VolcEngine
 
 ## Architecture
 
-```
-User
-  │
-  ├── Telegram ──→ Webhook ──→ events table ──→ Agent Loop ──→ Reply
-  │                                 ↑
-  │                           after() triggers
-  │                           worker processing
-  │
-  └── Dashboard ──→ Next.js App ──→ Supabase (RLS + Auth)
-                                       │
-                                       ├── agents      (AI config)
-                                       ├── sessions    (chat history)
-                                       ├── channels    (user profiles)
-                                       ├── secrets     (encrypted keys)
-                                       ├── events      (event queue)
-                                       ├── memories    (long-term memory)
-                                       ├── cron_jobs   (scheduled tasks)
-                                       ├── mcp_servers (MCP tools)
-                                       └── skills      (knowledge skills)
+```mermaid
+flowchart LR
+  U["Users / IM channels"] --> W["Webhook & public routes"]
+  W --> E["events table"]
+  E --> K["worker routes"]
+  K --> L["agent loop"]
+  D["Dashboard / setup"] --> A["Next.js app + admin APIs"]
+  A --> S["Supabase Auth + Postgres + RLS + pgvector"]
+  L --> S
+  L --> X["LLM providers / MCP / E2B / JellyBox / voice services / GitHub"]
+  L --> O["Platform senders / sub-app links / previews"]
 ```
 
-## Tech Stack
+### Core execution model
 
-| Layer | Technology |
-|---|---|
-| Frontend | Next.js 16 (App Router) + shadcn/ui + Tailwind CSS |
-| AI Engine | Vercel AI SDK (`generateText` + tools) |
-| Telegram | grammY (Webhook) |
-| Database | Supabase PostgreSQL + pgvector |
-| Auth | Supabase Auth + Row Level Security |
-| Scheduling | pg_cron + pg_net |
-| Hosting | Vercel Serverless Functions |
+1. Incoming channel traffic lands on a webhook or public entry route.
+2. The request is normalized and queued in `events`.
+3. Worker routes claim pending events and run the agent loop.
+4. The loop loads session context, memories, skills, MCP tools, and enabled built-in tools.
+5. Replies, logs, usage data, and downstream side effects are persisted back to Supabase.
 
-## Supported Models
+## Repository Map
 
-| Provider | Models |
-|---|---|
-| Anthropic | Claude Sonnet 4, Claude 3.5 Haiku |
-| OpenAI | GPT-4o, GPT-4o Mini, o3-mini |
-| Google | Gemini 3.1 Pro, Gemini 3/2.5 Flash, Gemini 2.5 Pro |
-| DeepSeek | DeepSeek Chat, DeepSeek Reasoner |
+| Path | What it owns |
+| --- | --- |
+| `src/app/(dashboard)` | Admin UI pages |
+| `src/app/api/admin` | Admin-only APIs |
+| `src/app/api/webhook` | Channel webhook entrypoints |
+| `src/app/api/worker` | Queue and scheduler workers |
+| `src/app/api/app` | Public bearer-link sub-app APIs |
+| `src/app/api/voice` | Voice temp-link and config routes |
+| `src/lib/agent` | Agent loop, commands, media handling, tools, toolkits |
+| `src/lib/platform` | Channel adapters, senders, approval flows |
+| `src/lib/supabase` | Auth/session middleware and admin helpers |
+| `src/lib/security` | Login gate and SSRF/security utilities |
+| `supabase/migrations/001_initial_schema.sql` | Canonical schema file in git |
+| `skills/self-evolution-guide/SKILL.md` | Self-evolution workflow guide |
 
----
+## Further Reading
 
-## FAQ
+- [setup.md](./setup.md): beginner-friendly setup walkthrough
+- [src/lib/agent/README.md](./src/lib/agent/README.md): agent runtime architecture and tool development guide
+- [src/lib/agent/tooling/README.md](./src/lib/agent/tooling/README.md): builtin toolkits, catalog, and runtime policy guide
+- [src/app/api/app/README.md](./src/app/api/app/README.md): Sub-App backend and bearer-link security guide
+- [skills/self-evolution-guide/SKILL.md](./skills/self-evolution-guide/SKILL.md): self-evolution workflow contract and coding discipline
+- [AGENTS.md](./AGENTS.md): contributor rules, repo invariants, and safety boundaries
 
-### Q: Getting 404 or can't connect after deployment?
+## Commands
 
-**A:** Chinese users must bind a custom domain. `.vercel.app` is blocked in China. See [Step 3](#step-3-custom-domain).
+```bash
+pnpm dev
+pnpm lint
+pnpm test:unit
+pnpm build
+```
 
-### Q: Setup Step 1 shows "Connection failed"?
+## Security Note
 
-**A:** Check your Supabase Access Token (PAT) and Project Ref. PAT is generated at Supabase → avatar (bottom-left) → Account → Access Tokens.
+SEAJelly contains several public surfaces by design: setup, webhooks, worker callbacks, voice links, previews, and bearer-link sub-apps. Before calling a deployment production-ready, re-check:
 
-### Q: Telegram Bot not responding?
-
-**A:** Check:
-1. Dashboard → Agents — confirm Webhook status is green "Active"
-2. If it shows "Not Set", click "Set Webhook"
-3. Confirm `NEXT_PUBLIC_APP_URL` in Vercel env vars matches your custom domain
-4. Check Dashboard → Events for pending events
-
-### Q: Events stuck in pending?
-
-**A:** Make sure Vercel is running the latest code. The webhook uses `after()` to automatically trigger the worker. Check Vercel Functions logs if issues persist.
-
-### Q: Is the free tier enough?
-
-**A:** Absolutely for personal use:
-- **Supabase Free**: 500MB database, 5GB bandwidth
-- **Vercel Hobby**: 100GB bandwidth, 100 hours/month serverless
-- **Gemini Free**: 15 requests/min, 1500 requests/day
-
----
+- admin authorization boundaries
+- service-role usage
+- webhook verification
+- SQL tool guardrails
+- sub-app token/RLS alignment
+- preview and voice-link data exposure
 
 ## License
 
-MIT
+This checkout does not currently include a root `LICENSE` file. Add one before publishing the repository publicly.

@@ -1,382 +1,231 @@
-# SEAJelly 🪼
+# SEAJelly
 
-**Self Evolution Agent** — 5 分钟拥有你的云端 AI 助手。由 [seaJelly.ai](https://seajelly.ai) 驱动。
+带有自进化能力的无服务器多通道 AI Agent 平台。
 
-无需服务器、无需 Docker、无需 SSH。只需 Supabase + Vercel 免费套餐。
+官方域名：[seajelly.ai](https://seajelly.ai)
 
-> 🇬🇧 [English](./README.md)
+`SEAJelly` 的名字来自 **Self Evolution Agent Jelly**。
 
----
+- `SEA` 既是 **Self Evolution Agent** 的缩写，也呼应了这个产品面向 serverless、云原生与“海洋生态”式扩展的产品哲学。
+- `Jelly` 则对应我们一直沿用的水母 / 果冻吉祥物、轻盈可爱的品牌气质，以及当前产品里的视觉形象。
 
-## 目录
+> English: [README.md](./README.md)
 
-- [准备工作](#准备工作)
-- [第一步：注册服务](#第一步注册服务)
-- [第二步：部署到 Vercel](#第二步部署到-vercel)
-- [第三步：绑定自定义域名](#第三步绑定自定义域名)
-- [第四步：运行 Setup 向导](#第四步运行-setup-向导)
-- [第五步：开始使用](#第五步开始使用)
-- [本地开发](#本地开发)
-- [Agent 开发](#agent-开发)
-- [Sub-App 开发](#sub-app-开发)
-- [架构](#架构)
-- [常见问题](#常见问题)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/shepherdwitty/opencrab)
 
----
+## 为什么是 SEAJelly
 
-## 准备工作
+SEAJelly 最迷人的部分，是它的**自进化能力**。
 
-你需要准备以下内容（全部免费）：
+它不只是一个聊天 Agent 平台。SEAJelly 可以通过 GitHub 读取自己的代码、提出修改、在审阅后推送代码，并观察 Vercel 部署结果，形成“产品由 Agent 持续迭代自身”的闭环。这也是 `SEA` 这个名字真正有意义的地方。
 
-| 项目 | 说明 |
-|---|---|
-| 一个自定义域名 | **强烈建议**使用自己的域名，Vercel 自带的 `.vercel.app` 二级域名在国内无法访问 |
-| GitHub 账号 | 用于 Fork 仓库和 Vercel 部署 |
-| 科学上网工具 | 注册 Supabase、Vercel、Telegram 时可能需要 |
+而这条自进化链路的行为规范，已经写进了 [skills/self-evolution-guide/SKILL.md](./skills/self-evolution-guide/SKILL.md)。这个规范的意义不只是“多一份说明文档”，而是给一个轻量级框架加上了明确的执行纪律：先搜索理解、先提方案、等待确认、精确补丁、观察部署、必要时显式回滚。也正因为有这类明确的工作流约束，SEAJelly 不需要做成特别重的编排系统，也能在代码指令遵循上保持比较好的稳定性。
 
----
+SEAJelly 适合希望用较低运维成本搭建 Agent 平台的团队或个人：
 
-## 第一步：注册服务
+- 无服务器优先：不依赖 VPS，不要求 Docker，也不需要常驻进程
+- 多通道接入：多个 IM / webhook 通道进入同一套事件队列和 Agent Runtime
+- 管理面板完整：通过 setup 向导和 dashboard 管理密钥、模型、Agent 与工具
+- 扩展方式丰富：支持 Skills、MCP、编码工具、Sub-App、对象存储
+- 数据能力完整：记忆、向量知识库、事件日志、用量统计与订阅能力都已具备
 
-### 1.1 Supabase（数据库）
+## 核心产品概念
 
-> 官网：**https://supabase.com**
+| 概念 | 为什么重要 |
+| --- | --- |
+| `SEA` 自进化 | 项目可以在审阅优先的 GitHub/Vercel 闭环里持续修改自身代码，而自进化 skill 负责把这件事约束成可执行、可复用、可审查的工作流。 |
+| LLM 调用负载均衡 | Provider Key 不是单 key 直连，而是带权重的 key 池设计，记录每个 key 的调用量，并在限流或过载时自动进入冷却，适合更高并发和更强韧性的场景。 |
+| Sub-App | Sub-App 是 Agent 原生的 GUI 应用，不只是发链接或表单。它让 Agent 能创建真正的浏览器交互界面，同时又保持业务数据走服务端私有边界。 |
+| Agent 订阅 | 订阅系统是一个早期的“Agent 版 OnlyFans”原型：创作者可以做收费 Agent，支持试用次数、审批兜底、Stripe 支付链接和按用户通道计费。 |
+| 沙盒 + 调度 | SEAJelly 把 E2B 安全代码沙盒与 `pg_cron` 调度能力组合在一起，既能执行代码工作，也能安排未来的自动任务。 |
 
-1. 注册账号（支持 GitHub 登录）
-2. 点击 **New Project**，选择免费套餐
-3. 设置项目名称和数据库密码（记住密码）
-4. Region 建议选 **Southeast Asia (Singapore)**
-5. 等待项目创建完成（约 1-2 分钟）
+## 一键部署
 
-**需要记录的信息：**
+上面的 Vercel 按钮会打开 Vercel 的导入流程，普通用户可以比较轻松地从当前仓库创建属于自己的部署。
 
-| 信息 | 获取路径 |
-|---|---|
-| Project URL | Settings → API → Project URL（形如 `https://xxxxx.supabase.co`） |
-| Anon Key | Settings → API → `anon` `public`（以 `eyJ` 开头的长字符串） |
-| Service Role Key | Settings → API → `service_role` `secret`（⚠️ **不要泄露！**） |
-| Project Ref | 项目 URL 中 `https://` 和 `.supabase.co` 之间的部分 |
-| Access Token (PAT) | 点击左下角头像 → Account → Access Tokens → **Generate new token** |
+更适合小白的详细引导请看：
 
-### 1.2 Vercel（部署平台）
+- English: [setup.md](./setup.md)
+- 中文: [setup.zh-CN.md](./setup.zh-CN.md)
 
-> 官网：**https://vercel.com**
+典型流程很简单：
 
-1. 使用 GitHub 账号登录
-2. 注册完成即可，后续部署时会自动关联
+1. 点击 `Deploy with Vercel`
+2. 在 Vercel 里填写下面列出的基础环境变量
+3. 完成部署
+4. 打开 `/setup`
+5. 按照详细 setup 文档一步步完成初始化
 
-### 1.3 获取 LLM API Key（至少一个）
-
-SEAJelly 支持多家大模型，**至少需要一个** API Key：
-
-| 提供商 | 注册地址 | 获取 Key 路径 | 推荐理由 |
-|---|---|---|---|
-| **Google Gemini** ⭐ | https://aistudio.google.com/apikey | 直接在页面生成 | **免费额度最高，新手首选** |
-| Anthropic (Claude) | https://console.anthropic.com | Settings → API Keys | 最强推理能力 |
-| OpenAI (GPT) | https://platform.openai.com/api-keys | 页面直接创建 | 生态最全 |
-| DeepSeek | https://platform.deepseek.com/api_keys | 页面直接创建 | 性价比高 |
-
-> 💡 **新手推荐**：先用 Google Gemini，免费额度足够日常使用。
-
-### 1.4 Telegram Bot Token（可选）
-
-> 在 Telegram 中搜索 **@BotFather**
-
-1. 发送 `/newbot`
-2. 按提示设置 Bot 名称和用户名
-3. 获得一串 Token（形如 `123456789:ABCdef...`）
-
-> 也可以在 Setup 完成后再配置。
-
----
-
-## 第二步：部署到 Vercel
-
-### 2.1 Fork 仓库
-
-1. 打开本项目 GitHub 页面
-2. 点击右上角 **Fork**
-3. Fork 到你自己的 GitHub 账号下
-
-### 2.2 在 Vercel 中导入
-
-1. 打开 https://vercel.com/new
-2. 选择刚才 Fork 的 `seajelly` 仓库
-3. 在 **Environment Variables** 中填入以下变量：
-
-| 变量名 | 值 | 说明 |
-|---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://xxxxx.supabase.co` | Supabase 项目 URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJhbGci...` | Supabase Anon Key |
-| `ENCRYPTION_KEY` | *（见下方生成方法）* | 加密密钥 |
-| `NEXT_PUBLIC_APP_URL` | `https://你的域名.com` | 你的自定义域名（⚠️ **非常重要！**） |
-| `CRON_SECRET` | *（见下方生成方法）* | Cron 任务密钥 |
-
-**生成 ENCRYPTION_KEY 和 CRON_SECRET：**
-
-在终端运行（运行两次，分别用于两个变量）：
-
-```bash
-openssl rand -base64 32
-```
-
-或在浏览器控制台运行：
-
-```javascript
-crypto.getRandomValues(new Uint8Array(32)).reduce((a,b) => a + b.toString(16).padStart(2,'0'), '')
-```
-
-4. 点击 **Deploy** 等待部署完成
-
----
-
-## 第三步：绑定自定义域名
-
-> ⚠️ **重要**：Vercel 的 `.vercel.app` 域名在中国大陆被墙，**必须绑定自己的域名**才能正常访问。
-
-1. 在 Vercel 项目页面，进入 **Settings → Domains**
-2. 输入你的域名（如 `oc.yourdomain.com`）
-3. 按照 Vercel 提示，到你的域名 DNS 管理处添加 CNAME 记录：
-   - 类型：`CNAME`
-   - 名称：`oc`（或你选择的子域名）
-   - 值：`cname.vercel-dns.com`
-4. 等待 DNS 生效（通常几分钟到几小时）
-5. **重要**：回到 Vercel → Settings → Environment Variables，确认 `NEXT_PUBLIC_APP_URL` 已更新为你的自定义域名
-
----
-
-## 第四步：运行 Setup 向导
-
-打开浏览器访问：
-
-```
-https://你的域名/setup
-```
-
-Setup 向导共 4 步：
-
-### 第 1 步：连接 Supabase
-
-| 字段 | 填什么 |
-|---|---|
-| Supabase Access Token (PAT) | 在 [1.1](#11-supabase数据库) 中获取的 Access Token |
-| Project Ref | 项目 URL 中间那段（如 `gjtcqawhjgaohawslmbs`） |
-
-> 点击 "Connect & Initialize" 后，系统会自动创建所有数据库表、启用 pg_cron 和 pg_net 扩展。**不需要手动执行任何 SQL。**
-
-### 第 2 步：创建管理员
-
-填写邮箱和密码（密码至少 6 位）。这是你登录 Dashboard 的账号。
-
-### 第 3 步：配置 API 密钥
-
-| 字段 | 必填 | 说明 |
-|---|---|---|
-| Supabase Service Role Key | ✅ 是 | Settings → API → `service_role` |
-| Anthropic API Key | 至少填 | Claude 模型 |
-| OpenAI API Key | 一个 | GPT 模型 |
-| Google AI API Key | LLM Key | Gemini 模型 ⭐ 推荐 |
-| DeepSeek API Key | | DeepSeek 模型 |
-
-### 第 4 步：创建 Agent
-
-| 字段 | 说明 |
-|---|---|
-| Agent Name | 你的 AI 助手名字 |
-| Telegram Bot Token | 可选，从 @BotFather 获取 |
-| Model | 根据你填的 API Key 自动显示可用模型 |
-| System Prompt | 系统提示词，已有默认值，可自定义 |
-
-> 💡 如果填了 Telegram Bot Token，系统会**自动设置 Webhook**，无需额外操作。
-
----
-
-## 第五步：开始使用
-
-### Dashboard 管理面板
-
-Setup 完成后会自动跳转到 Dashboard（`https://你的域名/dashboard`）。
-
-| 模块 | 功能 |
-|---|---|
-| **Agents** | 管理 AI 助手：模型、提示词、Bot Token、Webhook 状态 |
-| **Channels** | 管理用户访问权限和身份档案 |
-| **Secrets** | 管理加密的 API 密钥 |
-| **Sessions** | 查看对话历史 |
-| **Tasks** | 管理定时任务 |
-| **MCP Servers** | 连接外部 MCP 工具服务 |
-| **Skills** | 管理 Agent 知识技能 |
-| **Events** | 事件队列调试面板 |
-
-### Telegram Bot
-
-如果你在 Setup 中配置了 Bot Token：
-
-1. 在 Telegram 中找到你的 Bot
-2. 发送 `/start` 开始对话
-3. 直接发消息即可聊天
-
-**可用命令：**
-
-| 命令 | 功能 |
-|---|---|
-| `/new` | 开始新会话（清除历史） |
-| `/status` | 查看当前 Agent 和会话状态 |
-| `/whoami` | 查看你的身份档案 |
-| `/help` | 显示命令列表 |
-
-### Webhook 状态确认
-
-在 Dashboard → Agents 页面，每个配了 Bot Token 的 Agent 卡片底部会显示 Webhook 状态：
-
-- ✅ **绿色 "Webhook 已激活"** — 一切正常
-- ⚠️ **橙色 "Webhook 未设置"** — 点击 "设置 Webhook" 按钮即可
-
----
+如果你的用户主要在中国大陆，建议绑定自定义域名，不要直接依赖 `*.vercel.app`。
 
 ## 本地开发
 
 ```bash
-# 克隆仓库
-git clone https://github.com/your-username/seajelly.git
-cd seajelly
-
-# 安装依赖
+git clone https://github.com/shepherdwitty/opencrab.git
+cd opencrab
 pnpm install
-
-# 配置环境变量
 cp .env.example .env.local
-# 编辑 .env.local 填入你的 Supabase 凭证
-
-# 生成加密密钥
-openssl rand -base64 32
-# 填入 .env.local 的 ENCRYPTION_KEY
-
-# 启动开发服务器 (http://localhost:3000)
 pnpm dev
 ```
 
----
+打开 [http://localhost:3000](http://localhost:3000)，然后访问 `/setup`。
 
-## Agent 开发
+## 最小环境变量
 
-如果你准备扩展 Agent 运行时，建议先看这里：
+大部分运行时密钥设计上是通过 `/setup` 或 Dashboard 写入 Supabase 并加密存储的。本地开发或首次部署时，仍然需要先准备下面这些基础环境变量：
 
-- [`src/lib/agent/README.md`](./src/lib/agent/README.md)
+| 变量名 | 是否必需 | 用途 |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | 是 | Supabase 项目地址 |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 是 | 浏览器端与会话态服务端访问 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 强烈建议 | 严格服务端访问和安全敏感路由需要 |
+| `ENCRYPTION_KEY` | 是 | 用于加密数据库中保存的密钥 |
+| `NEXT_PUBLIC_APP_URL` | 是 | webhook、预览、cron、语音链接等流程使用的公开基地址 |
+| `CRON_SECRET` | 是 | 保护 worker 与 agent 调用入口 |
 
-这个文档重点说明了：
+可用以下命令生成随机密钥：
 
-- builtin/system tool 的开发方式
-- toolkit 与 tool policy 的组织方式
-- slash command 的注册方式
-- `loop.ts` 的集成边界
-- 如何持续做组件化的 loop stage 开发
-
----
-
-## Sub-App 开发
-
-如果你准备开发新的 Sub-App，请先看这里：
-
-- [`src/app/api/app/README.md`](./src/app/api/app/README.md)
-
-这里整理了当前仓库推荐的安全开发模式，重点包括：
-
-- 页面可以公开，但业务表默认私有
-- 每个 `/api/app/*` 请求都必须校验签名 Token
-- 子应用专属密钥优先放进 `sub_app_settings`
-- Realtime 采用私有 Broadcast + Presence + 短时 JWT
-
----
-
-## 架构
-
-```
-用户
-  │
-  ├── Telegram ──→ Webhook ──→ events 表 ──→ Agent Loop ──→ 回复
-  │                                ↑
-  │                          after() 触发
-  │                          worker 处理
-  │
-  └── Dashboard ──→ Next.js App ──→ Supabase (RLS + Auth)
-                                       │
-                                       ├── agents      (AI 助手配置)
-                                       ├── sessions    (对话历史)
-                                       ├── channels    (用户档案)
-                                       ├── secrets     (加密密钥)
-                                       ├── events      (事件队列)
-                                       ├── memories    (长期记忆)
-                                       ├── cron_jobs   (定时任务)
-                                       ├── mcp_servers (MCP 工具)
-                                       └── skills      (知识技能)
+```bash
+openssl rand -base64 32
 ```
 
-**核心流程：**
+注意：
 
-1. Telegram 消息 → Webhook 接收 → 写入 events 表
-2. `after()` 回调触发 Worker → 从 events 表取出 pending 事件
-3. Agent Loop 执行：加载 session → 注入 system prompt + skills + soul → 调用 LLM → 执行工具 → 回复
-4. 更新 session 历史，标记 event 为 processed
+- 如果你要测试 `pg_cron`、webhook、预览或语音临时链接，`NEXT_PUBLIC_APP_URL` 必须是 Supabase 可访问到的公网地址。
+- 本地联调这类能力时，请使用 ngrok 或 Cloudflare Tunnel，不要直接使用 `localhost`。
 
-## 技术栈
+## Setup 指南
 
-| 层 | 技术 |
-|---|---|
-| 前端 | Next.js 16 (App Router) + shadcn/ui + Tailwind CSS |
-| AI 引擎 | Vercel AI SDK (`generateText` + tools) |
-| Telegram | grammY (Webhook) |
-| 数据库 | Supabase PostgreSQL + pgvector |
-| 认证 | Supabase Auth + Row Level Security |
-| 定时任务 | pg_cron + pg_net |
-| 部署 | Vercel Serverless Functions |
+README 里只保留简版说明，详细 setup 步骤请看：
 
-## 支持的模型
+- English: [setup.md](./setup.md)
+- 中文: [setup.zh-CN.md](./setup.zh-CN.md)
 
-| 提供商 | 模型 |
-|---|---|
-| Anthropic | Claude Sonnet 4、Claude 3.5 Haiku |
-| OpenAI | GPT-4o、GPT-4o Mini、o3-mini |
-| Google | Gemini 3.1 Pro、Gemini 3/2.5 Flash、Gemini 2.5 Pro |
-| DeepSeek | DeepSeek Chat、DeepSeek Reasoner |
+简单来说，`/setup` 会完成四件事：
 
----
+1. 用 Supabase PAT 和 project ref 连接项目
+2. 创建首个管理员账号
+3. 保存 service-role key 与至少一个模型 Provider API Key
+4. 创建第一个 Agent，并按需绑定 IM 平台
 
-## 常见问题
+如果你在生产环境 setup 结束时看到了**安全登录链接**提示，请立刻保存。
 
-### Q: 部署后访问显示 404 或无法连接？
+## 当前已实现能力
 
-**A:** 中国用户必须绑定自定义域名。`.vercel.app` 在国内被墙。参考[第三步](#第三步绑定自定义域名)。
+| 领域 | 当前能力范围 |
+| --- | --- |
+| 自进化 | GitHub/Vercel 自演化流水线、自演化 skill 契约、审阅优先的代码变更流程 |
+| Agent 运行时 | 多步 agent loop、命令系统、toolkit、事件队列、重试、trace |
+| LLM 路由 | 带权重的多 key provider 池、单 key 调用统计、自动冷却与容错切换 |
+| 消息通道 | Telegram、Feishu、WeCom、Slack、QQ Bot、WhatsApp |
+| 知识系统 | 知识库、文章切块、向量检索、图片/媒体 embedding 检索 |
+| Agent 能力扩展 | Skills、MCP Servers、模型/Provider 管理、定时任务 |
+| 多模态 | TTS、实时语音、ASR、图片生成 |
+| 编码沙盒 | E2B 沙盒执行、HTML 预览，以及可由 Agent 触发的代码工作流 |
+| Sub-App | Agent 原生 GUI 应用、bearer-link 访问模型、内置实时聊天室与私有服务端访问模式 |
+| 商业化 | 订阅套餐、用户通道订阅、审批兜底、Stripe webhook 基础链路 |
+| 调度能力 | Reminder、agent invoke 任务、worker 队列处理与 cron 自动化 |
+| 存储 | JellyBox 对象存储管理，兼容 Cloudflare R2 风格存储 |
+| 运维 | Dashboard 统计、事件队列排障、usage 数据与后台控制能力 |
 
-### Q: Setup 第一步报错 "Connection failed"？
+## 项目状态
 
-**A:** 检查 Supabase Access Token (PAT) 和 Project Ref 是否正确。PAT 在 Supabase 左下角头像 → Account → Access Tokens 生成。
+SEAJelly 仍处于快速迭代和开源前加固阶段。
 
-### Q: Telegram Bot 没有反应？
+- 核心产品能力已经比较完整
+- 自进化路径已经落地，而且是项目方向的核心
+- 面向公网的大规模暴露前，安全边界仍在持续收敛
 
-**A:** 检查以下几点：
-1. Dashboard → Agents 页面，确认 Webhook 状态为绿色 "已激活"
-2. 如果显示 "未设置"，点击 "设置 Webhook" 按钮
-3. 确认 Vercel 环境变量中 `NEXT_PUBLIC_APP_URL` 设置为你的自定义域名
-4. 在 Dashboard → Events 页面查看是否有 pending 事件
+## 当前支持的通道与 Provider
 
-### Q: Events 一直是 pending 状态？
+### 消息通道
 
-**A:** 确认 Vercel 部署的是最新代码。Webhook 收到消息后会通过 `after()` 自动触发 Worker 处理。如果仍有问题，检查 Vercel Functions 日志。
+- Telegram
+- Feishu
+- WeCom
+- Slack
+- QQ Bot
+- WhatsApp
 
-### Q: 可以不用 Telegram 吗？
+### 模型 Provider
 
-**A:** 目前 Telegram 是唯一支持的消息平台。未来计划支持更多平台。你可以先只使用 Dashboard 管理功能。
+当前内置 Provider 包括：
 
-### Q: 免费套餐够用吗？
+- Anthropic
+- OpenAI
+- Google
+- DeepSeek
+- 一系列 OpenAI-compatible Provider，例如 Groq、OpenRouter、Zhipu AI、Moonshot、MiniMax、DashScope、SiliconFlow、VolcEngine
 
-**A:** 对于个人使用完全够用：
-- **Supabase Free**：500MB 数据库，5GB 带宽
-- **Vercel Hobby**：100GB 带宽，Serverless 函数 100 小时/月
-- **Gemini Free**：每分钟 15 次请求，每天 1500 次
+## 架构总览
 
----
+```mermaid
+flowchart LR
+  U["用户 / IM 通道"] --> W["Webhook 与公共入口"]
+  W --> E["events 表"]
+  E --> K["worker 路由"]
+  K --> L["agent loop"]
+  D["Dashboard / setup"] --> A["Next.js 应用与管理 API"]
+  A --> S["Supabase Auth + Postgres + RLS + pgvector"]
+  L --> S
+  L --> X["LLM Provider / MCP / E2B / JellyBox / 语音服务 / GitHub"]
+  L --> O["平台发送器 / Sub-App 链接 / HTML 预览"]
+```
 
-## License
+### 核心执行路径
 
-MIT
+1. 来自 IM 或公网入口的请求进入 webhook / public route。
+2. 请求被标准化后写入 `events` 队列。
+3. Worker 领取 pending 事件并运行 agent loop。
+4. Loop 加载 session、memory、skills、MCP 和启用的内置工具。
+5. 回复、日志、用量统计以及其他副作用结果统一回写 Supabase。
+
+## 仓库结构
+
+| 路径 | 说明 |
+| --- | --- |
+| `src/app/(dashboard)` | 管理后台页面 |
+| `src/app/api/admin` | 管理员 API |
+| `src/app/api/webhook` | 各通道 webhook 入口 |
+| `src/app/api/worker` | 队列和调度 worker |
+| `src/app/api/app` | bearer-link 公共 Sub-App API |
+| `src/app/api/voice` | 语音临时链接与配置接口 |
+| `src/lib/agent` | Agent loop、commands、media、tools、toolkits |
+| `src/lib/platform` | 各平台适配器、发送器、审批流 |
+| `src/lib/supabase` | 鉴权中间件、admin/client helper |
+| `src/lib/security` | 登录门禁与 SSRF / 安全工具 |
+| `supabase/migrations/001_initial_schema.sql` | git 中的数据库 schema 源文件 |
+| `skills/self-evolution-guide/SKILL.md` | 自进化工作流说明 |
+
+## 延伸阅读
+
+- [setup.zh-CN.md](./setup.zh-CN.md)：面向小白用户的 setup 详细指南
+- [src/lib/agent/README.md](./src/lib/agent/README.md)：Agent 运行时架构与 tool 开发指南
+- [src/lib/agent/tooling/README.md](./src/lib/agent/tooling/README.md)：内置 toolkit、catalog 与运行时策略说明
+- [src/app/api/app/README.md](./src/app/api/app/README.md)：Sub-App 后端开发与 bearer-link 安全指南
+- [skills/self-evolution-guide/SKILL.md](./skills/self-evolution-guide/SKILL.md)：自进化工作流契约与编码执行规范
+- [AGENTS.md](./AGENTS.md)：贡献者协作约束、仓库不变量与安全边界
+
+## 常用命令
+
+```bash
+pnpm dev
+pnpm lint
+pnpm test:unit
+pnpm build
+```
+
+## 安全说明
+
+SEAJelly 天然包含多个公共暴露面，例如 setup、webhook、worker 回调、语音链接、HTML 预览和 bearer-link sub-app。把某个部署视为“可生产使用”之前，建议重点复核：
+
+- admin 鉴权边界
+- service-role 使用方式
+- webhook 验签
+- SQL 工具护栏
+- sub-app token 与 RLS 是否一致
+- preview / voice-link 是否存在数据泄露面
+
+## 许可证
+
+当前仓库根目录还没有真正的 `LICENSE` 文件。正式公开发布前请先补齐。
