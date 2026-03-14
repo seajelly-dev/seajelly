@@ -26,6 +26,11 @@ interface DecryptedStorage {
   client: S3Client;
 }
 
+interface FileAccessScope {
+  agentId?: string;
+  channelId?: string;
+}
+
 function decryptStorage(row: JellyBoxStorage): DecryptedStorage {
   const creds: R2Credentials = {
     endpoint: row.endpoint,
@@ -74,6 +79,22 @@ function buildFileKey(originalName: string): string {
   return `jellybox/${ts}-${rand}${ext}`;
 }
 
+function applyFileAccessScope<T>(
+  query: T,
+  scope?: FileAccessScope,
+): T {
+  let scopedQuery = query;
+
+  if (scope?.agentId) {
+    scopedQuery = (scopedQuery as T & { eq: (column: string, value: string) => T }).eq("agent_id", scope.agentId);
+  }
+  if (scope?.channelId) {
+    scopedQuery = (scopedQuery as T & { eq: (column: string, value: string) => T }).eq("channel_id", scope.channelId);
+  }
+
+  return scopedQuery;
+}
+
 export interface UploadResult {
   fileId: string;
   publicUrl: string;
@@ -115,6 +136,11 @@ export async function uploadFile(params: {
     .single();
 
   if (error || !record) {
+    try {
+      await deleteFromR2(storage.client, storage.bucketName, fileKey);
+    } catch {
+      // best effort rollback
+    }
     throw new Error(`Failed to record file metadata: ${error?.message ?? "unknown"}`);
   }
 
@@ -127,31 +153,43 @@ export async function uploadFile(params: {
   };
 }
 
-export async function removeFile(fileId: string): Promise<void> {
+export async function removeFile(fileId: string, scope?: FileAccessScope): Promise<void> {
   const db = getSupabase();
-  const { data: file, error: findErr } = await db
+  const fileQuery = applyFileAccessScope(
+    db
     .from("jellybox_files")
     .select("id, storage_id, file_key")
-    .eq("id", fileId)
-    .single();
+    .eq("id", fileId),
+    scope,
+  );
+  const { data: file, error: findErr } = await fileQuery.single();
 
   if (findErr || !file) {
     throw new Error(`File not found: ${fileId}`);
   }
 
   const storage = await getStorageById(file.storage_id);
-  if (storage) {
-    try {
-      await deleteFromR2(storage.client, storage.bucketName, file.file_key);
-    } catch {
-      // best effort — still remove DB record
-    }
+  if (!storage) {
+    throw new Error(`Storage not found for file: ${fileId}`);
+  }
+  try {
+    await deleteFromR2(storage.client, storage.bucketName, file.file_key);
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Failed to delete remote file object: ${error.message}`
+        : "Failed to delete remote file object",
+    );
   }
 
-  const { error: delErr } = await db
+  const deleteQuery = applyFileAccessScope(
+    db
     .from("jellybox_files")
     .delete()
-    .eq("id", fileId);
+    .eq("id", fileId),
+    scope,
+  );
+  const { error: delErr } = await deleteQuery;
   if (delErr) {
     throw new Error(`Failed to delete file record: ${delErr.message}`);
   }
@@ -167,13 +205,16 @@ export interface FileInfo {
   createdAt: string;
 }
 
-export async function getFileInfo(fileId: string): Promise<FileInfo | null> {
+export async function getFileInfo(fileId: string, scope?: FileAccessScope): Promise<FileInfo | null> {
   const db = getSupabase();
-  const { data, error } = await db
+  const query = applyFileAccessScope(
+    db
     .from("jellybox_files")
     .select("*, jellybox_storages(name)")
-    .eq("id", fileId)
-    .single();
+    .eq("id", fileId),
+    scope,
+  );
+  const { data, error } = await query.single();
   if (error || !data) return null;
   return {
     id: data.id,
@@ -189,16 +230,22 @@ export async function getFileInfo(fileId: string): Promise<FileInfo | null> {
 export async function searchFiles(params: {
   searchName?: string;
   agentId?: string;
+  channelId?: string;
   limit?: number;
 }): Promise<FileInfo[]> {
   const db = getSupabase();
-  let q = db
+  let q = applyFileAccessScope(
+    db
     .from("jellybox_files")
     .select("*, jellybox_storages(name)")
     .order("created_at", { ascending: false })
-    .limit(params.limit ?? 20);
+    .limit(params.limit ?? 20),
+    {
+      agentId: params.agentId,
+      channelId: params.channelId,
+    },
+  );
 
-  if (params.agentId) q = q.eq("agent_id", params.agentId);
   if (params.searchName) q = q.ilike("original_name", `%${params.searchName}%`);
 
   const { data, error } = await q;
@@ -222,7 +269,7 @@ export interface StorageUsage {
   maxBytes: number;
 }
 
-export async function getUsageStats(agentId?: string): Promise<{
+export async function getUsageStats(params: FileAccessScope = {}): Promise<{
   totalFiles: number;
   totalBytes: number;
   storages: StorageUsage[];
@@ -238,10 +285,12 @@ export async function getUsageStats(agentId?: string): Promise<{
     return { totalFiles: 0, totalBytes: 0, storages: [] };
   }
 
-  let filesQuery = db
+  const filesQuery = applyFileAccessScope(
+    db
     .from("jellybox_files")
-    .select("storage_id, file_size");
-  if (agentId) filesQuery = filesQuery.eq("agent_id", agentId);
+    .select("storage_id, file_size"),
+    params,
+  );
   const { data: files } = await filesQuery;
 
   const byStorage = new Map<string, { count: number; bytes: number }>();
@@ -268,4 +317,43 @@ export async function getUsageStats(agentId?: string): Promise<{
   });
 
   return { totalFiles, totalBytes, storages: result };
+}
+
+export async function removeStorage(storageId: string): Promise<void> {
+  const db = getSupabase();
+  const storage = await getStorageById(storageId);
+
+  if (!storage) {
+    throw new Error(`Storage not found: ${storageId}`);
+  }
+
+  const { data: files, error: listError } = await db
+    .from("jellybox_files")
+    .select("id, file_key")
+    .eq("storage_id", storageId);
+
+  if (listError) {
+    throw new Error(`Failed to list storage files: ${listError.message}`);
+  }
+
+  for (const file of files ?? []) {
+    try {
+      await deleteFromR2(storage.client, storage.bucketName, file.file_key);
+    } catch (error) {
+      throw new Error(
+        error instanceof Error
+          ? `Failed to delete remote object ${file.file_key}: ${error.message}`
+          : `Failed to delete remote object ${file.file_key}`,
+      );
+    }
+  }
+
+  const { error: deleteError } = await db
+    .from("jellybox_storages")
+    .delete()
+    .eq("id", storageId);
+
+  if (deleteError) {
+    throw new Error(`Failed to delete storage: ${deleteError.message}`);
+  }
 }

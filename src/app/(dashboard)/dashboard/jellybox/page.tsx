@@ -21,12 +21,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   RefreshCw,
@@ -38,10 +32,8 @@ import {
   Pencil,
   Zap,
   Copy,
-  BookOpen,
-  ChevronDown,
-  ChevronUp,
   Search,
+  Info,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useT } from "@/lib/i18n";
@@ -80,9 +72,18 @@ function formatBytes(bytes: number): string {
   return `${val.toFixed(i > 0 ? 2 : 0)} ${units[i]}`;
 }
 
+function FieldHint({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs text-muted-foreground mt-1 flex items-start gap-1">
+      <Info className="size-3 mt-0.5 shrink-0 opacity-60" />
+      <span>{children}</span>
+    </p>
+  );
+}
+
 export default function JellyBoxPage() {
   const t = useT();
-  const [tab, setTab] = useState("storages");
+  const [activeTab, setActiveTab] = useState<"storages" | "files">("storages");
   const [storages, setStorages] = useState<StorageRow[]>([]);
   const [files, setFiles] = useState<FileRow[]>([]);
   const [filePage, setFilePage] = useState(1);
@@ -93,7 +94,6 @@ export default function JellyBoxPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string; type: "storage" | "file" } | null>(null);
   const [testing, setTesting] = useState(false);
-  const [guideOpen, setGuideOpen] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -312,40 +312,41 @@ export default function JellyBoxPage() {
         </div>
       )}
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="storages">{t("jellybox.tabs.storages")}</TabsTrigger>
-          <TabsTrigger value="files">{t("jellybox.tabs.files")}</TabsTrigger>
-        </TabsList>
+      {/* Pill-style tab switcher (same as /dashboard/coding) */}
+      <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
+        <button
+          onClick={() => setActiveTab("storages")}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === "storages"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <HardDrive className="size-4 inline-block mr-1.5 -mt-0.5" />
+          {t("jellybox.tabs.storages")}
+        </button>
+        <button
+          onClick={() => setActiveTab("files")}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === "files"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <FileIcon className="size-4 inline-block mr-1.5 -mt-0.5" />
+          {t("jellybox.tabs.files")}
+        </button>
+      </div>
 
-        <TabsContent value="storages" className="space-y-4">
+      {/* ── Storages Tab ── */}
+      {activeTab === "storages" && (
+        <div className="space-y-4">
           <div className="flex justify-between items-center">
             <Button onClick={openCreate} size="sm">
               <Plus className="size-4 mr-1.5" />
               {t("jellybox.addStorage")}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setGuideOpen(!guideOpen)}>
-              <BookOpen className="size-4 mr-1.5" />
-              {t("jellybox.guideTitle")}
-              {guideOpen ? <ChevronUp className="size-4 ml-1" /> : <ChevronDown className="size-4 ml-1" />}
-            </Button>
           </div>
-
-          {guideOpen && (
-            <Card className="border-dashed">
-              <CardHeader>
-                <CardTitle className="text-base">{t("jellybox.guideTitle")}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                {(["guideStep1", "guideStep2", "guideStep3", "guideStep4", "guideStep5"] as const).map((key) => (
-                  <div key={key}>
-                    <p className="font-medium">{t(`jellybox.${key}` as Parameters<typeof t>[0])}</p>
-                    <p className="text-muted-foreground">{t(`jellybox.${key}Desc` as Parameters<typeof t>[0])}</p>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
 
           {storages.length === 0 && !loading ? (
             <Card>
@@ -394,148 +395,137 @@ export default function JellyBoxPage() {
               })}
             </div>
           )}
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="files" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">{t("jellybox.filesDesc")}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                  <Input
-                    placeholder={t("jellybox.fileName") + "..."}
-                    value={fileSearch}
-                    onChange={(e) => setFileSearch(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") loadFiles(1, fileSearch); }}
-                    className="pl-9"
-                  />
-                </div>
-                <Button variant="outline" size="sm" onClick={() => loadFiles(1, fileSearch)}>
-                  <Search className="size-4" />
-                </Button>
+      {/* ── Files Tab ── */}
+      {activeTab === "files" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("jellybox.filesDesc")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <Input
+                  placeholder={t("jellybox.fileName") + "..."}
+                  value={fileSearch}
+                  onChange={(e) => setFileSearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") loadFiles(1, fileSearch); }}
+                  className="pl-9"
+                />
               </div>
+              <Button variant="outline" size="sm" onClick={() => loadFiles(1, fileSearch)}>
+                <Search className="size-4" />
+              </Button>
+            </div>
 
-              {files.length === 0 ? (
-                <div className="py-10 text-center text-muted-foreground">
-                  <FileIcon className="mx-auto mb-3 size-10 opacity-40" />
-                  <p>{t("jellybox.noFiles")}</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-left">
-                        <th className="pb-2 font-medium">{t("jellybox.fileName")}</th>
-                        <th className="pb-2 font-medium">{t("jellybox.fileSize")}</th>
-                        <th className="pb-2 font-medium">{t("jellybox.mimeType")}</th>
-                        <th className="pb-2 font-medium">{t("jellybox.storage")}</th>
-                        <th className="pb-2 font-medium">{t("common.created")}</th>
-                        <th className="pb-2 font-medium">{t("common.actions")}</th>
+            {files.length === 0 ? (
+              <div className="py-10 text-center text-muted-foreground">
+                <FileIcon className="mx-auto mb-3 size-10 opacity-40" />
+                <p>{t("jellybox.noFiles")}</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left">
+                      <th className="pb-2 font-medium">{t("jellybox.fileName")}</th>
+                      <th className="pb-2 font-medium">{t("jellybox.fileSize")}</th>
+                      <th className="pb-2 font-medium">{t("jellybox.mimeType")}</th>
+                      <th className="pb-2 font-medium">{t("jellybox.storage")}</th>
+                      <th className="pb-2 font-medium">{t("common.created")}</th>
+                      <th className="pb-2 font-medium">{t("common.actions")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {files.map((f) => (
+                      <tr key={f.id} className="border-b last:border-0">
+                        <td className="py-2 max-w-[200px] truncate">{f.original_name}</td>
+                        <td className="py-2 whitespace-nowrap">{formatBytes(f.file_size)}</td>
+                        <td className="py-2 text-muted-foreground">{f.mime_type || "—"}</td>
+                        <td className="py-2">{f.jellybox_storages?.name || "—"}</td>
+                        <td className="py-2 text-muted-foreground whitespace-nowrap">
+                          {new Date(f.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="py-2">
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                navigator.clipboard.writeText(f.public_url);
+                                toast.success(t("settings.copySuccess"));
+                              }}
+                            >
+                              <Copy className="size-3.5" />
+                            </Button>
+                            <a href={f.public_url} target="_blank" rel="noopener noreferrer">
+                              <Button variant="ghost" size="icon">
+                                <ExternalLink className="size-3.5" />
+                              </Button>
+                            </a>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setConfirmDelete({ id: f.id, name: f.original_name, type: "file" })}
+                            >
+                              <Trash2 className="size-3.5 text-destructive" />
+                            </Button>
+                          </div>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {files.map((f) => (
-                        <tr key={f.id} className="border-b last:border-0">
-                          <td className="py-2 max-w-[200px] truncate">{f.original_name}</td>
-                          <td className="py-2 whitespace-nowrap">{formatBytes(f.file_size)}</td>
-                          <td className="py-2 text-muted-foreground">{f.mime_type || "—"}</td>
-                          <td className="py-2">{f.jellybox_storages?.name || "—"}</td>
-                          <td className="py-2 text-muted-foreground whitespace-nowrap">
-                            {new Date(f.created_at).toLocaleDateString()}
-                          </td>
-                          <td className="py-2">
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(f.public_url);
-                                  toast.success(t("settings.copySuccess"));
-                                }}
-                              >
-                                <Copy className="size-3.5" />
-                              </Button>
-                              <a href={f.public_url} target="_blank" rel="noopener noreferrer">
-                                <Button variant="ghost" size="icon">
-                                  <ExternalLink className="size-3.5" />
-                                </Button>
-                              </a>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setConfirmDelete({ id: f.id, name: f.original_name, type: "file" })}
-                              >
-                                <Trash2 className="size-3.5 text-destructive" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
-              {fileTotal > 20 && (
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">
-                    {t("pagination.showing", {
-                      from: String((filePage - 1) * 20 + 1),
-                      to: String(Math.min(filePage * 20, fileTotal)),
-                      total: String(fileTotal),
-                    })}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={filePage <= 1}
-                      onClick={() => loadFiles(filePage - 1, fileSearch)}
-                    >
-                      {t("pagination.prev")}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={filePage * 20 >= fileTotal}
-                      onClick={() => loadFiles(filePage + 1, fileSearch)}
-                    >
-                      {t("pagination.next")}
-                    </Button>
-                  </div>
+            {fileTotal > 20 && (
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground">
+                  {t("pagination.showing", {
+                    from: String((filePage - 1) * 20 + 1),
+                    to: String(Math.min(filePage * 20, fileTotal)),
+                    total: String(fileTotal),
+                  })}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={filePage <= 1}
+                    onClick={() => loadFiles(filePage - 1, fileSearch)}
+                  >
+                    {t("pagination.prev")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={filePage * 20 >= fileTotal}
+                    onClick={() => loadFiles(filePage + 1, fileSearch)}
+                  >
+                    {t("pagination.next")}
+                  </Button>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Storage Form Dialog */}
+      {/* ── Storage Form Dialog (with integrated guide) ── */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); resetForm(); } }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editId ? t("jellybox.editStorage") : t("jellybox.addStorage")}</DialogTitle>
+            {!editId && (
+              <p className="text-xs text-muted-foreground mt-1">{t("jellybox.guideIntro")}</p>
+            )}
           </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>{t("jellybox.storageName")}</Label>
-              <Input
-                placeholder={t("jellybox.storageNamePlaceholder")}
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t("jellybox.accountId")}</Label>
-              <Input
-                placeholder={t("jellybox.accountIdPlaceholder")}
-                value={form.account_id}
-                onChange={(e) => setForm({ ...form, account_id: e.target.value })}
-              />
-            </div>
+            {/* ① Bucket Name */}
             <div className="space-y-1.5">
               <Label>{t("jellybox.bucketName")}</Label>
               <Input
@@ -543,15 +533,10 @@ export default function JellyBoxPage() {
                 value={form.bucket_name}
                 onChange={(e) => setForm({ ...form, bucket_name: e.target.value })}
               />
+              {!editId && <FieldHint>{t("jellybox.hintBucket")}</FieldHint>}
             </div>
-            <div className="space-y-1.5">
-              <Label>{t("jellybox.endpoint")}</Label>
-              <Input
-                placeholder={t("jellybox.endpointPlaceholder")}
-                value={form.endpoint}
-                onChange={(e) => setForm({ ...form, endpoint: e.target.value })}
-              />
-            </div>
+
+            {/* ② Public URL */}
             <div className="space-y-1.5">
               <Label>{t("jellybox.publicUrl")}</Label>
               <Input
@@ -559,7 +544,40 @@ export default function JellyBoxPage() {
                 value={form.public_url}
                 onChange={(e) => setForm({ ...form, public_url: e.target.value })}
               />
+              {!editId && <FieldHint>{t("jellybox.hintPublicUrl")}</FieldHint>}
             </div>
+
+            {/* ③ CORS reminder */}
+            {!editId && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+                <p className="font-medium">{t("jellybox.corsTitle")}</p>
+                <p>{t("jellybox.corsDesc")}</p>
+              </div>
+            )}
+
+            {/* ④ Account ID */}
+            <div className="space-y-1.5">
+              <Label>{t("jellybox.accountId")}</Label>
+              <Input
+                placeholder={t("jellybox.accountIdPlaceholder")}
+                value={form.account_id}
+                onChange={(e) => setForm({ ...form, account_id: e.target.value })}
+              />
+              {!editId && <FieldHint>{t("jellybox.hintAccountId")}</FieldHint>}
+            </div>
+
+            {/* ⑤ S3 API Endpoint */}
+            <div className="space-y-1.5">
+              <Label>{t("jellybox.endpoint")}</Label>
+              <Input
+                placeholder={t("jellybox.endpointPlaceholder")}
+                value={form.endpoint}
+                onChange={(e) => setForm({ ...form, endpoint: e.target.value })}
+              />
+              {!editId && <FieldHint>{t("jellybox.hintEndpoint")}</FieldHint>}
+            </div>
+
+            {/* ⑥ Access Key ID */}
             <div className="space-y-1.5">
               <Label>{t("jellybox.accessKeyId")}</Label>
               <Input
@@ -568,7 +586,10 @@ export default function JellyBoxPage() {
                 value={form.access_key_id}
                 onChange={(e) => setForm({ ...form, access_key_id: e.target.value })}
               />
+              {!editId && <FieldHint>{t("jellybox.hintApiToken")}</FieldHint>}
             </div>
+
+            {/* ⑦ Secret Access Key */}
             <div className="space-y-1.5">
               <Label>{t("jellybox.secretAccessKey")}</Label>
               <Input
@@ -577,7 +598,20 @@ export default function JellyBoxPage() {
                 value={form.secret_access_key}
                 onChange={(e) => setForm({ ...form, secret_access_key: e.target.value })}
               />
+              {editId && <FieldHint>{t("jellybox.credentialKeepHint")}</FieldHint>}
             </div>
+
+            {/* Display Name */}
+            <div className="space-y-1.5">
+              <Label>{t("jellybox.storageName")}</Label>
+              <Input
+                placeholder={t("jellybox.storageNamePlaceholder")}
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </div>
+
+            {/* Max Capacity */}
             <div className="space-y-1.5">
               <Label>{t("jellybox.maxBytes")}</Label>
               <Input
@@ -587,6 +621,8 @@ export default function JellyBoxPage() {
                 onChange={(e) => setForm({ ...form, max_bytes_gb: e.target.value })}
               />
             </div>
+
+            {/* Active Write Toggle */}
             <div className="flex items-center gap-3">
               <Switch
                 checked={form.is_active_write}
@@ -597,6 +633,13 @@ export default function JellyBoxPage() {
                 <p className="text-xs text-muted-foreground">{t("jellybox.isActiveWriteHint")}</p>
               </div>
             </div>
+
+            {/* Last step hint */}
+            {!editId && (
+              <div className="rounded-md border border-dashed px-3 py-2.5 text-xs text-muted-foreground">
+                {t("jellybox.hintFinalStep")}
+              </div>
+            )}
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button

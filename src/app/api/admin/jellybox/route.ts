@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/crypto/encrypt";
+import { removeStorage } from "@/lib/jellybox/storage";
 
 export async function GET() {
   try { await requireAdmin(); } catch (e) { return authErrorResponse(e); }
@@ -105,11 +106,13 @@ export async function DELETE(request: NextRequest) {
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-  const db = await createAdminClient();
-  const { error } = await db
-    .from("jellybox_storages")
-    .delete()
-    .eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ success: true });
+  try {
+    await removeStorage(id);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Delete failed" },
+      { status: 500 },
+    );
+  }
 }
