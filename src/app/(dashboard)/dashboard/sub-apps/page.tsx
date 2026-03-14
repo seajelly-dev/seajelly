@@ -42,15 +42,18 @@ interface ManagedSubApp extends SubApp {
   config_complete?: boolean;
   config_configured_keys?: string[];
   config_missing_keys?: string[];
+  config_invalid_keys?: string[];
 }
 
 interface RoomSettingsStatus {
   complete: boolean;
   configuredKeys: string[];
   missingKeys: string[];
+  invalidKeys: string[];
   publicKeyPem: string | null;
   roomRealtimeJwtKid: string | null;
   supabaseImportJwk: string | null;
+  kidIsUuid: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -658,6 +661,16 @@ export default function SubAppsPage() {
     [t],
   );
 
+  const formatRoomInvalidKeys = useCallback(
+    (invalidKeys: string[] | undefined) => {
+      const keys = invalidKeys?.filter(Boolean).join(", ");
+      return t("subApps.roomSecurity.invalid", {
+        keys: keys || "ROOM_REALTIME_JWT_KID",
+      });
+    },
+    [t],
+  );
+
   const fetchSubApps = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/sub-apps");
@@ -786,6 +799,14 @@ export default function SubAppsPage() {
     if (!value) return;
     await navigator.clipboard.writeText(value);
     toast.success(successMessage);
+  };
+
+  const fillGeneratedKid = () => {
+    setRoomSettingsForm((current) => ({
+      ...current,
+      ROOM_REALTIME_JWT_KID: globalThis.crypto.randomUUID(),
+    }));
+    toast.success(t("subApps.roomSecurity.generateKidSuccess"));
   };
 
   const saveRoomSettings = async () => {
@@ -955,7 +976,9 @@ export default function SubAppsPage() {
                             <p className="text-xs text-muted-foreground">
                               {app.config_complete
                                 ? t("subApps.roomSecurity.configured")
-                                : formatRoomMissingKeys(app.config_missing_keys)}
+                                : (app.config_invalid_keys ?? []).length > 0
+                                  ? formatRoomInvalidKeys(app.config_invalid_keys)
+                                  : formatRoomMissingKeys(app.config_missing_keys)}
                             </p>
                           </div>
                           <Badge variant={app.config_complete ? "secondary" : "destructive"}>
@@ -1107,6 +1130,17 @@ export default function SubAppsPage() {
                           </div>
                         </div>
 
+                        {!roomSettingsStatus?.kidIsUuid && roomSettingsStatus?.roomRealtimeJwtKid && (
+                          <div className="rounded-md border border-amber-300 bg-amber-50/80 p-4 text-sm text-amber-950">
+                            <p className="font-medium">
+                              {t("subApps.roomSecurity.kidInvalidTitle")}
+                            </p>
+                            <p className="mt-1 text-amber-900">
+                              {t("subApps.roomSecurity.kidInvalidDesc")}
+                            </p>
+                          </div>
+                        )}
+
                         <div className="space-y-1.5">
                           <div className="flex items-center justify-between gap-3">
                             <Label>{t("subApps.roomSecurity.kidLabel")}</Label>
@@ -1151,7 +1185,9 @@ export default function SubAppsPage() {
                           <p className="text-xs text-muted-foreground">
                             {roomSettingsStatus?.supabaseImportJwk
                               ? t("subApps.roomSecurity.signingKeyJsonHint")
-                              : t("subApps.roomSecurity.importJsonUnavailable")}
+                              : roomSettingsStatus?.roomRealtimeJwtKid && !roomSettingsStatus.kidIsUuid
+                                ? t("subApps.roomSecurity.importJsonUnavailableInvalidKid")
+                                : t("subApps.roomSecurity.importJsonUnavailable")}
                           </p>
                           <Textarea
                             value={roomSettingsStatus?.supabaseImportJwk || ""}
@@ -1220,7 +1256,12 @@ export default function SubAppsPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>{t("subApps.roomSecurity.kidInputLabel")}</Label>
+                      <div className="flex items-center justify-between gap-3">
+                        <Label>{t("subApps.roomSecurity.kidInputLabel")}</Label>
+                        <Button type="button" variant="outline" size="sm" onClick={fillGeneratedKid}>
+                          {t("subApps.roomSecurity.generateKidButton")}
+                        </Button>
+                      </div>
                       <Input
                         value={roomSettingsForm.ROOM_REALTIME_JWT_KID}
                         onChange={(event) =>
@@ -1231,6 +1272,9 @@ export default function SubAppsPage() {
                         }
                         placeholder={t("subApps.roomSecurity.kidInputPlaceholder")}
                       />
+                      <p className="text-xs text-muted-foreground">
+                        {t("subApps.roomSecurity.kidInputHint")}
+                      </p>
                     </div>
                     <div className="space-y-1.5">
                       <Label>{t("subApps.roomSecurity.privateKeyLabel")}</Label>

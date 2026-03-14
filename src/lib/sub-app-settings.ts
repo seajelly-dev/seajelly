@@ -21,9 +21,11 @@ export interface RoomSubAppConfigStatus {
   complete: boolean;
   configuredKeys: RoomSubAppSettingKey[];
   missingKeys: RoomSubAppSettingKey[];
+  invalidKeys: RoomSubAppSettingKey[];
   publicKeyPem: string | null;
   roomRealtimeJwtKid: string | null;
   supabaseImportJwk: string | null;
+  kidIsUuid: boolean;
 }
 
 interface SubAppSettingRow {
@@ -32,6 +34,8 @@ interface SubAppSettingRow {
 }
 
 const ROOM_CONFIG_CACHE_TTL_MS = 30_000;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 let roomConfigCache:
   | {
@@ -56,6 +60,10 @@ function normalizeRoomSettingKey(value: string): RoomSubAppSettingKey | null {
   return ROOM_SUB_APP_SETTING_KEYS.includes(value as RoomSubAppSettingKey)
     ? (value as RoomSubAppSettingKey)
     : null;
+}
+
+function isUuid(value: string) {
+  return UUID_RE.test(value.trim());
 }
 
 function derivePublicKeyPem(privateKeyPem: string) {
@@ -163,19 +171,30 @@ export async function getRoomSubAppConfigStatus() {
   const { partial, configuredKeys, missingKeys } = parseRoomConfig(rows);
   const privateKey = partial.ROOM_REALTIME_JWT_PRIVATE_KEY;
   const kid = partial.ROOM_REALTIME_JWT_KID;
+  const kidIsUuid = kid ? isUuid(kid) : false;
+  const invalidKeys: RoomSubAppSettingKey[] = kid && !kidIsUuid ? ["ROOM_REALTIME_JWT_KID"] : [];
 
   return {
-    complete: missingKeys.length === 0,
+    complete: missingKeys.length === 0 && invalidKeys.length === 0,
     configuredKeys,
     missingKeys,
+    invalidKeys,
     publicKeyPem: privateKey ? derivePublicKeyPem(privateKey) : null,
     roomRealtimeJwtKid: kid ?? null,
     supabaseImportJwk:
-      privateKey && kid ? deriveSupabaseImportJwk(privateKey, kid) : null,
+      privateKey && kid && kidIsUuid ? deriveSupabaseImportJwk(privateKey, kid) : null,
+    kidIsUuid,
   } satisfies RoomSubAppConfigStatus;
 }
 
 export async function saveRoomSubAppConfig(settings: Partial<RoomSubAppConfig>) {
+  const nextKid = settings.ROOM_REALTIME_JWT_KID?.trim();
+  if (nextKid && !isUuid(nextKid)) {
+    throw new Error(
+      "ROOM_REALTIME_JWT_KID must be a UUID, for example: 550e8400-e29b-41d4-a716-446655440000",
+    );
+  }
+
   const payload = Object.entries(settings)
     .map(([settingKey, rawValue]) => {
       const normalizedKey = normalizeRoomSettingKey(settingKey);
@@ -229,7 +248,7 @@ export function generateRoomSubAppConfigBundle() {
   return {
     ROOM_TOKEN_SECRET: crypto.randomBytes(32).toString("base64url"),
     ROOM_REALTIME_JWT_PRIVATE_KEY: privateKey,
-    ROOM_REALTIME_JWT_KID: crypto.randomBytes(12).toString("hex"),
+    ROOM_REALTIME_JWT_KID: crypto.randomUUID(),
     publicKeyPem: publicKey,
   };
 }

@@ -50,6 +50,7 @@ export async function GET(request: Request) {
         complete: boolean;
         configuredKeys: string[];
         missingKeys: string[];
+        invalidKeys: string[];
       }
     | null = null;
 
@@ -59,6 +60,7 @@ export async function GET(request: Request) {
       complete: status.complete,
       configuredKeys: status.configuredKeys,
       missingKeys: status.missingKeys,
+      invalidKeys: status.invalidKeys,
     };
   } catch {
     roomConfig = null;
@@ -72,6 +74,7 @@ export async function GET(request: Request) {
             config_complete: roomConfig?.complete ?? false,
             config_configured_keys: roomConfig?.configuredKeys ?? [],
             config_missing_keys: roomConfig?.missingKeys ?? [],
+            config_invalid_keys: roomConfig?.invalidKeys ?? [],
           }
         : subApp,
     ),

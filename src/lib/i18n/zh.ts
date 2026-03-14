@@ -1040,6 +1040,7 @@ const zh: TranslationKeys = {
       required: "必填",
       missing: "缺少：{keys}",
       missingFallback: "缺少：配置项",
+      invalid: "格式无效：{keys}",
       dialogTitle: "{name} 设置",
       dialogDesc: "聊天室链接要等签名配置完成后，前台才可以正常打开。",
       currentStatusTitle: "当前状态",
@@ -1049,29 +1050,31 @@ const zh: TranslationKeys = {
       allConfigured: "必填项都已经配置好了。",
       supabaseGuideTitle: "Supabase 里到底要怎么配",
       supabaseGuideDesc:
-        "Supabase 真正需要的是一整段 Signing Key JSON，不是把 Public Key 再粘回 SeaJelly。",
-      step1Title: "1. 先在这里生成或保存一套聊天室密钥。",
+        "Supabase 真正需要的是下面这段“私钥导入 JSON”。即使 Supabase 里已经有一条 Current ECC key，也不能直接拿来给 OpenCrab 用，因为 OpenCrab 需要自己持有私钥来签聊天室 realtime JWT。",
+      step1Title: "先在这里生成或保存一套聊天室密钥。",
       step1Desc:
         "下面的表单是 SeaJelly 自己保存私钥的地方。点击“生成新的一套”后，系统会自动存好，不需要你再手动回填。",
-      step2Title: "2. 复制下面的“Supabase Signing Key JSON”。",
+      step2Title: "复制下面的“Supabase Signing Key JSON”。",
       step2Desc:
         "这段 JSON 里已经包含私钥和同一个 KID，你不需要自己拼装公钥、私钥或 KID。",
-      step3Title: "3. 打开 Supabase Dashboard -> Authentication -> Signing Keys。",
+      step3Title: "打开 Supabase 里的签名密钥页面。",
       step3Desc:
-        "如果你现在看到的还是旧版 JWT Secret 页面，先按 Supabase 的提示迁移到 Signing Keys 模式。",
-      step4Title: "4. 点 Create standby key -> Import key，把 JSON 粘进去并保存。",
+        "不同版本的控制台入口可能不一样：有些在 Authentication -> Signing Keys，有些在 Settings -> JWT Keys。如果你看到的还是旧版 JWT Secret 页面，先按 Supabase 的提示迁移到 Signing Keys 模式。",
+      step4Title: "把这段 JSON 作为 standby key 导入。",
       step4Desc:
-        "导入后记得再点一次 Rotate key。只有切换成当前 key 之后，聊天室 realtime JWT 才会被 Supabase 接受。",
-      step5Title: "5. 到这里就完成了，不需要再把 Public Key 粘回下面的输入框。",
+        "点 Create Standby Key，保持 ES256 (ECC)，勾选 Import an existing private key，把下面这段 JSON 粘进去，然后点 Create standby key。",
+      step5Title: "把导入后的 key 旋转成当前 key，然后就结束了。",
       step5Desc:
-        "下面的输入框只是给你手动覆盖 Room 配置用的；Public Key 文本框仅供核对或外部验签参考。",
+        "导入成功后，在那条新 key 的操作菜单里点 Rotate key。不要再把 Public Key 粘回 OpenCrab；下面的 Public Key 文本框只是给你核对或做外部验签参考。",
       kidLabel: "Realtime JWT KID",
-      signingKeyJsonLabel: "Supabase Signing Key JSON",
-      signingKeyJsonHint: "把这整段 JSON 原样粘贴到 Supabase 的签名密钥导入框里。",
+      signingKeyJsonLabel: "Supabase 导入 JSON（私钥）",
+      signingKeyJsonHint: "把这整段 JSON 原样粘贴到 Supabase 弹窗里的“Import an existing private key”输入框里。",
       publicKeyLabel: "Realtime Public Key",
       publicKeyHint: "仅供参考。这是系统根据已保存私钥推导出的公钥。",
       importJsonUnavailable:
         "请先生成或保存一套 Room 密钥。只要私钥和 KID 就绪，这里就会自动出现可导入 Supabase 的 JSON。",
+      importJsonUnavailableInvalidKid:
+        "当前 KID 不是 UUID，Supabase 会直接拒绝导入。请先在下面生成一个 UUID，保存后再复制新的导入 JSON。",
       generateButton: "生成新的一套",
       updateTitle: "更新配置值",
       updateDesc: "字段留空就表示保留当前值；也可以直接一键生成新的一套。",
@@ -1079,6 +1082,13 @@ const zh: TranslationKeys = {
       tokenSecretPlaceholder: "留空表示保留当前值",
       kidInputLabel: "ROOM_REALTIME_JWT_KID",
       kidInputPlaceholder: "留空表示保留当前值",
+      kidInputHint:
+        "Supabase 这里要求必须是 UUID，例如：550e8400-e29b-41d4-a716-446655440000",
+      generateKidButton: "生成 UUID",
+      generateKidSuccess: "已为 ROOM_REALTIME_JWT_KID 生成新的 UUID",
+      kidInvalidTitle: "当前 KID 的格式不被 Supabase 接受",
+      kidInvalidDesc:
+        "这是旧版随机 hex 格式，不是 Supabase 要求的 UUID。你不需要重换私钥，只要在这里生成一个 UUID、保存，再重新复制导入 JSON 即可。",
       privateKeyLabel: "ROOM_REALTIME_JWT_PRIVATE_KEY",
       privateKeyPlaceholder: "粘贴 PEM 私钥；如果不想改，留空即可",
       rotationWarning:

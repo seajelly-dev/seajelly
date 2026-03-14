@@ -1038,6 +1038,7 @@ const en = {
       required: "Required",
       missing: "Missing: {keys}",
       missingFallback: "Missing: settings",
+      invalid: "Invalid: {keys}",
       dialogTitle: "{name} Settings",
       dialogDesc: "Room links stay unavailable until the room signing keys are configured.",
       currentStatusTitle: "Current Status",
@@ -1047,31 +1048,33 @@ const en = {
       allConfigured: "All required values are configured.",
       supabaseGuideTitle: "What you need to do in Supabase",
       supabaseGuideDesc:
-        "Supabase needs the signing key JSON. You do not paste the public key box back into SeaJelly.",
-      step1Title: "1. Generate or save a room key bundle here first.",
+        "Supabase needs the private-key import JSON below. Even if Supabase already shows a current ECC key, OpenCrab still needs its own imported private key because it signs room realtime JWTs itself.",
+      step1Title: "Generate or save a room key bundle here first.",
       step1Desc:
         "The lower form is where SeaJelly stores the private key. If you click Generate New Bundle, SeaJelly saves it for you automatically.",
-      step2Title: "2. Copy the “Supabase Signing Key JSON” block below.",
+      step2Title: "Copy the “Supabase Signing Key JSON” block below.",
       step2Desc:
         "That JSON already contains the private key and the matching KID. You do not need to manually assemble anything.",
-      step3Title: "3. In Supabase Dashboard, open Authentication -> Signing Keys.",
+      step3Title: "Open the signing key page in Supabase Dashboard.",
       step3Desc:
-        "If you still see the old JWT secret page, migrate it to Signing Keys first.",
-      step4Title: "4. Click Create standby key -> Import key, paste the JSON, and save.",
+        "Depending on your Supabase console version, this page may be under Authentication -> Signing Keys or Settings -> JWT Keys. If you still see the old JWT secret page, migrate it to Signing Keys first.",
+      step4Title: "Import the JSON as a standby key.",
       step4Desc:
-        "After the key appears in the list, click Rotate key so Supabase starts accepting room realtime JWTs signed by this key.",
-      step5Title: "5. Done: you do not paste the public key back into the fields below.",
+        "Click Create Standby Key, keep ES256 (ECC), enable Import an existing private key, paste the JSON below, then click Create standby key.",
+      step5Title: "Rotate to the imported key, then stop here.",
       step5Desc:
-        "The public key box is only a reference for inspection or external verification.",
+        "After the imported key appears in the list, use its action menu to Rotate key. You do not paste the public key back into OpenCrab; the public key box is only for reference.",
       kidLabel: "Realtime JWT KID",
-      signingKeyJsonLabel: "Supabase Signing Key JSON",
+      signingKeyJsonLabel: "Supabase Import JSON (private key)",
       signingKeyJsonHint:
-        "Paste this whole JSON into Supabase when importing a signing key.",
+        "Paste this whole JSON into Supabase's “Import an existing private key” box.",
       publicKeyLabel: "Realtime Public Key",
       publicKeyHint:
         "Reference only. This is the public half derived from the stored private key.",
       importJsonUnavailable:
         "Generate or save the room key bundle first. Once a private key and KID exist, the Supabase import JSON will appear here.",
+      importJsonUnavailableInvalidKid:
+        "The current KID is not a UUID, so Supabase will reject the import. Generate a UUID below, save it, then copy the refreshed JSON.",
       generateButton: "Generate New Bundle",
       updateTitle: "Update Values",
       updateDesc:
@@ -1080,6 +1083,13 @@ const en = {
       tokenSecretPlaceholder: "Leave empty to keep current value",
       kidInputLabel: "ROOM_REALTIME_JWT_KID",
       kidInputPlaceholder: "Leave empty to keep current value",
+      kidInputHint:
+        "Supabase requires UUID format here, for example: 550e8400-e29b-41d4-a716-446655440000",
+      generateKidButton: "Generate UUID",
+      generateKidSuccess: "Generated a new UUID for ROOM_REALTIME_JWT_KID",
+      kidInvalidTitle: "The current KID format is not accepted by Supabase",
+      kidInvalidDesc:
+        "This value was generated in the old hex format. You do not need to rotate the private key. Generate a UUID here, save it, then copy the refreshed import JSON again.",
       privateKeyLabel: "ROOM_REALTIME_JWT_PRIVATE_KEY",
       privateKeyPlaceholder:
         "Paste a PEM private key, or leave empty to keep current value",
