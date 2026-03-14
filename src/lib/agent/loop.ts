@@ -17,6 +17,7 @@ import { dispatchCommand, parseCommand } from "./commands";
 import type { LoopResult } from "./commands/types";
 import { buildInboundUserMessages, downloadInboundFile, handlePendingImageEdit } from "./media";
 import { runImageKnowledgeBypass } from "./media-search";
+import { runJellyBoxUploadBypass } from "./jellybox-bypass";
 import { getSenderForAgent } from "@/lib/platform/sender";
 import type { MCPResult } from "@/lib/mcp/client";
 import type { PlatformSender } from "@/lib/platform/types";
@@ -762,16 +763,35 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     });
     systemPrompt += mediaSearchResult.promptAppendix;
 
+    const jellyBoxBypass = await runJellyBoxUploadBypass({
+      supabase,
+      traceId,
+      eventId: event.id ?? null,
+      agentId: typedAgent.id,
+      channelId: channel?.id ?? null,
+      sessionId: session.id,
+      messageText,
+      toolsConfig: (typedAgent.tools_config ?? null) as Record<string, unknown> | null,
+      fileBase64: resolvedInboundFile?.base64 ?? null,
+      fileMime: resolvedInboundFile?.mimeType ?? null,
+      fileName: resolvedInboundFile?.fileName ?? null,
+      fileSizeBytes: resolvedInboundFile?.sizeBytes ?? null,
+      trimPayload,
+    });
+    systemPrompt += jellyBoxBypass.promptAppendix;
+
     if (event.id) {
       lockRenewTimer = setInterval(() => {
         renewEventLock(event.id, 360).catch(() => {});
       }, 60_000);
     }
 
-    const toolDirective = resolveGenerateTextToolDirective({
-      availableToolNames: Object.keys(tools),
-      messageText,
-    });
+    const toolDirective = jellyBoxBypass.handled
+      ? null
+      : resolveGenerateTextToolDirective({
+          availableToolNames: Object.keys(tools),
+          messageText,
+        });
     const runWithToolDirective = !!toolDirective;
 
     const toolNames = Object.keys(tools);
