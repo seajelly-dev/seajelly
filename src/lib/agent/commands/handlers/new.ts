@@ -1,3 +1,4 @@
+import { cleanupChannelTempFiles } from "@/lib/jellybox/storage";
 import type { CommandContext, LoopResult } from "../types";
 
 export async function handleNew(ctx: CommandContext): Promise<LoopResult> {
@@ -14,8 +15,13 @@ export async function handleNew(ctx: CommandContext): Promise<LoopResult> {
     is_active: true,
   });
 
+  if (channel?.id) {
+    void cleanupChannelTempFiles(channel.id).catch((err) =>
+      console.warn(`[new-command] trace=${traceId} temp cleanup failed for channel=${channel.id}:`, err),
+    );
+  }
+
   const msg = t("newSession");
   await sender.sendText(platformChatId, msg);
   return { success: true, reply: msg, traceId };
 }
-

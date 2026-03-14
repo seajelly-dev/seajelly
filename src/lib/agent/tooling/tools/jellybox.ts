@@ -6,6 +6,7 @@ import {
   getFileInfo,
   searchFiles,
   getUsageStats,
+  getActiveWriteStorage,
 } from "@/lib/jellybox/storage";
 
 interface CreateJellyBoxToolkitToolsOptions {
@@ -177,6 +178,45 @@ export function createJellyBoxToolkitTools({
           };
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : "Stats failed" };
+        }
+      },
+    }),
+
+    jellybox_fetch: tool({
+      description:
+        "Download a file from a JellyBox URL and return its base64 content. " +
+        "Use this when you need to read, analyze, or edit a file from a previous turn " +
+        "(e.g. the user asks 'edit that image' and you need the image data from session history). " +
+        "Only works with URLs from the configured R2 storage domain.",
+      inputSchema: z.object({
+        url: z.string().describe("The public URL of the file to fetch (from session history file references)"),
+      }),
+      execute: async ({ url }: { url: string }) => {
+        try {
+          const storage = await getActiveWriteStorage();
+          if (storage) {
+            const storageHost = new URL(storage.publicUrl).host;
+            const targetHost = new URL(url).host;
+            if (targetHost !== storageHost) {
+              return { success: false, error: `URL domain mismatch. Expected ${storageHost}` };
+            }
+          }
+
+          const res = await fetch(url);
+          if (!res.ok) {
+            return { success: false, error: `Fetch failed: HTTP ${res.status}` };
+          }
+          const buf = Buffer.from(await res.arrayBuffer());
+          const mime = res.headers.get("content-type") || "application/octet-stream";
+          return {
+            success: true,
+            base64: buf.toString("base64"),
+            mime,
+            size: buf.length,
+            size_human: formatBytes(buf.length),
+          };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Fetch failed" };
         }
       },
     }),

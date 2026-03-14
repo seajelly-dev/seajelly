@@ -32,10 +32,12 @@ export const JELLYBOX_TOOL_NAMES = [
   "jellybox_info",
   "jellybox_delete",
   "jellybox_usage",
+  "jellybox_fetch",
 ] as const;
 
 export const BUILTIN_TOOL_CATALOG = [
   { key: "knowledge_search", label: "knowledge_search", descKey: "agents.toolKnowledgeSearch", defaultOn: false },
+  { key: "knowledge_image_search", label: "knowledge_image_search", descKey: "agents.toolKnowledgeImageSearch", defaultOn: false },
   { key: "run_sql", label: "run_sql", descKey: "agents.toolRunSql", defaultOn: false },
   { key: "schedule_task", label: "schedule_task", descKey: "agents.toolScheduleTask", defaultOn: true },
   { key: "cancel_scheduled_job", label: "cancel_scheduled_job", descKey: "agents.toolCancelJob", defaultOn: true },
@@ -57,6 +59,7 @@ export const BUILTIN_TOOL_CATALOG = [
   { key: "jellybox_info", label: "jellybox_info", descKey: "jellybox.toolInfo", defaultOn: false },
   { key: "jellybox_delete", label: "jellybox_delete", descKey: "jellybox.toolDelete", defaultOn: false },
   { key: "jellybox_usage", label: "jellybox_usage", descKey: "jellybox.toolUsage", defaultOn: false },
+  { key: "jellybox_fetch", label: "jellybox_fetch", descKey: "jellybox.toolFetch", defaultOn: false },
 ] as const satisfies readonly BuiltinToolDefinition[];
 
 export const BUILTIN_TOOLKIT_CATALOG = [

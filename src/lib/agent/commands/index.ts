@@ -1,7 +1,6 @@
 import { handleAsr } from "./handlers/asr";
 import { handleCancel } from "./handlers/cancel";
 import { handleHelp } from "./handlers/help";
-import { handleImageEdit } from "./handlers/imgedit";
 import { handleLive } from "./handlers/live";
 import { handleNew } from "./handlers/new";
 import { handleRoom } from "./handlers/room";
@@ -38,7 +37,6 @@ const COMMAND_HANDLERS: Record<string, CommandHandler> = {
   "/live": handleLive,
   "/asr": handleAsr,
   "/room": handleRoom,
-  "/imgedit": handleImageEdit,
   "/cancel": handleCancel,
 };
 

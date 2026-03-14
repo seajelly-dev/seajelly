@@ -122,6 +122,11 @@ const en = {
   sidebar: {
     dashboard: "Dashboard",
     overview: "Overview",
+    agentWorkspace: "Agent Workspace",
+    capabilityHub: "Knowledge & Capabilities",
+    operations: "Operations",
+    devLab: "Dev Lab",
+    system: "System",
     agents: "Agents",
     channels: "Channels",
     memories: "Memories",
@@ -210,6 +215,7 @@ const en = {
     privilegedTools: "Privileged Tools",
     privilegedToolsHint: "High-risk tools require explicit opt-in. run_sql is off by default.",
     toolKnowledgeSearch: "Search mounted knowledge bases using semantic vector search. Requires knowledge bases to be bound.",
+    toolKnowledgeImageSearch: "Search knowledge bases by image similarity. Use when the user asks to identify or recognize something in a photo.",
     toolRunSql: "Execute read-only SQL queries on the database. High risk — may expose metadata.",
     toolScheduleTask: "Create scheduled tasks (reminders, recurring jobs) via pg_cron.",
     toolCancelJob: "Cancel or remove an existing scheduled task by name.",
@@ -1082,7 +1088,8 @@ const en = {
     toolInfo: "Query file metadata from JellyBox by ID or filename search.",
     toolDelete: "Permanently delete a file from JellyBox cloud storage.",
     toolUsage: "Check JellyBox storage usage and capacity across all R2 buckets.",
-    toolkitDesc: "JellyBox cloud storage toolkit: persist, query, delete files, and check usage across Cloudflare R2 buckets.",
+    toolFetch: "Download a file from JellyBox URL for analysis or editing. Used when the agent needs to read historical file content.",
+    toolkitDesc: "JellyBox cloud storage toolkit: persist, query, delete, fetch files, and check usage across Cloudflare R2 buckets.",
   },
 
   subApps: {

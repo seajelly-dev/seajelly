@@ -353,6 +353,79 @@ export async function cleanupExpiredTempFiles(ttlMs: number = 24 * 60 * 60 * 100
   return cleaned;
 }
 
+export async function stageOutputFile(params: {
+  agentId: string;
+  channelId?: string;
+  body: Buffer;
+  originalName: string;
+  mimeType: string;
+}): Promise<{ fileRecordId: string; publicUrl: string } | null> {
+  const storage = await getActiveWriteStorage();
+  if (!storage) return null;
+
+  try {
+    const fileKey = buildFileKey(params.originalName, "temp", params.channelId);
+    await uploadToR2(storage.client, storage.bucketName, fileKey, params.body, params.mimeType);
+
+    const publicUrl = `${storage.publicUrl}/${fileKey}`;
+    const db = getSupabase();
+    const { data: record, error } = await db
+      .from("jellybox_files")
+      .insert({
+        storage_id: storage.id,
+        agent_id: params.agentId,
+        channel_id: params.channelId ?? null,
+        file_key: fileKey,
+        original_name: params.originalName,
+        mime_type: params.mimeType,
+        file_size: params.body.length,
+        public_url: publicUrl,
+        zone: "temp" as JellyBoxFileZone,
+      })
+      .select("id")
+      .single();
+
+    if (error || !record) {
+      await deleteFromR2(storage.client, storage.bucketName, fileKey).catch(() => {});
+      return null;
+    }
+
+    return { fileRecordId: record.id, publicUrl };
+  } catch {
+    return null;
+  }
+}
+
+export async function cleanupChannelTempFiles(channelId: string): Promise<number> {
+  const db = getSupabase();
+  const { data: files } = await db
+    .from("jellybox_files")
+    .select("id, storage_id, file_key")
+    .eq("channel_id", channelId)
+    .eq("zone", "temp")
+    .limit(200);
+
+  if (!files || files.length === 0) return 0;
+
+  const storageCache = new Map<string, DecryptedStorage | null>();
+  let cleaned = 0;
+
+  for (const file of files) {
+    let storage = storageCache.get(file.storage_id);
+    if (storage === undefined) {
+      storage = await getStorageById(file.storage_id);
+      storageCache.set(file.storage_id, storage);
+    }
+    if (storage) {
+      await deleteFromR2(storage.client, storage.bucketName, file.file_key).catch(() => {});
+    }
+    await db.from("jellybox_files").delete().eq("id", file.id);
+    cleaned++;
+  }
+
+  return cleaned;
+}
+
 export async function removeFile(fileId: string, scope?: FileAccessScope): Promise<void> {
   const db = getSupabase();
   const fileQuery = applyFileAccessScope(

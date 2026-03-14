@@ -1,8 +1,5 @@
 import type { ModelMessage } from "ai";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { CommandT, LoopResult } from "@/lib/agent/commands/types";
-import type { PlatformFile, PlatformSender } from "@/lib/platform/types";
-import type { Session } from "@/types/database";
+import type { PlatformFile } from "@/lib/platform/types";
 import type { StagedFile } from "@/lib/jellybox/storage";
 
 export interface ResolvedInboundFile extends PlatformFile {
@@ -33,29 +30,4 @@ export interface BuildInboundUserMessagesParams {
   hasFileInput: boolean;
   messageText: string;
   logger?: (message: string) => void;
-}
-
-export interface HandlePendingImageEditParams {
-  stagedFile: StagedFile | null;
-  session: Session;
-  supabase: SupabaseClient;
-  sender: PlatformSender;
-  platformChatId: string;
-  messageText: string;
-  t: CommandT;
-  traceId: string;
-  generateImageOverride?: (params: {
-    prompt: string;
-    sourceImageBase64: string;
-    sourceMimeType: string;
-  }) => Promise<{
-    imageBase64: string;
-    textResponse?: string | null;
-    durationMs: number;
-  }>;
-}
-
-export interface ImageEditInterceptResult {
-  handled: boolean;
-  result?: LoopResult;
 }

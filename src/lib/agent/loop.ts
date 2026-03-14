@@ -15,14 +15,14 @@ import { SELF_EVOLUTION_TOOL_NAMES } from "./tooling/catalog";
 import { executeAgentRun, resolveAgentReply } from "./execution";
 import { dispatchCommand, parseCommand } from "./commands";
 import type { LoopResult } from "./commands/types";
-import { buildInboundUserMessages, handlePendingImageEdit } from "./media";
-import { runImageKnowledgeBypass } from "./media-search";
-import { stageInboundFile, cleanupTempFile } from "@/lib/jellybox/storage";
+import { buildInboundUserMessages } from "./media";
+import { stageInboundFile, stageOutputFile } from "@/lib/jellybox/storage";
 import type { StagedFile } from "@/lib/jellybox/storage";
 import { getSenderForAgent } from "@/lib/platform/sender";
 import type { MCPResult } from "@/lib/mcp/client";
 import type { PlatformSender } from "@/lib/platform/types";
-import type { Agent, AgentEvent, ChatMessage } from "@/types/database";
+import type { Agent, AgentEvent, ChatMessage, MessageContentPart } from "@/types/database";
+import { stringifyContent } from "@/types/database";
 import { botT, getBotLocaleOrDefault, humanizeAgentError } from "@/lib/i18n/bot";
 import type { Locale } from "@/lib/i18n/types";
 import { renewEventLock, markProcessed, markFailed } from "@/lib/events/queue";
@@ -568,7 +568,6 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
   let mcpResult: MCPResult | null = null;
   let lockRenewTimer: ReturnType<typeof setInterval> | null = null;
   let coalescedCompanionEventId: string | null = null;
-  let stagedFileForCleanup: StagedFile | null = null;
 
   const platform = resolvePlatform(event);
   let sender: PlatformSender | null = null;
@@ -727,23 +726,6 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             logger: (msg) => console.log(`[agent-loop] trace=${traceId} ${msg}`),
           })
         : null;
-    if (stagedFile) stagedFileForCleanup = stagedFile;
-
-    // ── /imgedit image intercept ──
-    const imageEditResult = await handlePendingImageEdit({
-      stagedFile,
-      session,
-      supabase,
-      sender,
-      platformChatId,
-      messageText,
-      t,
-      traceId,
-    });
-    if (imageEditResult?.handled && imageEditResult.result) {
-      return imageEditResult.result;
-    }
-
     const preparedSession = prepareSessionHistory({
       metadata: session.metadata ?? {},
       messages: Array.isArray(session.messages)
@@ -757,14 +739,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     const messages: ModelMessage[] = history
       .slice(-AGENT_LIMITS.MAX_SESSION_MESSAGES)
-      .flatMap((m: ChatMessage) =>
-        m.role === "user" || m.role === "assistant"
-          ? [{
-              role: m.role,
-              content: m.content,
-            }]
-          : []
-      );
+      .flatMap((m: ChatMessage) => {
+        if (m.role !== "user" && m.role !== "assistant") return [];
+        return [{ role: m.role, content: stringifyContent(m.content) }];
+      });
 
     const mediaBuild = buildInboundUserMessages({
       stagedFile,
@@ -792,25 +770,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       .select("id", { count: "exact", head: true })
       .eq("key_name", "EMBEDDING_API_KEY");
     const hasEmbeddingApiKey = (embeddingKeyCount ?? 0) > 0;
-    let configuredKnowledgeEmbedModel: string | null = null;
-    if (hasImageInput) {
-      const { data: embedSetting } = await supabase
-        .from("system_settings")
-        .select("value")
-        .eq("key", "knowledge_embed_model")
-        .maybeSingle();
-      configuredKnowledgeEmbedModel = embedSetting?.value ?? null;
-      if (configuredKnowledgeEmbedModel !== "gemini-embedding-2-preview") {
-        console.log(
-          `[agent-loop] trace=${traceId} image knowledge retrieval disabled: knowledge_embed_model=${configuredKnowledgeEmbedModel ?? "unset"}`
-        );
-      }
-      if (!hasEmbeddingApiKey) {
-        console.log(
-          `[agent-loop] trace=${traceId} image knowledge retrieval disabled: missing EMBEDDING_API_KEY`
-        );
-      }
-    }
+    const configuredKnowledgeEmbedModel: string | null = null;
 
     const { model, resolvedProviderId, pickedKeyId } = await getModel(typedAgent.model, typedAgent.provider_id);
 
@@ -839,26 +799,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const tools = runtimeContext.tools;
     let systemPrompt = runtimeContext.systemPrompt;
     mcpResult = runtimeContext.mcpResult;
-    const canImageKnowledgeSearchByModel = runtimeContext.canImageKnowledgeSearchByModel;
     const activeSkillIds = runtimeContext.activeSkillIds;
-
-    const mediaSearchResult = await runImageKnowledgeBypass({
-      supabase,
-      traceId,
-      eventId: event.id ?? null,
-      agentId: typedAgent.id,
-      channelId: channel?.id ?? null,
-      sessionId: session.id,
-      imageBase64ForMediaSearch: mediaBuild.imageBase64ForMediaSearch,
-      imageMimeForMediaSearch: mediaBuild.imageMimeForMediaSearch,
-      imageUrlForMediaSearch: mediaBuild.imageUrlForMediaSearch,
-      hasImageInput,
-      hasEmbeddingApiKey,
-      canImageKnowledgeSearchByModel,
-      tools: tools as Record<string, unknown>,
-      trimPayload,
-    });
-    systemPrompt += mediaSearchResult.promptAppendix;
 
     // ── Inject staged file context for LLM ──
     if (stagedFile?.fileRecordId) {
@@ -979,6 +920,45 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       await sender.sendMarkdown(platformChatId, reply);
     }
 
+    if (stagedFile && !stagedFile.publicUrl) {
+      const noR2Hint = t("jellyboxNoR2Hint");
+      if (noR2Hint && noR2Hint !== "jellyboxNoR2Hint") {
+        await sender.sendText(platformChatId, noR2Hint).catch(() => {});
+      }
+    }
+
+    interface GeneratedFileRecord { url: string; mime: string; name: string; file_id: string; size: number; }
+    const generatedFiles: GeneratedFileRecord[] = [];
+
+    // Collect file URLs from tool results (image_generate, tts_speak return file_url/file_id)
+    const collectToolGeneratedFiles = (res: unknown) => {
+      const root = res as Record<string, unknown>;
+      const steps = Array.isArray(root.steps) ? root.steps : [];
+      for (const step of steps) {
+        if (!step || typeof step !== "object") continue;
+        const stepRec = step as Record<string, unknown>;
+        const toolResults = Array.isArray(stepRec.toolResults) ? stepRec.toolResults : [];
+        for (const tr of toolResults) {
+          if (!tr || typeof tr !== "object") continue;
+          const rec = tr as Record<string, unknown>;
+          const out = (rec.output ?? rec.result) as Record<string, unknown> | undefined;
+          if (!out || typeof out !== "object") continue;
+          if (typeof out.file_url === "string" && typeof out.file_id === "string") {
+            const toolName = readToolName(rec) ?? "";
+            const mime = toolName === "tts_speak" ? "audio/wav" : "image/png";
+            generatedFiles.push({
+              url: out.file_url,
+              mime,
+              name: toolName === "tts_speak" ? "voice.wav" : "generated.png",
+              file_id: out.file_id,
+              size: 0,
+            });
+          }
+        }
+      }
+    };
+    collectToolGeneratedFiles(result);
+
     const extractedImages = extractImagesFromResult(result);
     console.log(`[agent-loop] trace=${traceId} extractedImages=${extractedImages.length}`);
     for (const img of extractedImages) {
@@ -986,20 +966,61 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         const buf = Buffer.from(img.png, "base64");
         console.log(`[agent-loop] trace=${traceId} sendPhoto tool=${img.toolName} size=${buf.length}`);
         await sender.sendPhoto(platformChatId, buf);
+
+        const staged = await stageOutputFile({
+          agentId: typedAgent.id,
+          channelId: channel?.id,
+          body: buf,
+          originalName: `chart_${Date.now()}.png`,
+          mimeType: "image/png",
+        });
+        if (staged) {
+          generatedFiles.push({
+            url: staged.publicUrl,
+            mime: "image/png",
+            name: `chart_${img.toolName}.png`,
+            file_id: staged.fileRecordId,
+            size: buf.length,
+          });
+        }
       } catch (photoErr) {
         console.warn(`[agent-loop] trace=${traceId} sendPhoto failed:`, photoErr);
       }
     }
 
-    const userContent = mediaBuild.fileHandled
-      ? `[File${fileName ? `: ${fileName}` : ""}]${messageText ? ` ${messageText}` : ""}`
-      : messageText;
+    const userSessionContent: string | MessageContentPart[] = (() => {
+      if (!mediaBuild.fileHandled || !stagedFile) return messageText;
+      if (stagedFile.publicUrl && stagedFile.fileRecordId) {
+        const parts: MessageContentPart[] = [
+          {
+            type: "file",
+            url: stagedFile.publicUrl,
+            mime: stagedFile.mimeType,
+            name: stagedFile.fileName ?? "file",
+            file_id: stagedFile.fileRecordId,
+            size: stagedFile.sizeBytes,
+          },
+        ];
+        if (messageText) parts.push({ type: "text", text: messageText });
+        return parts;
+      }
+      return `[File: ${stagedFile.fileName ?? "file"} (${stagedFile.mimeType})]${messageText ? ` ${messageText}` : ""}`;
+    })();
+
+    const assistantSessionContent: string | MessageContentPart[] = (() => {
+      if (generatedFiles.length === 0) return reply;
+      const parts: MessageContentPart[] = [{ type: "text", text: reply }];
+      for (const f of generatedFiles) {
+        parts.push({ type: "file", url: f.url, mime: f.mime, name: f.name, file_id: f.file_id, size: f.size });
+      }
+      return parts;
+    })();
 
     const updatedMessages: ChatMessage[] = [
       ...history,
       {
         role: "user" as const,
-        content: userContent,
+        content: userSessionContent,
         timestamp: new Date().toISOString(),
       },
       ...(
@@ -1007,7 +1028,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
           ? []
           : [{
               role: "assistant" as const,
-              content: reply,
+              content: assistantSessionContent,
               timestamp: new Date().toISOString(),
             }]
       ),
@@ -1051,11 +1072,6 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     if (lockRenewTimer) clearInterval(lockRenewTimer);
     if (mcpResult) await mcpResult.cleanup().catch(() => {});
-    if (stagedFileForCleanup?.fileRecordId) {
-      await cleanupTempFile(stagedFileForCleanup.fileRecordId).catch((e) =>
-        console.warn(`[agent-loop] trace=${traceId} temp cleanup failed:`, e),
-      );
-    }
     return { success: true, reply: roomToolCalled ? "[room_tool_handled]" : reply, traceId };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : "Unknown error";
@@ -1084,11 +1100,6 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     if (lockRenewTimer) clearInterval(lockRenewTimer);
     if (mcpResult) await mcpResult.cleanup().catch(() => {});
-    if (stagedFileForCleanup?.fileRecordId) {
-      await cleanupTempFile(stagedFileForCleanup.fileRecordId).catch((e) =>
-        console.warn(`[agent-loop] trace=${traceId} temp cleanup failed:`, e),
-      );
-    }
     return { success: false, error: errMsg, traceId };
   }
 }

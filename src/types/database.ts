@@ -151,10 +151,26 @@ export interface ChannelSubscription {
   created_at: string;
 }
 
+export type MessageContentPart =
+  | { type: "text"; text: string }
+  | { type: "file"; url: string; mime: string; name: string; file_id?: string; size?: number };
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
-  content: string;
+  content: string | MessageContentPart[];
   timestamp?: string;
+}
+
+export function stringifyContent(content: string | MessageContentPart[]): string {
+  if (typeof content === "string") return content;
+  return content
+    .map((part) => {
+      if (part.type === "text") return part.text;
+      if (part.type === "file") return `[File: ${part.name} (${part.mime}) -> ${part.url}]`;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 export interface SessionSummary {

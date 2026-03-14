@@ -22,6 +22,7 @@ import { generateImage } from "@/lib/image-gen/engine";
 import { searchKnowledgeForAgent } from "@/lib/knowledge/search";
 import { createSelfEvolutionToolkitTools } from "@/lib/agent/tooling/tools/self-evolution";
 import { createJellyBoxToolkitTools } from "@/lib/agent/tooling/tools/jellybox";
+import { stageOutputFile } from "@/lib/jellybox/storage";
 
 function bigrams(text: string): Set<string> {
   const clean = text.replace(/\s+/g, "");
@@ -595,6 +596,28 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
       },
     }),
 
+    knowledge_image_search: tool({
+      description:
+        "Search the agent's knowledge base using an image. " +
+        "Use ONLY when the user explicitly asks to identify, recognize, or search for something in an image " +
+        '(e.g. "who is this?", "identify this", "what is this?"). ' +
+        "Do NOT call this for general image analysis or description tasks. " +
+        "Pass an image_url from the session history, or omit to use the current turn's image.",
+      inputSchema: z.object({
+        image_url: z.string().optional().describe(
+          "Public URL of the image to search. If omitted, the current turn's inbound image is used."
+        ),
+      }),
+      execute: async ({ image_url }: { image_url?: string }) => {
+        try {
+          const { runKnowledgeImageSearch } = await import("@/lib/agent/media-search");
+          return await runKnowledgeImageSearch({ agentId, imageUrl: image_url ?? null });
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : "Image search failed" };
+        }
+      },
+    }),
+
     run_sql: tool({
       description:
         "Execute a read-only SELECT query against the Supabase database via Management API. " +
@@ -770,6 +793,15 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           }
           const result = await generateTTS({ text, voice });
           const audioBuffer = Buffer.from(result.audioBase64, "base64");
+
+          const staged = await stageOutputFile({
+            agentId,
+            channelId,
+            body: audioBuffer,
+            originalName: `voice_${Date.now()}.wav`,
+            mimeType: "audio/wav",
+          });
+
           if (platformChatId) {
             if (sender.platform === "wecom") {
               await sender.sendText(platformChatId, `🔊 ${text}`);
@@ -786,7 +818,15 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
             inputText: text,
             durationMs: result.durationMs,
           });
-          return { success: true, message: "Voice message sent" };
+          if (staged) {
+            return {
+              success: true,
+              message: "Voice message sent",
+              file_url: staged.publicUrl,
+              file_id: staged.fileRecordId,
+            };
+          }
+          return { success: true, message: "Voice message sent (ephemeral, no R2 configured)" };
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : "TTS failed" };
         }
@@ -837,13 +877,32 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
             sourceMimeType: source_mime_type,
           });
           const imageBuffer = Buffer.from(result.imageBase64, "base64");
+
+          const staged = await stageOutputFile({
+            agentId,
+            channelId,
+            body: imageBuffer,
+            originalName: `generated_${Date.now()}.png`,
+            mimeType: "image/png",
+          });
+
           if (platformChatId) {
             await sender.sendPhoto(platformChatId, imageBuffer, result.textResponse || undefined);
           }
           const mode = source_image_base64 ? "edited" : "generated";
+          if (staged) {
+            return {
+              success: true,
+              message: `Image ${mode} and sent`,
+              file_url: staged.publicUrl,
+              file_id: staged.fileRecordId,
+              textResponse: result.textResponse || "",
+              durationMs: result.durationMs,
+            };
+          }
           return {
             success: true,
-            message: `Image ${mode} and sent`,
+            message: `Image ${mode} and sent (ephemeral, no R2 configured)`,
             textResponse: result.textResponse || "",
             durationMs: result.durationMs,
           };

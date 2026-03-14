@@ -146,15 +146,8 @@ const botStrings = {
     roomNoActive: "No active chatroom to close.",
     roomNoClosed: "No closed chatroom to reopen.",
 
-    imgeditPrompt: "🖼 *Image Edit Mode*\n\nPlease send a photo now. I'll edit it based on your instruction:\n_{prompt}_\n\nSend /cancel to exit.",
-    imgeditNoPrompt: "🖼 *Image Edit Mode*\n\nPlease send a photo with a caption describing the edit you want.\n\nSend /cancel to exit.",
-    imgeditSuccess: "✅ Image edited and sent ({ms}ms).",
-    imgeditFailed: "❌ Image editing failed: {error}",
-    imgeditCancelled: "↩️ Image edit mode cancelled.",
-    imgeditNotEnabled: "⛔ Image generation is not enabled for this agent.",
-    imgeditNoApiKey: "⛔ No API key configured for image generation.",
-    cmdDescImgedit: "Enter image edit mode",
-    helpImgedit: "{prefix}imgedit <prompt> — Enter image edit mode",
+    jellyboxNoR2Hint: "💡 The file has been processed for this turn, but cloud storage (JellyBox) is not configured. It cannot be referenced in later turns. Contact the admin to set up JellyBox.",
+
   },
 
   zh: {
@@ -295,15 +288,8 @@ const botStrings = {
     roomNoActive: "没有可关闭的活跃聊天室。",
     roomNoClosed: "没有可重新开启的已关闭聊天室。",
 
-    imgeditPrompt: "🖼 *图片编辑模式*\n\n请现在发送一张图片，我将按以下指令进行编辑：\n_{prompt}_\n\n发送 /cancel 退出。",
-    imgeditNoPrompt: "🖼 *图片编辑模式*\n\n请发送一张图片，并在附言中描述你想要的编辑效果。\n\n发送 /cancel 退出。",
-    imgeditSuccess: "✅ 图片已编辑并发送（{ms}ms）。",
-    imgeditFailed: "❌ 图片编辑失败：{error}",
-    imgeditCancelled: "↩️ 已退出图片编辑模式。",
-    imgeditNotEnabled: "⛔ 此 Agent 未启用图片生成功能。",
-    imgeditNoApiKey: "⛔ 未配置图片生成的 API Key。",
-    cmdDescImgedit: "进入图片编辑模式",
-    helpImgedit: "{prefix}imgedit <提示词> — 进入图片编辑模式",
+    jellyboxNoR2Hint: "💡 文件已在本次对话中处理，但由于未配置云存储（JellyBox），无法在后续对话中引用。请联系管理员配置 JellyBox。",
+
 
     skillTitle: "🧩 *技能列表*",
     skillActive: "✅ *已激活 ({count})*",
@@ -403,7 +389,6 @@ export function buildHelpText(
     t("helpLive", { prefix }) + "\n" +
     t("helpAsr", { prefix }) + "\n" +
     t("helpRoom", { prefix }) + "\n" +
-    t("helpImgedit", { prefix }) + "\n" +
     t("helpHelp", { prefix }) + "\n\n" +
     t("helpFooter");
   if (platform === "slack") {
@@ -430,7 +415,6 @@ export function buildWelcomeText(
     t("helpLive", { prefix }) + "\n" +
     t("helpAsr", { prefix }) + "\n" +
     t("helpRoom", { prefix }) + "\n" +
-    t("helpImgedit", { prefix }) + "\n" +
     t("helpHelp", { prefix }) + "\n\n" +
     t("helpFooter");
   if (platform === "slack") {
@@ -450,7 +434,6 @@ export function getBotCommands(locale: Locale) {
     { command: "live", description: t("cmdDescLive") },
     { command: "asr", description: t("cmdDescAsr") },
     { command: "room", description: t("cmdDescRoom") },
-    { command: "imgedit", description: t("cmdDescImgedit") },
     { command: "help", description: t("cmdDescHelp") },
   ];
 }

@@ -124,6 +124,11 @@ const zh: TranslationKeys = {
   sidebar: {
     dashboard: "控制台",
     overview: "概览",
+    agentWorkspace: "Agent 业务",
+    capabilityHub: "知识与能力",
+    operations: "运行与自动化",
+    devLab: "开发实验",
+    system: "系统",
     agents: "Agents",
     channels: "频道",
     memories: "记忆管理",
@@ -212,6 +217,7 @@ const zh: TranslationKeys = {
     privilegedTools: "高权限工具",
     privilegedToolsHint: "高风险工具需显式开启。run_sql 默认关闭。",
     toolKnowledgeSearch: "使用语义向量检索搜索已挂载的知识库。需先绑定知识库。",
+    toolKnowledgeImageSearch: "通过图片相似度搜索知识库。当用户要求识别或辨认图片中的内容时使用。",
     toolRunSql: "对数据库执行只读 SQL 查询。高风险——可能暴露数据库元信息。",
     toolScheduleTask: "通过 pg_cron 创建定时任务（提醒、周期性作业等）。",
     toolCancelJob: "按名称取消或删除已有的定时任务。",
@@ -1084,7 +1090,8 @@ const zh: TranslationKeys = {
     toolInfo: "通过文件 ID 或文件名搜索 JellyBox 中的文件元数据。",
     toolDelete: "从 JellyBox 云盘永久删除文件。",
     toolUsage: "查看 JellyBox 各 R2 存储桶的用量和容量。",
-    toolkitDesc: "JellyBox 云盘工具包：持久化、查询、删除文件，以及查看 Cloudflare R2 存储用量。",
+    toolFetch: "从 JellyBox URL 下载文件内容用于分析或编辑。当 Agent 需要读取历史文件内容时使用。",
+    toolkitDesc: "JellyBox 云盘工具包：持久化、查询、删除、下载文件，以及查看 Cloudflare R2 存储用量。",
   },
 
   subApps: {

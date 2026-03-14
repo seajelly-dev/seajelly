@@ -2,6 +2,7 @@ import { generateText } from "ai";
 import { getModel } from "@/lib/agent/provider";
 import { AGENT_LIMITS } from "@/lib/agent/limits";
 import { logApiUsage, readGenerateTextUsage } from "@/lib/usage/log";
+import { stringifyContent } from "@/types/database";
 import type { ChatMessage, SessionMetadata, SessionSummary } from "@/types/database";
 
 const SESSION_SUMMARY_VERSION = 1 as const;
@@ -108,12 +109,13 @@ function extractLegacySummary(messages: ChatMessage[]): {
   const cleanedMessages: ChatMessage[] = [];
 
   for (const message of messages) {
+    const contentStr = typeof message.content === "string" ? message.content : null;
     if (
       message.role === "system" &&
-      typeof message.content === "string" &&
-      message.content.trim().startsWith(LEGACY_SUMMARY_PREFIX)
+      contentStr &&
+      contentStr.trim().startsWith(LEGACY_SUMMARY_PREFIX)
     ) {
-      const stripped = stripLegacySummaryPrefix(message.content.trim());
+      const stripped = stripLegacySummaryPrefix(contentStr.trim());
       if (stripped) legacyParts.push(stripped);
       continue;
     }
@@ -201,7 +203,7 @@ function formatSummaryTranscript(messages: ChatMessage[]): string {
           : message.role === "assistant"
             ? "Assistant"
             : "System";
-      return `${role}: ${message.content}`;
+      return `${role}: ${stringifyContent(message.content)}`;
     })
     .join("\n");
 }

@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { CommandT } from "@/lib/agent/commands/types";
 import { buildInboundUserMessages } from "@/lib/agent/media";
-import { handlePendingImageEdit } from "@/lib/agent/media";
 import type { StagedFile } from "@/lib/jellybox/storage";
-import type { PlatformSender } from "@/lib/platform/types";
-import type { Session } from "@/types/database";
 
 function makeStagedFile(overrides: Partial<StagedFile> = {}): StagedFile {
   return {
@@ -19,55 +14,6 @@ function makeStagedFile(overrides: Partial<StagedFile> = {}): StagedFile {
     sizeBytes: 5,
     ...overrides,
   };
-}
-
-function makeSession(overrides: Partial<Session> = {}): Session {
-  return {
-    id: "session_1",
-    platform_chat_id: "chat_1",
-    agent_id: "agent_1",
-    channel_id: null,
-    messages: [],
-    metadata: {},
-    active_skill_ids: [],
-    version: 1,
-    is_active: true,
-    updated_at: new Date().toISOString(),
-    ...overrides,
-  };
-}
-
-function makeSender() {
-  const sent: Array<{ kind: string; text?: string; caption?: string }> = [];
-  const sender: PlatformSender = {
-    platform: "telegram",
-    async sendText(_chatId, text) {
-      sent.push({ kind: "text", text });
-    },
-    async sendMarkdown(_chatId, md) {
-      sent.push({ kind: "markdown", text: md });
-    },
-    async sendTyping() {
-      sent.push({ kind: "typing" });
-    },
-    async sendVoice() {},
-    async sendPhoto(_chatId, _photo, caption) {
-      sent.push({ kind: "photo", caption });
-    },
-    async sendInteractiveButtons() {},
-  };
-  return { sender, sent };
-}
-
-function makeT(): CommandT {
-  return ((key: Parameters<CommandT>[0], params?: Parameters<CommandT>[1]) => {
-    const safeKey = String(key);
-    if (!params) return safeKey;
-    const rendered = Object.entries(params as Record<string, unknown>)
-      .map(([k, v]) => `${k}=${String(v)}`)
-      .join(",");
-    return `${safeKey}(${rendered})`;
-  }) as CommandT;
 }
 
 test("buildInboundUserMessages creates image+text content for images (base64 fallback)", () => {
@@ -188,121 +134,4 @@ test("buildInboundUserMessages returns early warning when file download failed a
   assert.equal(result.fileHandled, false);
   assert.equal(result.userMessages.length, 0);
   assert.match(result.userWarning ?? "", /Failed to process/);
-});
-
-test("handlePendingImageEdit completes image edit and clears pending state", async () => {
-  const updates: unknown[] = [];
-  const supabase = {
-    from() {
-      return {
-        update(payload: unknown) {
-          updates.push(payload);
-          return {
-            eq() {
-              return Promise.resolve({ data: null, error: null });
-            },
-          };
-        },
-      };
-    },
-  } as unknown as SupabaseClient;
-  const { sender, sent } = makeSender();
-  const session = makeSession({
-    metadata: { imgedit_pending: true, imgedit_prompt: "make it brighter" },
-  });
-
-  const result = await handlePendingImageEdit({
-    stagedFile: makeStagedFile({
-      mimeType: "image/png",
-      effectiveImageMime: "image/png",
-      base64: Buffer.from("png").toString("base64"),
-    }),
-    session,
-    supabase,
-    sender,
-    platformChatId: "chat_1",
-    messageText: "",
-    t: makeT(),
-    traceId: "trace_1",
-    generateImageOverride: async () => ({
-      imageBase64: Buffer.from("edited").toString("base64"),
-      textResponse: "done",
-      durationMs: 123,
-    }),
-  });
-
-  assert.equal(result?.handled, true);
-  assert.equal(result?.result?.reply, "imgedit_done");
-  assert.ok(sent.some((entry) => entry.kind === "typing"));
-  assert.ok(sent.some((entry) => entry.kind === "photo"));
-  assert.ok(sent.some((entry) => entry.text?.includes("imgeditSuccess")));
-  assert.equal(updates.length, 1);
-});
-
-test("handlePendingImageEdit returns no-prompt without clearing pending", async () => {
-  const updates: unknown[] = [];
-  const supabase = {
-    from() {
-      return {
-        update(payload: unknown) {
-          updates.push(payload);
-          return {
-            eq() {
-              return Promise.resolve({ data: null, error: null });
-            },
-          };
-        },
-      };
-    },
-  } as unknown as SupabaseClient;
-  const { sender, sent } = makeSender();
-
-  const result = await handlePendingImageEdit({
-    stagedFile: makeStagedFile({
-      mimeType: "image/png",
-      effectiveImageMime: "image/png",
-      base64: Buffer.from("png").toString("base64"),
-    }),
-    session: makeSession({
-      metadata: { imgedit_pending: true, imgedit_prompt: null },
-    }),
-    supabase,
-    sender,
-    platformChatId: "chat_1",
-    messageText: "",
-    t: makeT(),
-    traceId: "trace_1",
-  });
-
-  assert.equal(result?.handled, true);
-  assert.equal(result?.result?.reply, "imgedit_no_prompt");
-  assert.ok(sent.some((entry) => entry.text?.includes("imgeditNoPrompt")));
-  assert.equal(updates.length, 0);
-});
-
-test("handlePendingImageEdit ignores non-image files", async () => {
-  const supabase = {
-    from() {
-      throw new Error("should not update");
-    },
-  } as unknown as SupabaseClient;
-  const { sender } = makeSender();
-
-  const result = await handlePendingImageEdit({
-    stagedFile: makeStagedFile({
-      mimeType: "application/pdf",
-      effectiveImageMime: "application/pdf",
-    }),
-    session: makeSession({
-      metadata: { imgedit_pending: true, imgedit_prompt: "test" },
-    }),
-    supabase,
-    sender,
-    platformChatId: "chat_1",
-    messageText: "",
-    t: makeT(),
-    traceId: "trace_1",
-  });
-
-  assert.equal(result, null);
 });

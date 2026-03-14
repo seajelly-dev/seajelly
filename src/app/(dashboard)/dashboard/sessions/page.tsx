@@ -55,9 +55,13 @@ import { useT } from "@/lib/i18n";
 
 const PAGE_SIZE = 20;
 
+type MessageContentPart =
+  | { type: "text"; text: string }
+  | { type: "file"; url: string; mime: string; name: string; file_id?: string; size?: number };
+
 interface ChatMessage {
   role: "user" | "assistant" | "system";
-  content: string;
+  content: string | MessageContentPart[];
   timestamp?: string;
 }
 
@@ -459,6 +463,76 @@ function ChatIdCell({ session }: { session: SessionRow }) {
   return <span className="font-mono text-sm">{session.platform_chat_id}</span>;
 }
 
+function FilePartRenderer({ part }: { part: Extract<MessageContentPart, { type: "file" }> }) {
+  const mime = part.mime || "";
+  if (mime.startsWith("image/")) {
+    return (
+      <a href={part.url} target="_blank" rel="noopener noreferrer" className="block my-1">
+        <img
+          src={part.url}
+          alt={part.name}
+          className="max-w-[260px] max-h-[200px] rounded-lg object-cover border"
+          loading="lazy"
+        />
+        <span className="text-[10px] opacity-60">{part.name}</span>
+      </a>
+    );
+  }
+  if (mime.startsWith("audio/")) {
+    return (
+      <div className="my-1">
+        <audio controls src={part.url} className="max-w-[260px]" preload="metadata" />
+        <span className="text-[10px] opacity-60 block">{part.name}</span>
+      </div>
+    );
+  }
+  if (mime.startsWith("video/")) {
+    return (
+      <div className="my-1">
+        <video controls src={part.url} className="max-w-[260px] rounded-lg" preload="metadata" />
+        <span className="text-[10px] opacity-60 block">{part.name}</span>
+      </div>
+    );
+  }
+  return (
+    <a
+      href={part.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="my-1 flex items-center gap-1.5 text-xs underline decoration-dotted"
+    >
+      📎 {part.name} ({mime || "file"}{part.size ? `, ${(part.size / 1024).toFixed(1)}KB` : ""})
+    </a>
+  );
+}
+
+function RichContent({ content }: { content: string | MessageContentPart[] }) {
+  if (typeof content === "string") {
+    return <p className="whitespace-pre-wrap wrap-break-word">{content}</p>;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      {content.map((part, i) => {
+        if (part.type === "text") {
+          return <p key={i} className="whitespace-pre-wrap wrap-break-word">{part.text}</p>;
+        }
+        if (part.type === "file") {
+          return <FilePartRenderer key={i} part={part} />;
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
+function stringifyContentLocal(content: string | MessageContentPart[]): string {
+  if (typeof content === "string") return content;
+  return content
+    .map((p) => (p.type === "text" ? p.text : `[File: ${p.name}]`))
+    .filter(Boolean)
+    .join(" ");
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -466,7 +540,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   if (isSystem) {
     return (
       <div className="mx-auto max-w-[90%] rounded-lg bg-muted/50 px-3 py-2 text-center text-xs text-muted-foreground italic">
-        {message.content}
+        {stringifyContentLocal(message.content)}
       </div>
     );
   }
@@ -495,9 +569,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             : "bg-muted rounded-tl-sm"
         }`}
       >
-        <p className="whitespace-pre-wrap wrap-break-word">
-          {message.content}
-        </p>
+        <RichContent content={message.content} />
         {message.timestamp && (
           <p
             className={`mt-2 text-[10px] ${
