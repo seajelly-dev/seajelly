@@ -224,7 +224,7 @@ export async function POST(request: Request) {
 
     const { fileRef: fileId, fileMime, fileName } = extractedFile;
 
-    const { error: insertErr } = await supabase.from("events").insert({
+    const { data: inserted, error: insertErr } = await supabase.from("events").insert({
       source: "telegram",
       agent_id: agentId,
       platform_chat_id: String(chatId),
@@ -244,31 +244,35 @@ export async function POST(request: Request) {
         },
       },
       status: "pending",
-    });
+    }).select("id").single();
 
-    if (insertErr) {
-      console.error(`[tg-webhook] event insert failed: agent=${agentId} err=${insertErr.message}`);
+    if (insertErr || !inserted) {
+      console.error(`[tg-webhook] event insert failed: agent=${agentId} err=${insertErr?.message}`);
+      return NextResponse.json({ ok: true });
     }
 
+    const insertedEventId = inserted.id as string;
     console.log(`[tg-webhook] event created: agent=${agentId} chat=${chatId} hasFile=${!!fileId} fileMime=${fileMime} textLen=${text.length}`);
 
     after(async () => {
       try {
-        const { claimPendingEvents, markProcessed, markFailed } = await import("@/lib/events/queue");
+        const { claimEventById, markProcessed, markFailed } = await import("@/lib/events/queue");
         const { runAgentLoop } = await import("@/lib/agent/loop");
-        const events = await claimPendingEvents();
-        console.log(`[tg-webhook] after() claimed ${events.length} events`);
-        for (const event of events) {
-          try {
-            const result = await runAgentLoop(event);
-            if (result.success) {
-              await markProcessed(event.id);
-            } else {
-              await markFailed(event.id, result.error ?? "Unknown failure");
-            }
-          } catch (err) {
-            await markFailed(event.id, err instanceof Error ? err.message : "Unknown error");
+        const event = await claimEventById(insertedEventId);
+        if (!event) {
+          console.log(`[tg-webhook] after() event ${insertedEventId} already claimed or cancelled`);
+          return;
+        }
+        console.log(`[tg-webhook] after() claimed event ${event.id}`);
+        try {
+          const result = await runAgentLoop(event);
+          if (result.success) {
+            await markProcessed(event.id);
+          } else {
+            await markFailed(event.id, result.error ?? "Unknown failure");
           }
+        } catch (err) {
+          await markFailed(event.id, err instanceof Error ? err.message : "Unknown error");
         }
       } catch (err) {
         console.error("[tg-webhook] after() worker error:", err);

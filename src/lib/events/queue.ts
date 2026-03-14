@@ -13,6 +13,23 @@ function getSupabase() {
 const LOCK_DURATION_SECONDS = 295;
 const BATCH_SIZE = 5;
 
+export async function claimEventById(eventId: string): Promise<AgentEvent | null> {
+  const supabase = getSupabase();
+  const lockedUntil = new Date(
+    Date.now() + LOCK_DURATION_SECONDS * 1000
+  ).toISOString();
+
+  const { data: claimed } = await supabase
+    .from("events")
+    .update({ status: "processing", locked_until: lockedUntil })
+    .eq("id", eventId)
+    .eq("status", "pending")
+    .select("*")
+    .maybeSingle();
+
+  return (claimed as AgentEvent) ?? null;
+}
+
 export async function claimPendingEvents(): Promise<AgentEvent[]> {
   const supabase = getSupabase();
   const now = new Date().toISOString();
