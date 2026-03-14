@@ -425,9 +425,9 @@ function CopyIdButton({ id }: { id: string }) {
       title={id}
       onClick={(e) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(id).then(() => {
+        navigator.clipboard.writeText("session id:" + id).then(() => {
           setCopied(true);
-          toast.success(`Copied: ${id.slice(0, 8)}...`);
+          toast.success(`Copied session id: ${id.slice(0, 8)}...`);
           setTimeout(() => setCopied(false), 1500);
         });
       }}

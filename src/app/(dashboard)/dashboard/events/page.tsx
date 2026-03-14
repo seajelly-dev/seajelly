@@ -445,7 +445,7 @@ export default function EventsPage() {
                 variant="ghost"
                 size="icon"
                 className="size-6 shrink-0"
-                onClick={() => selectedTraceId && handleCopyError(selectedTraceId)}
+                onClick={() => selectedTraceId && handleCopyError("trace_id:" + selectedTraceId)}
               >
                 <Copy className="size-3" />
               </Button>
