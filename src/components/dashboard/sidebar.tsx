@@ -190,7 +190,7 @@ function readExpandedGroupsState(): ExpandedGroupsState | null {
     return {
       ids: Array.isArray(saved.ids)
         ? saved.ids.filter(
-            (groupId): groupId is string =>
+            (groupId: unknown): groupId is string =>
               typeof groupId === "string" && VALID_GROUP_IDS.has(groupId),
           )
         : [],
