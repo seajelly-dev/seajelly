@@ -8,6 +8,11 @@ const JELLYBOX_FORCE_PATTERNS = [
   /(存一下|存下来|帮我存|存起来|存到|存入|转存|备份一下)/,
   /(jellybox|云盘).{0,12}(用量|容量|空间|多少|统计|查看)/,
   /\b(jellybox|cloud.?storage)\b.{0,12}\b(usage|capacity|stat|check)\b/i,
+  /(之前|上次|刚才|以前|以往|前面|早些).{0,8}(存的|保存的|上传的|传的|备份的)/,
+  /(找回|找到|找一下|找下|查一下|查下|看一下|看下).{0,12}(文件|图片|照片|图像|文档|附件)/,
+  /(文件|图片|照片|图像|文档|附件).{0,8}(在哪|哪里|找回|找到|还在|呢)/,
+  /(我的|我存的|我传的).{0,8}(文件|图片|照片|图像|文档|附件)/,
+  /\b(find|retrieve|get|list|show)\b.{0,16}\b(my|stored|saved|uploaded)\b.{0,12}\b(file|image|photo|document)s?\b/i,
 ];
 
 const JELLYBOX_SOFT_PATTERNS = [
@@ -19,6 +24,12 @@ const JELLYBOX_SOFT_PATTERNS = [
   /(删除|移除|清除).{0,8}(jellybox|云盘)/,
   /\bdelete\b.{0,12}\b(from)?\s*(jellybox|cloud.?storage)\b/i,
   /(jellybox|云盘|云端存储).{0,8}(里|中|的).{0,8}(文件|图片|照片)/,
+  /(之前|上次|刚才|以前).{0,8}(存|保存|上传|传|备份)/,
+  /(找回|找到|找一下|查一下|看一下).{0,12}(文件|图片|照片|图像|文档)/,
+  /(我的|我存的|我传的).{0,6}(文件|图片|照片)/,
+  /\b(find|retrieve|get|show|list)\b.{0,16}\b(file|image|photo|document)s?\b/i,
+  /(存了|传了|保存了).{0,8}(什么|哪些|多少|几个)/,
+  /(有没有|有多少|还有).{0,6}(文件|图片|照片|存储)/,
 ];
 
 function hasJellyBoxIntent(messageText: string): boolean {
@@ -56,7 +67,8 @@ export const JELLYBOX_TOOLKIT: ToolkitRuntimeDefinition = {
       "\n### Rules\n" +
       "- When the user explicitly asks to save/store/persist/upload a file or image, use `jellybox_upload`.\n" +
       "- If the user just sends an image without asking to store it, do NOT auto-upload to JellyBox.\n" +
-      "- Always provide the public_url to the user after a successful upload.\n" +
+      "- When the user asks to find, retrieve, or look up previously stored files (e.g. \"之前存的图片呢\", \"找回我的文件\", \"show my files\"), call `jellybox_info` — with no arguments to list recent files, or with `search_name` for keyword search.\n" +
+      "- Always provide the public_url to the user after a successful upload or retrieval.\n" +
       "- Before deleting, confirm with the user — deletion is irreversible.\n" +
       "- Do NOT fabricate file IDs or URLs. Only return data from actual tool calls.\n" +
       "- Max file size is 50MB per upload."
