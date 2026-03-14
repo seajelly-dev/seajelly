@@ -13,8 +13,10 @@ function getSupabase() {
 const LOCK_DURATION_SECONDS = 295;
 const BATCH_SIZE = 5;
 
-export async function claimEventById(eventId: string): Promise<AgentEvent | null> {
-  const supabase = getSupabase();
+export async function claimEventById(
+  eventId: string,
+  supabase = getSupabase(),
+): Promise<AgentEvent | null> {
   const lockedUntil = new Date(
     Date.now() + LOCK_DURATION_SECONDS * 1000
   ).toISOString();
@@ -30,14 +32,17 @@ export async function claimEventById(eventId: string): Promise<AgentEvent | null
   return (claimed as AgentEvent) ?? null;
 }
 
-export async function claimPendingEvents(): Promise<AgentEvent[]> {
-  const supabase = getSupabase();
+export async function claimPendingEvents(
+  supabase = getSupabase(),
+): Promise<AgentEvent[]> {
   const now = new Date().toISOString();
 
   const { data: pending } = await supabase
     .from("events")
-    .select("id, status, retry_count, max_retries")
-    .or(`status.eq.pending,and(status.eq.processing,locked_until.lt.${now})`)
+    .select("id, status, retry_count, max_retries, locked_until")
+    .or(
+      `status.eq.pending,and(status.eq.processing,locked_until.lt.${now}),and(status.eq.failed,locked_until.lt.${now})`,
+    )
     .order("created_at", { ascending: true })
     .limit(BATCH_SIZE);
 
@@ -75,7 +80,7 @@ export async function claimPendingEvents(): Promise<AgentEvent[]> {
         ...(wasZombie ? { error_message: `Recovered from zombie state (attempt ${retryCount + 1})` } : {}),
       })
       .eq("id", row.id)
-      .or(`status.eq.pending,status.eq.processing`)
+      .or(`status.eq.pending,status.eq.processing,status.eq.failed`)
       .select("*")
       .maybeSingle();
 
@@ -100,10 +105,10 @@ export async function isEventCancelled(eventId: string): Promise<boolean> {
 
 export async function renewEventLock(
   eventId: string,
-  extendSeconds: number = LOCK_DURATION_SECONDS
+  extendSeconds: number = LOCK_DURATION_SECONDS,
+  supabase = getSupabase(),
 ): Promise<void> {
   if (!eventId) return;
-  const supabase = getSupabase();
   const lockedUntil = new Date(Date.now() + extendSeconds * 1000).toISOString();
   await supabase
     .from("events")
@@ -112,8 +117,7 @@ export async function renewEventLock(
     .eq("status", "processing");
 }
 
-export async function markProcessed(eventId: string) {
-  const supabase = getSupabase();
+export async function markProcessed(eventId: string, supabase = getSupabase()) {
   await supabase
     .from("events")
     .update({
@@ -123,8 +127,11 @@ export async function markProcessed(eventId: string) {
     .eq("id", eventId);
 }
 
-export async function markFailed(eventId: string, errorMessage: string) {
-  const supabase = getSupabase();
+export async function markFailed(
+  eventId: string,
+  errorMessage: string,
+  supabase = getSupabase(),
+) {
 
   const { data: event } = await supabase
     .from("events")
@@ -154,8 +161,8 @@ export async function cancelStaleEvents(
   platformChatId: string,
   agentId: string,
   excludeEventId?: string,
+  supabase = getSupabase(),
 ): Promise<number> {
-  const supabase = getSupabase();
   let query = supabase
     .from("events")
     .update(

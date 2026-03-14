@@ -186,8 +186,21 @@ export interface SessionSummary {
   model_id: string;
 }
 
+export type SessionTurnState = "pending" | "failed";
+
+export interface SessionTurnMarker {
+  event_id: string;
+  state: SessionTurnState;
+  user_message_timestamp: string;
+  started_at: string;
+  updated_at: string;
+  error_message: string | null;
+}
+
 export interface SessionMetadata extends Record<string, unknown> {
   session_summary?: SessionSummary | null;
+  turn_markers?: SessionTurnMarker[] | null;
+  recent_completed_event_ids?: string[] | null;
 }
 
 export interface Session {

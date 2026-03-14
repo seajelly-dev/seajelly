@@ -21,12 +21,17 @@ import type { StagedFile } from "@/lib/jellybox/storage";
 import { getSenderForAgent } from "@/lib/platform/sender";
 import type { MCPResult } from "@/lib/mcp/client";
 import type { PlatformSender } from "@/lib/platform/types";
-import type { Agent, AgentEvent, ChatMessage, MessageContentPart } from "@/types/database";
+import type { Agent, AgentEvent, ChatMessage, MessageContentPart, Session } from "@/types/database";
 import { stringifyContent } from "@/types/database";
 import { botT, getBotLocaleOrDefault, humanizeAgentError } from "@/lib/i18n/bot";
 import type { Locale } from "@/lib/i18n/types";
 import { renewEventLock, markProcessed, markFailed, isEventCancelled } from "@/lib/events/queue";
-import { compactSessionMessages, prepareSessionHistory } from "@/lib/memory/session";
+import {
+  beginSessionTurn,
+  finalizeSessionTurn,
+  markSessionTurnFailed,
+  SessionBusyError,
+} from "@/lib/memory/session";
 
 function resolvePlatform(event: AgentEvent): string {
   const fromPayload = (event.payload as Record<string, unknown>).platform as string | undefined;
@@ -568,6 +573,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
   let mcpResult: MCPResult | null = null;
   let lockRenewTimer: ReturnType<typeof setInterval> | null = null;
   let coalescedCompanionEventId: string | null = null;
+  let sessionForTurn: Session | null = null;
+  let sessionTurnBegun = false;
+  let sessionTurnFinalized = false;
+  let agentModelId: string | null = null;
 
   const platform = resolvePlatform(event);
   let sender: PlatformSender | null = null;
@@ -600,6 +609,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     }
 
     const typedAgent = agent as Agent;
+    agentModelId = typedAgent.model;
     const platformChatId = event.platform_chat_id;
     if (!platformChatId) throw new Error("No platform_chat_id on event");
 
@@ -690,8 +700,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       platformChatId,
       channel,
     });
-
-    const sessionVersion = session.version as number;
+    sessionForTurn = session;
 
     // ── Handle bot commands (no AI needed) ──
     const locale: Locale = getBotLocaleOrDefault(typedAgent.bot_locale);
@@ -726,23 +735,6 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
             logger: (msg) => console.log(`[agent-loop] trace=${traceId} ${msg}`),
           })
         : null;
-    const preparedSession = prepareSessionHistory({
-      metadata: session.metadata ?? {},
-      messages: Array.isArray(session.messages)
-        ? (session.messages as ChatMessage[])
-        : [],
-      modelId: typedAgent.model,
-    });
-    const sessionMetadata = preparedSession.metadata;
-    const sessionSummary = preparedSession.summary;
-    const history = preparedSession.messages;
-
-    const messages: ModelMessage[] = history
-      .slice(-AGENT_LIMITS.MAX_SESSION_MESSAGES)
-      .flatMap((m: ChatMessage) => {
-        if (m.role !== "user" && m.role !== "assistant") return [];
-        return [{ role: m.role, content: stringifyContent(m.content) }];
-      });
 
     const mediaBuild = buildInboundUserMessages({
       stagedFile,
@@ -759,6 +751,68 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
         return { success: true, traceId };
       }
     }
+
+    const userSessionContent: string | MessageContentPart[] = (() => {
+      if (!mediaBuild.fileHandled || !stagedFile) return messageText;
+      if (stagedFile.publicUrl && stagedFile.fileRecordId) {
+        const parts: MessageContentPart[] = [
+          {
+            type: "file",
+            url: stagedFile.publicUrl,
+            mime: stagedFile.mimeType,
+            name: stagedFile.fileName ?? "file",
+            file_id: stagedFile.fileRecordId,
+            size: stagedFile.sizeBytes,
+          },
+        ];
+        if (messageText) parts.push({ type: "text", text: messageText });
+        return parts;
+      }
+      return `[File: ${stagedFile.fileName ?? "file"} (${stagedFile.mimeType})]${messageText ? ` ${messageText}` : ""}`;
+    })();
+
+    if (event.id && await isEventCancelled(event.id)) {
+      console.log(`[agent-loop] trace=${traceId} event=${event.id} cancelled before session begin, aborting`);
+      return { success: true, reply: "[cancelled]", traceId };
+    }
+
+    const beginTurnResult = event.id
+      ? await beginSessionTurn({
+          supabase,
+          session: sessionForTurn,
+          eventId: event.id,
+          userMessage: {
+            role: "user",
+            content: userSessionContent,
+            timestamp: new Date().toISOString(),
+          },
+          modelId: typedAgent.model,
+          agentId: typedAgent.id,
+          providerId: typedAgent.provider_id,
+        })
+      : null;
+
+    if (beginTurnResult?.status === "already_completed") {
+      sessionTurnFinalized = true;
+      return { success: true, reply: "[already_completed]", traceId };
+    }
+
+    if (beginTurnResult) {
+      sessionForTurn = beginTurnResult.session;
+      sessionTurnBegun = true;
+    }
+
+    const preparedSession = beginTurnResult?.preparedSession;
+    const historyForModel = beginTurnResult?.historyForModel ??
+      (Array.isArray(session.messages) ? (session.messages as ChatMessage[]) : []);
+    const sessionSummary = preparedSession?.summary ?? null;
+
+    const messages: ModelMessage[] = historyForModel
+      .slice(-AGENT_LIMITS.MAX_SESSION_MESSAGES)
+      .flatMap((m: ChatMessage) => {
+        if (m.role !== "user" && m.role !== "assistant") return [];
+        return [{ role: m.role, content: stringifyContent(m.content) }];
+      });
     messages.push(...mediaBuild.userMessages);
 
     const hasImageInput = Boolean(
@@ -784,11 +838,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       platform,
       locale,
       traceId,
-      sessionId: session.id,
-      sessionActiveSkillIds: Array.isArray(session.active_skill_ids)
-        ? (session.active_skill_ids as string[])
+      sessionActiveSkillIds: Array.isArray(sessionForTurn?.active_skill_ids)
+        ? (sessionForTurn.active_skill_ids as string[])
         : [],
-      history,
+      history: historyForModel,
       messageText,
       sessionSummary,
       toolsConfig,
@@ -828,6 +881,16 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     if (event.id && await isEventCancelled(event.id)) {
       console.log(`[agent-loop] trace=${traceId} event=${event.id} cancelled before LLM call, aborting`);
+      if (sessionTurnBegun && sessionForTurn) {
+        const failedTurn = await markSessionTurnFailed({
+          supabase,
+          session: sessionForTurn,
+          eventId: event.id,
+          errorMessage: "Cancelled before LLM call",
+          modelId: typedAgent.model,
+        });
+        sessionForTurn = failedTurn.session;
+      }
       if (lockRenewTimer) clearInterval(lockRenewTimer);
       return { success: true, reply: "[cancelled]", traceId };
     }
@@ -856,7 +919,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       agent: typedAgent,
       eventId: event.id ?? null,
       channelId: channel?.id ?? null,
-      sessionId: session.id,
+      sessionId: sessionForTurn?.id ?? session.id,
       supabase,
       resolvedProviderId,
       pickedKeyId,
@@ -1000,25 +1063,6 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
 
-    const userSessionContent: string | MessageContentPart[] = (() => {
-      if (!mediaBuild.fileHandled || !stagedFile) return messageText;
-      if (stagedFile.publicUrl && stagedFile.fileRecordId) {
-        const parts: MessageContentPart[] = [
-          {
-            type: "file",
-            url: stagedFile.publicUrl,
-            mime: stagedFile.mimeType,
-            name: stagedFile.fileName ?? "file",
-            file_id: stagedFile.fileRecordId,
-            size: stagedFile.sizeBytes,
-          },
-        ];
-        if (messageText) parts.push({ type: "text", text: messageText });
-        return parts;
-      }
-      return `[File: ${stagedFile.fileName ?? "file"} (${stagedFile.mimeType})]${messageText ? ` ${messageText}` : ""}`;
-    })();
-
     const assistantSessionContent: string | MessageContentPart[] = (() => {
       if (generatedFiles.length === 0) return reply;
       const parts: MessageContentPart[] = [{ type: "text", text: reply }];
@@ -1028,49 +1072,25 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       return parts;
     })();
 
-    const updatedMessages: ChatMessage[] = [
-      ...history,
-      {
-        role: "user" as const,
-        content: userSessionContent,
-        timestamp: new Date().toISOString(),
-      },
-      ...(
-        roomToolCalled
-          ? []
-          : [{
-              role: "assistant" as const,
+    if (sessionTurnBegun && sessionForTurn && event.id) {
+      const finalizedTurn = await finalizeSessionTurn({
+        supabase,
+        session: sessionForTurn,
+        eventId: event.id,
+        assistantMessage: roomToolCalled
+          ? null
+          : {
+              role: "assistant",
               content: assistantSessionContent,
               timestamp: new Date().toISOString(),
-            }]
-      ),
-    ];
-
-    const compactedSession = await compactSessionMessages({
-      metadata: sessionMetadata,
-      messages: updatedMessages,
-      modelId: typedAgent.model,
-      sessionVersion,
-      agentId: typedAgent.id,
-      providerId: typedAgent.provider_id,
-    });
-
-    const { error: updateErr } = await supabase
-      .from("sessions")
-      .update({
-        messages: compactedSession.messages,
-        metadata: compactedSession.metadata,
-        active_skill_ids: activeSkillIds,
-        version: sessionVersion + 1,
-      })
-      .eq("id", session.id)
-      .eq("version", sessionVersion);
-
-    if (updateErr) {
-      console.warn(
-        `Session update conflict (trace: ${traceId}):`,
-        updateErr.message
-      );
+            },
+        activeSkillIds,
+        modelId: typedAgent.model,
+        agentId: typedAgent.id,
+        providerId: typedAgent.provider_id,
+      });
+      sessionForTurn = finalizedTurn.session;
+      sessionTurnFinalized = true;
     }
 
     if (coalescedCompanionEventId) {
@@ -1089,6 +1109,21 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     const errMsg = err instanceof Error ? err.message : "Unknown error";
     console.error(`Agent loop failed (trace: ${traceId}):`, errMsg);
 
+    if (sessionTurnBegun && !sessionTurnFinalized && sessionForTurn && event.id) {
+      try {
+        const failedTurn = await markSessionTurnFailed({
+          supabase,
+          session: sessionForTurn,
+          eventId: event.id,
+          errorMessage: errMsg,
+          modelId: agentModelId ?? "unknown",
+        });
+        sessionForTurn = failedTurn.session;
+      } catch (markTurnErr) {
+        console.warn(`[agent-loop] trace=${traceId} failed to mark session turn failed:`, markTurnErr);
+      }
+    }
+
     if (coalescedCompanionEventId) {
       await markFailed(coalescedCompanionEventId, errMsg).catch((markErr) => {
         console.warn(
@@ -1098,7 +1133,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       });
     }
 
-    if (event.platform_chat_id && sender) {
+    if (!(err instanceof SessionBusyError) && event.platform_chat_id && sender) {
       try {
         const errLocale = getBotLocaleOrDefault(
           ((await supabase.from("agents").select("bot_locale").eq("id", event.agent_id!).single()).data as { bot_locale?: string } | null)?.bot_locale

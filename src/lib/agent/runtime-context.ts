@@ -48,7 +48,6 @@ interface ResolveAgentRuntimeContextParams {
   platform: string;
   locale: Locale;
   traceId: string;
-  sessionId: string;
   sessionActiveSkillIds: string[];
   history: ChatMessage[];
   messageText: string;
@@ -203,7 +202,6 @@ export async function resolveAgentRuntimeContext(
     platform,
     locale,
     traceId,
-    sessionId,
     sessionActiveSkillIds,
     history,
     messageText,
@@ -343,19 +341,13 @@ export async function resolveAgentRuntimeContext(
     );
   }
 
-  if (skillPlan.isLegacySession || skillPlan.newlyActivatedIds.length > 0) {
-    await supabase
-      .from("sessions")
-      .update({ active_skill_ids: skillPlan.activeSkillIds })
-      .eq("id", sessionId);
-    if (skillPlan.newlyActivatedIds.length > 0) {
-      const activatedNames = allAgentSkills
-        .filter((skill) => skillPlan.newlyActivatedIds.includes(skill.id))
-        .map((skill) => skill.name);
-      console.log(
-        `[agent-loop] trace=${traceId} skills activated: [${activatedNames.join(",")}] total_active=${skillPlan.activeSkillIds.length}`,
-      );
-    }
+  if (skillPlan.newlyActivatedIds.length > 0) {
+    const activatedNames = allAgentSkills
+      .filter((skill) => skillPlan.newlyActivatedIds.includes(skill.id))
+      .map((skill) => skill.name);
+    console.log(
+      `[agent-loop] trace=${traceId} skills activated: [${activatedNames.join(",")}] total_active=${skillPlan.activeSkillIds.length}`,
+    );
   }
 
   const activeSkills = allAgentSkills.filter((skill) =>

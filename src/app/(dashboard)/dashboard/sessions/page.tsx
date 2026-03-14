@@ -75,8 +75,19 @@ interface SessionSummaryData {
   model_id: string;
 }
 
+interface SessionTurnMarkerData {
+  event_id: string;
+  state: "pending" | "failed";
+  user_message_timestamp: string;
+  started_at: string;
+  updated_at: string;
+  error_message: string | null;
+}
+
 interface SessionMetadata {
   session_summary?: SessionSummaryData | null;
+  turn_markers?: SessionTurnMarkerData[] | null;
+  recent_completed_event_ids?: string[] | null;
   [key: string]: unknown;
 }
 
@@ -113,6 +124,26 @@ function normalizeSessionRow(session: SessionRow): SessionRow {
         ? session.metadata
         : null,
   };
+}
+
+function readTurnMarkers(metadata?: SessionMetadata | null): SessionTurnMarkerData[] {
+  if (!metadata || !Array.isArray(metadata.turn_markers)) return [];
+  return metadata.turn_markers
+    .filter(
+      (marker): marker is SessionTurnMarkerData =>
+        Boolean(
+          marker &&
+          typeof marker.event_id === "string" &&
+          (marker.state === "pending" || marker.state === "failed") &&
+          typeof marker.user_message_timestamp === "string" &&
+          typeof marker.started_at === "string" &&
+          typeof marker.updated_at === "string",
+        ),
+    )
+    .sort((a, b) => {
+      if (a.state === b.state) return b.updated_at.localeCompare(a.updated_at);
+      return a.state === "pending" ? -1 : 1;
+    });
 }
 
 export default function SessionsPage() {
@@ -253,13 +284,18 @@ export default function SessionsPage() {
                         {s.messages.length}
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={s.is_active ? "default" : "secondary"}
-                        >
-                          {s.is_active
-                            ? t("sessions.active")
-                            : t("sessions.archived")}
-                        </Badge>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge
+                            variant={s.is_active ? "default" : "secondary"}
+                          >
+                            {s.is_active
+                              ? t("sessions.active")
+                              : t("sessions.archived")}
+                          </Badge>
+                          {readTurnMarkers(s.metadata)[0] && (
+                            <TurnStateBadge marker={readTurnMarkers(s.metadata)[0]!} />
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {new Date(s.updated_at).toLocaleString()}
@@ -321,6 +357,12 @@ export default function SessionsPage() {
               </div>
             ) : selectedDetail ? (
               <div className="flex flex-col gap-4">
+                {readTurnMarkers(selectedDetail.metadata).length > 0 && (
+                  <SessionTurnStateCard
+                    markers={readTurnMarkers(selectedDetail.metadata)}
+                    messages={selectedDetail.messages}
+                  />
+                )}
                 {activeSkillNames.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1.5 rounded-lg border bg-muted/30 px-3 py-2">
                     <span className="mr-1 text-xs font-medium text-muted-foreground">
@@ -340,7 +382,17 @@ export default function SessionsPage() {
                 )}
                 {selectedDetail.messages.length > 0 ? (
                   selectedDetail.messages.map((msg, i) => (
-                    <MessageBubble key={i} message={msg} />
+                    <MessageBubble
+                      key={i}
+                      message={msg}
+                      marker={
+                        readTurnMarkers(selectedDetail.metadata).find(
+                          (turnMarker) =>
+                            msg.role === "user" &&
+                            msg.timestamp === turnMarker.user_message_timestamp,
+                        ) ?? null
+                      }
+                    />
                   ))
                 ) : (
                   <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
@@ -413,6 +465,66 @@ function SessionSummaryCard({ summary }: { summary: SessionSummaryData }) {
         </CollapsibleContent>
       </div>
     </Collapsible>
+  );
+}
+
+function TurnStateBadge({ marker }: { marker: SessionTurnMarkerData }) {
+  const t = useT();
+  return (
+    <Badge variant={marker.state === "pending" ? "outline" : "destructive"}>
+      {marker.state === "pending"
+        ? t("sessions.turnPending")
+        : t("sessions.turnFailed")}
+    </Badge>
+  );
+}
+
+function SessionTurnStateCard(
+  { markers, messages }: { markers: SessionTurnMarkerData[]; messages: ChatMessage[] },
+) {
+  const t = useT();
+  const visibleTimestamps = new Set(
+    messages
+      .filter((message) => message.role === "user" && message.timestamp)
+      .map((message) => message.timestamp as string),
+  );
+
+  return (
+    <div className="rounded-xl border bg-amber-50/40 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium">{t("sessions.turnStateTitle")}</div>
+          <p className="text-xs text-muted-foreground">{t("sessions.turnStateDesc")}</p>
+        </div>
+      </div>
+      <div className="flex flex-col gap-3">
+        {markers.map((marker) => (
+          <div key={marker.event_id} className="rounded-lg border bg-background/80 px-3 py-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <TurnStateBadge marker={marker} />
+              <Badge variant="outline">
+                {t("sessions.turnUpdatedAt")}: {new Date(marker.updated_at).toLocaleString()}
+              </Badge>
+              <Badge variant="outline">
+                {visibleTimestamps.has(marker.user_message_timestamp)
+                  ? t("sessions.turnMessageVisible")
+                  : t("sessions.turnMessageCompacted")}
+              </Badge>
+            </div>
+            <div className="space-y-1 text-xs text-muted-foreground">
+              <p>
+                {t("sessions.turnStartedAt")}: {new Date(marker.started_at).toLocaleString()}
+              </p>
+              {marker.error_message && (
+                <p className="whitespace-pre-wrap text-destructive">
+                  {t("sessions.turnError")}: {marker.error_message}
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -533,7 +645,9 @@ function stringifyContentLocal(content: string | MessageContentPart[]): string {
     .join(" ");
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble(
+  { message, marker }: { message: ChatMessage; marker?: SessionTurnMarkerData | null },
+) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
 
@@ -569,6 +683,11 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             : "bg-muted rounded-tl-sm"
         }`}
       >
+        {marker && (
+          <div className="mb-2">
+            <TurnStateBadge marker={marker} />
+          </div>
+        )}
         <RichContent content={message.content} />
         {message.timestamp && (
           <p
