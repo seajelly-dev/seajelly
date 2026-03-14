@@ -1,34 +1,28 @@
 import { JELLYBOX_TOOLKIT_KEY, JELLYBOX_TOOL_NAMES } from "../catalog";
 import type { ToolkitRuntimeDefinition, ToolkitPolicyContext, ToolkitGenerateTextContext, ToolkitGenerateTextDirective } from "./self-evolution";
 
-const JELLYBOX_ACTION_KEYWORDS = [
-  "upload", "store", "save", "persist", "download", "backup",
-  "delete", "remove", "erase",
-  "file", "files", "image", "photo", "document", "attachment",
-  "storage", "disk", "cloud", "jellybox",
-  "上传", "保存", "存储", "存档", "备份", "下载",
-  "删除", "移除", "清除",
-  "文件", "图片", "照片", "图像", "文档", "附件",
-  "存储空间", "磁盘", "云盘", "网盘", "容量",
-];
-
 const JELLYBOX_FORCE_PATTERNS = [
   /jellybox_(?:upload|info|delete|usage)/i,
-  /\b(upload|save|store|persist)\b.{0,20}\b(file|image|photo|document|attachment)\b/i,
-  /\b(file|image|photo|document)\b.{0,20}\b(upload|save|store|delete|remove)\b/i,
-  /(上传|保存|存储|备份|删除).{0,16}(文件|图片|照片|图像|文档|附件)/,
-  /(文件|图片|照片|图像|文档|附件).{0,16}(上传|保存|存储|备份|删除|移除)/,
-  /\b(storage|disk|usage|capacity|quota)\b.{0,12}\b(stat|info|check|how much)\b/i,
-  /(存储|磁盘|容量|空间).{0,12}(多少|用量|统计|查看|检查)/,
+  /\b(upload|save|store|persist|backup)\b.{0,20}\b(to|in|into)?\s*(jellybox|cloud|r2)\b/i,
+  /(上传|保存|存储|备份|转存).{0,8}(到|进|去)?\s*(jellybox|云盘|云端|r2)/i,
+  /(存一下|存下来|帮我存|存起来|存到|存入|转存|备份一下)/,
+  /(jellybox|云盘).{0,12}(用量|容量|空间|多少|统计|查看)/,
+  /\b(jellybox|cloud.?storage)\b.{0,12}\b(usage|capacity|stat|check)\b/i,
 ];
 
-function normalizeText(text: string): string {
-  return text.trim().toLowerCase();
-}
+const JELLYBOX_SOFT_PATTERNS = [
+  /(存一下|存下来|帮我存|存起来|存到|存入|转存|备份一下)/,
+  /(上传|保存|存储|备份|转存).{0,12}(文件|图片|照片|图像|文档|附件)/,
+  /(文件|图片|照片|图像|文档|附件).{0,12}(上传|保存|存储|备份|转存|存一下)/,
+  /\b(upload|save|store|persist|backup)\b.{0,20}\b(file|image|photo|document|attachment)\b/i,
+  /\b(file|image|photo|document|attachment)\b.{0,20}\b(upload|save|store|persist|backup)\b/i,
+  /(删除|移除|清除).{0,8}(jellybox|云盘)/,
+  /\bdelete\b.{0,12}\b(from)?\s*(jellybox|cloud.?storage)\b/i,
+  /(jellybox|云盘|云端存储).{0,8}(里|中|的).{0,8}(文件|图片|照片)/,
+];
 
 function hasJellyBoxIntent(messageText: string): boolean {
-  const text = normalizeText(messageText);
-  return JELLYBOX_ACTION_KEYWORDS.some((kw) => text.includes(kw));
+  return JELLYBOX_SOFT_PATTERNS.some((p) => p.test(messageText));
 }
 
 function shouldForceJellyBoxToolUse(messageText: string): boolean {
@@ -60,7 +54,8 @@ export const JELLYBOX_TOOLKIT: ToolkitRuntimeDefinition = {
         ? "- `jellybox_usage`: Check storage usage and capacity across all R2 buckets.\n"
         : "") +
       "\n### Rules\n" +
-      "- When the user wants to save, store, or persist a file/image, use `jellybox_upload`.\n" +
+      "- When the user explicitly asks to save/store/persist/upload a file or image, use `jellybox_upload`.\n" +
+      "- If the user just sends an image without asking to store it, do NOT auto-upload to JellyBox.\n" +
       "- Always provide the public_url to the user after a successful upload.\n" +
       "- Before deleting, confirm with the user — deletion is irreversible.\n" +
       "- Do NOT fabricate file IDs or URLs. Only return data from actual tool calls.\n" +
@@ -72,11 +67,19 @@ export const JELLYBOX_TOOLKIT: ToolkitRuntimeDefinition = {
     const activeTools = JELLYBOX_TOOL_NAMES.filter((t) => availableToolNames.has(t));
     if (activeTools.length === 0) return null;
 
-    if (!hasJellyBoxIntent(messageText)) return null;
+    if (shouldForceJellyBoxToolUse(messageText)) {
+      return {
+        activeTools: [...activeTools],
+        toolChoice: "required" as const,
+      };
+    }
 
-    return {
-      activeTools: [...activeTools],
-      ...(shouldForceJellyBoxToolUse(messageText) ? { toolChoice: "required" as const } : {}),
-    };
+    if (hasJellyBoxIntent(messageText)) {
+      return {
+        activeTools: [...activeTools],
+      };
+    }
+
+    return null;
   },
 };
