@@ -840,26 +840,24 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         "Generate or edit an image and send it to the current chat. " +
         "Supports two modes:\n" +
         "1. Text-to-image: provide only `prompt` to generate a new image from scratch.\n" +
-        "2. Image editing: provide `prompt` + `source_image_base64` to modify an existing image " +
+        "2. Image editing: provide `prompt` + `source_image_url` to modify an existing image " +
         "(e.g. add/remove elements, change style, adjust colors).\n" +
+        "For editing, find the image URL from session history (file references) or Current Turn File Context, " +
+        "and pass it as `source_image_url`. Do NOT pass base64 data.\n" +
         "Always provide a detailed, descriptive prompt in English for best results.",
       inputSchema: z.object({
         prompt: z.string().describe(
           "Detailed prompt describing the desired image (for generation) or the desired edit (for editing). " +
           "For editing, describe what to change, e.g. 'Change the sofa color to red' or 'Add a hat to the cat'."
         ),
-        source_image_base64: z.string().optional().describe(
-          "Base64-encoded source image for editing mode. Omit for text-to-image generation. " +
-          "When the user sends an image and asks to modify it, extract the image data and pass it here."
-        ),
-        source_mime_type: z.string().optional().describe(
-          "MIME type of the source image, e.g. 'image/png' or 'image/jpeg'. Defaults to 'image/png' if omitted."
+        source_image_url: z.string().optional().describe(
+          "Public URL of the source image for editing mode. Omit for text-to-image generation. " +
+          "Use the file URL from session history or Current Turn File Context."
         ),
       }),
-      execute: async ({ prompt, source_image_base64, source_mime_type }: {
+      execute: async ({ prompt, source_image_url }: {
         prompt: string;
-        source_image_base64?: string;
-        source_mime_type?: string;
+        source_image_url?: string;
       }) => {
         try {
           const { data: agentRow } = await supabase
@@ -871,10 +869,27 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           if (!tc.image_generate) {
             return { success: false, error: "Image generation is disabled for this agent. The admin can enable it in Dashboard > Agents > Tool Settings." };
           }
+
+          let sourceImageBase64: string | undefined;
+          let sourceMimeType: string | undefined;
+          if (source_image_url) {
+            try {
+              const resp = await fetch(source_image_url);
+              if (!resp.ok) {
+                return { success: false, error: `Failed to fetch source image: HTTP ${resp.status}` };
+              }
+              sourceMimeType = resp.headers.get("content-type") || "image/png";
+              const buf = Buffer.from(await resp.arrayBuffer());
+              sourceImageBase64 = buf.toString("base64");
+            } catch (fetchErr) {
+              return { success: false, error: `Failed to fetch source image: ${fetchErr instanceof Error ? fetchErr.message : "unknown"}` };
+            }
+          }
+
           const result = await generateImage({
             prompt,
-            sourceImageBase64: source_image_base64,
-            sourceMimeType: source_mime_type,
+            sourceImageBase64,
+            sourceMimeType,
           });
           const imageBuffer = Buffer.from(result.imageBase64, "base64");
 
@@ -889,7 +904,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           if (platformChatId) {
             await sender.sendPhoto(platformChatId, imageBuffer, result.textResponse || undefined);
           }
-          const mode = source_image_base64 ? "edited" : "generated";
+          const mode = source_image_url ? "edited" : "generated";
           if (staged) {
             return {
               success: true,
