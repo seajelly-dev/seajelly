@@ -15,9 +15,10 @@ import { SELF_EVOLUTION_TOOL_NAMES } from "./tooling/catalog";
 import { executeAgentRun, resolveAgentReply } from "./execution";
 import { dispatchCommand, parseCommand } from "./commands";
 import type { LoopResult } from "./commands/types";
-import { buildInboundUserMessages, downloadInboundFile, handlePendingImageEdit } from "./media";
+import { buildInboundUserMessages, handlePendingImageEdit } from "./media";
 import { runImageKnowledgeBypass } from "./media-search";
-import { runJellyBoxUploadBypass } from "./jellybox-bypass";
+import { stageInboundFile, cleanupTempFile } from "@/lib/jellybox/storage";
+import type { StagedFile } from "@/lib/jellybox/storage";
 import { getSenderForAgent } from "@/lib/platform/sender";
 import type { MCPResult } from "@/lib/mcp/client";
 import type { PlatformSender } from "@/lib/platform/types";
@@ -567,6 +568,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
   let mcpResult: MCPResult | null = null;
   let lockRenewTimer: ReturnType<typeof setInterval> | null = null;
   let coalescedCompanionEventId: string | null = null;
+  let stagedFileForCleanup: StagedFile | null = null;
 
   const platform = resolvePlatform(event);
   let sender: PlatformSender | null = null;
@@ -712,21 +714,24 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     });
     if (handled) return handled;
 
-    const resolvedInboundFile =
+    // ── Stage inbound file: R2 temp or base64 fallback ──
+    const stagedFile: StagedFile | null =
       fileId && event.agent_id
-        ? await downloadInboundFile({
-            agentId: event.agent_id,
+        ? await stageInboundFile({
             platform,
+            agentId: event.agent_id,
+            channelId: channel?.id,
             fileId,
             fileMime,
             fileName,
-            logger: (message) => console.log(`[agent-loop] trace=${traceId} ${message}`),
+            logger: (msg) => console.log(`[agent-loop] trace=${traceId} ${msg}`),
           })
         : null;
+    if (stagedFile) stagedFileForCleanup = stagedFile;
 
-    // ── /imgedit image intercept: if pending and user sends an image, run image edit directly ──
+    // ── /imgedit image intercept ──
     const imageEditResult = await handlePendingImageEdit({
-      resolvedFile: resolvedInboundFile,
+      stagedFile,
       session,
       supabase,
       sender,
@@ -762,7 +767,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       );
 
     const mediaBuild = buildInboundUserMessages({
-      resolvedFile: resolvedInboundFile,
+      stagedFile,
       hasFileInput: Boolean(fileId),
       messageText,
       logger: (message) =>
@@ -777,10 +782,11 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
     messages.push(...mediaBuild.userMessages);
-    const imageBase64ForMediaSearch = mediaBuild.imageBase64ForMediaSearch;
-    const imageMimeForMediaSearch = mediaBuild.imageMimeForMediaSearch;
 
-    const hasImageInput = Boolean(imageBase64ForMediaSearch && imageMimeForMediaSearch);
+    const hasImageInput = Boolean(
+      (mediaBuild.imageBase64ForMediaSearch && mediaBuild.imageMimeForMediaSearch) ||
+      mediaBuild.imageUrlForMediaSearch,
+    );
     const { count: embeddingKeyCount } = await supabase
       .from("secrets")
       .select("id", { count: "exact", head: true })
@@ -843,8 +849,9 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       agentId: typedAgent.id,
       channelId: channel?.id ?? null,
       sessionId: session.id,
-      imageBase64ForMediaSearch,
-      imageMimeForMediaSearch,
+      imageBase64ForMediaSearch: mediaBuild.imageBase64ForMediaSearch,
+      imageMimeForMediaSearch: mediaBuild.imageMimeForMediaSearch,
+      imageUrlForMediaSearch: mediaBuild.imageUrlForMediaSearch,
       hasImageInput,
       hasEmbeddingApiKey,
       canImageKnowledgeSearchByModel,
@@ -853,22 +860,18 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
     });
     systemPrompt += mediaSearchResult.promptAppendix;
 
-    const jellyBoxBypass = await runJellyBoxUploadBypass({
-      supabase,
-      traceId,
-      eventId: event.id ?? null,
-      agentId: typedAgent.id,
-      channelId: channel?.id ?? null,
-      sessionId: session.id,
-      messageText,
-      toolsConfig: (typedAgent.tools_config ?? null) as Record<string, unknown> | null,
-      fileBase64: resolvedInboundFile?.base64 ?? null,
-      fileMime: resolvedInboundFile?.mimeType ?? null,
-      fileName: resolvedInboundFile?.fileName ?? null,
-      fileSizeBytes: resolvedInboundFile?.sizeBytes ?? null,
-      trimPayload,
-    });
-    systemPrompt += jellyBoxBypass.promptAppendix;
+    // ── Inject staged file context for LLM ──
+    if (stagedFile?.fileRecordId) {
+      systemPrompt +=
+        "\n\n## Current Turn File Context\n" +
+        "A file was received this turn and is temporarily staged in JellyBox.\n" +
+        `- Staged File ID: ${stagedFile.fileRecordId}\n` +
+        `- File: ${stagedFile.fileName ?? "unknown"}\n` +
+        `- Type: ${stagedFile.mimeType}\n` +
+        `- Size: ${stagedFile.sizeBytes} bytes\n` +
+        "If the user wants to save/persist this file, call `jellybox_persist` with the staged_file_id above.\n" +
+        "If no storage request, the temp file will be auto-cleaned.";
+    }
 
     if (event.id) {
       lockRenewTimer = setInterval(() => {
@@ -876,13 +879,10 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }, 60_000);
     }
 
-    const toolDirective = jellyBoxBypass.handled
-      ? null
-      : resolveGenerateTextToolDirective({
-          availableToolNames: Object.keys(tools),
-          messageText,
-          hasFile: !!resolvedInboundFile,
-        });
+    const toolDirective = resolveGenerateTextToolDirective({
+      availableToolNames: Object.keys(tools),
+      messageText,
+    });
     const runWithToolDirective = !!toolDirective;
 
     const toolNames = Object.keys(tools);
@@ -1051,6 +1051,11 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     if (lockRenewTimer) clearInterval(lockRenewTimer);
     if (mcpResult) await mcpResult.cleanup().catch(() => {});
+    if (stagedFileForCleanup?.fileRecordId) {
+      await cleanupTempFile(stagedFileForCleanup.fileRecordId).catch((e) =>
+        console.warn(`[agent-loop] trace=${traceId} temp cleanup failed:`, e),
+      );
+    }
     return { success: true, reply: roomToolCalled ? "[room_tool_handled]" : reply, traceId };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : "Unknown error";
@@ -1079,6 +1084,11 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     if (lockRenewTimer) clearInterval(lockRenewTimer);
     if (mcpResult) await mcpResult.cleanup().catch(() => {});
+    if (stagedFileForCleanup?.fileRecordId) {
+      await cleanupTempFile(stagedFileForCleanup.fileRecordId).catch((e) =>
+        console.warn(`[agent-loop] trace=${traceId} temp cleanup failed:`, e),
+      );
+    }
     return { success: false, error: errMsg, traceId };
   }
 }

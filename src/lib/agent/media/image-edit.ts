@@ -1,11 +1,22 @@
 import { isImageMime } from "@/lib/platform/file-utils";
 import type { HandlePendingImageEditParams, ImageEditInterceptResult } from "./types";
 
+async function resolveBase64(stagedFile: { base64: string | null; publicUrl: string | null }): Promise<string | null> {
+  if (stagedFile.base64) return stagedFile.base64;
+  if (stagedFile.publicUrl) {
+    const res = await fetch(stagedFile.publicUrl);
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.toString("base64");
+  }
+  return null;
+}
+
 export async function handlePendingImageEdit(
   params: HandlePendingImageEditParams,
 ): Promise<ImageEditInterceptResult | null> {
   const {
-    resolvedFile,
+    stagedFile,
     session,
     supabase,
     sender,
@@ -16,7 +27,7 @@ export async function handlePendingImageEdit(
     generateImageOverride,
   } = params;
   const sessionMeta = (session.metadata ?? {}) as Record<string, unknown>;
-  if (!sessionMeta.imgedit_pending || !resolvedFile || !isImageMime(resolvedFile.mimeType)) {
+  if (!sessionMeta.imgedit_pending || !stagedFile || !isImageMime(stagedFile.mimeType)) {
     return null;
   }
 
@@ -35,13 +46,16 @@ export async function handlePendingImageEdit(
   }, 4000);
 
   try {
+    const base64 = await resolveBase64(stagedFile);
+    if (!base64) throw new Error("Failed to retrieve image data for editing");
+
     const generateImage =
       generateImageOverride ??
       (await import("@/lib/image-gen/engine")).generateImage;
     const result = await generateImage({
       prompt: editPrompt,
-      sourceImageBase64: resolvedFile.base64,
-      sourceMimeType: resolvedFile.mimeType,
+      sourceImageBase64: base64,
+      sourceMimeType: stagedFile.mimeType,
     });
     const imageBuffer = Buffer.from(result.imageBase64, "base64");
     await sender.sendPhoto(platformChatId, imageBuffer, result.textResponse || undefined);

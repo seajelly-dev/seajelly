@@ -7,7 +7,6 @@ export interface ToolkitPolicyContext {
 export interface ToolkitGenerateTextContext {
   availableToolNames: Set<string>;
   messageText: string;
-  hasFile?: boolean;
 }
 
 export interface ToolkitGenerateTextDirective {

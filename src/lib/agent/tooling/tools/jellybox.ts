@@ -1,19 +1,16 @@
 import { tool } from "ai";
 import { z } from "zod/v4";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  uploadFile,
+  promoteFile,
   removeFile,
   getFileInfo,
   searchFiles,
   getUsageStats,
 } from "@/lib/jellybox/storage";
-import { fetchRemoteFile } from "@/lib/jellybox/remote-fetch";
 
 interface CreateJellyBoxToolkitToolsOptions {
   agentId: string;
   channelId?: string;
-  supabase: SupabaseClient;
 }
 
 function formatBytes(bytes: number): string {
@@ -29,76 +26,26 @@ export function createJellyBoxToolkitTools({
   channelId,
 }: CreateJellyBoxToolkitToolsOptions) {
   return {
-    jellybox_upload: tool({
+    jellybox_persist: tool({
       description:
-        "Upload a file to JellyBox cloud storage. Accepts a URL to fetch from or base64-encoded data. " +
-        "Returns a permanent public URL. Use this when the user wants to store, save, or persist a file, image, " +
-        "or document for later retrieval.",
+        "Persist a temporarily staged file to permanent JellyBox cloud storage. " +
+        "Use this when the user explicitly asks to save, store, or keep a file that was received this turn. " +
+        "The staged_file_id is provided in the system prompt under 'Current Turn File Context'. " +
+        "Do NOT call this unless the user clearly requests storage.",
       inputSchema: z.object({
-        source_url: z
-          .string()
-          .optional()
-          .describe("URL to fetch the file from. Mutually exclusive with base64_data."),
-        base64_data: z
-          .string()
-          .optional()
-          .describe("Base64-encoded file content. Mutually exclusive with source_url."),
-        filename: z.string().describe("Target filename including extension, e.g. 'photo.jpg'"),
-        mime_type: z
-          .string()
-          .optional()
-          .describe("MIME type, e.g. 'image/png'. Auto-detected from extension if omitted."),
+        staged_file_id: z.string().describe("The staged file ID from the current turn file context"),
       }),
-      execute: async ({
-        source_url,
-        base64_data,
-        filename,
-        mime_type,
-      }: {
-        source_url?: string;
-        base64_data?: string;
-        filename: string;
-        mime_type?: string;
-      }) => {
+      execute: async ({ staged_file_id }: { staged_file_id: string }) => {
         try {
-          if ((!source_url && !base64_data) || (source_url && base64_data)) {
-            return { success: false, error: "Provide exactly one of source_url or base64_data" };
-          }
-
-          const MAX_FILE_SIZE = 50 * 1024 * 1024;
-          let body: Buffer;
-          if (source_url) {
-            const remoteFile = await fetchRemoteFile({
-              url: source_url,
-              maxBytes: MAX_FILE_SIZE,
-            });
-            body = remoteFile.body;
-            if (!mime_type) mime_type = remoteFile.mimeType;
-          } else {
-            body = Buffer.from(base64_data!, "base64");
-          }
-
-          if (body.length > MAX_FILE_SIZE) {
-            return { success: false, error: `File too large: ${formatBytes(body.length)}. Max 50MB.` };
-          }
-
-          const result = await uploadFile({
-            body,
-            originalName: filename,
-            mimeType: mime_type,
-            agentId,
-            channelId,
-          });
-
+          const result = await promoteFile(staged_file_id, { agentId, channelId });
           return {
             success: true,
             file_id: result.fileId,
             public_url: result.publicUrl,
-            file_size: formatBytes(result.fileSize),
             storage: result.storageName,
           };
         } catch (err) {
-          return { success: false, error: err instanceof Error ? err.message : "Upload failed" };
+          return { success: false, error: err instanceof Error ? err.message : "Persist failed" };
         }
       },
     }),

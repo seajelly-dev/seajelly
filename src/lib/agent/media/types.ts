@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CommandT, LoopResult } from "@/lib/agent/commands/types";
 import type { PlatformFile, PlatformSender } from "@/lib/platform/types";
 import type { Session } from "@/types/database";
+import type { StagedFile } from "@/lib/jellybox/storage";
 
 export interface ResolvedInboundFile extends PlatformFile {
   detectedImageMime: string | null;
@@ -15,6 +16,7 @@ export interface MediaMessageBuildResult {
   userWarning: string | null;
   imageBase64ForMediaSearch: string | null;
   imageMimeForMediaSearch: string | null;
+  imageUrlForMediaSearch: string | null;
 }
 
 export interface DownloadInboundFileParams {
@@ -27,14 +29,14 @@ export interface DownloadInboundFileParams {
 }
 
 export interface BuildInboundUserMessagesParams {
-  resolvedFile: ResolvedInboundFile | null;
+  stagedFile: StagedFile | null;
   hasFileInput: boolean;
   messageText: string;
   logger?: (message: string) => void;
 }
 
 export interface HandlePendingImageEditParams {
-  resolvedFile: ResolvedInboundFile | null;
+  stagedFile: StagedFile | null;
   session: Session;
   supabase: SupabaseClient;
   sender: PlatformSender;

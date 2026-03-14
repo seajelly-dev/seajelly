@@ -9,6 +9,7 @@ interface RunImageKnowledgeBypassParams {
   sessionId: string;
   imageBase64ForMediaSearch: string | null;
   imageMimeForMediaSearch: string | null;
+  imageUrlForMediaSearch: string | null;
   hasImageInput: boolean;
   hasEmbeddingApiKey: boolean;
   canImageKnowledgeSearchByModel: boolean;
@@ -45,6 +46,26 @@ interface RunImageKnowledgeBypassParams {
   }>;
 }
 
+async function resolveImageBase64(
+  base64: string | null,
+  url: string | null,
+  mime: string | null,
+): Promise<{ base64: string; mimeType: string } | null> {
+  if (base64 && mime) return { base64, mimeType: mime };
+  if (url) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      const resolvedMime = res.headers.get("content-type") || mime || "image/jpeg";
+      return { base64: buf.toString("base64"), mimeType: resolvedMime };
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export async function runImageKnowledgeBypass(
   params: RunImageKnowledgeBypassParams,
 ): Promise<{ promptAppendix: string }> {
@@ -57,6 +78,7 @@ export async function runImageKnowledgeBypass(
     sessionId,
     imageBase64ForMediaSearch,
     imageMimeForMediaSearch,
+    imageUrlForMediaSearch,
     hasImageInput,
     hasEmbeddingApiKey,
     canImageKnowledgeSearchByModel,
@@ -70,11 +92,12 @@ export async function runImageKnowledgeBypass(
     hasEmbeddingApiKey &&
     canImageKnowledgeSearchByModel &&
     Object.prototype.hasOwnProperty.call(tools, "knowledge_search");
-  if (!canImageKnowledgeSearchThisTurn || !imageBase64ForMediaSearch || !imageMimeForMediaSearch) {
+
+  const hasAnyImageSource = !!(imageBase64ForMediaSearch || imageUrlForMediaSearch);
+  if (!canImageKnowledgeSearchThisTurn || !hasAnyImageSource) {
     return { promptAppendix: "" };
   }
 
-  const rawApproxBytes = Math.floor((imageBase64ForMediaSearch.length * 3) / 4);
   const mediaSearchStartedAt = Date.now();
   let mediaStepStatus: "success" | "failed" = "success";
   let mediaStepError: string | null = null;
@@ -82,17 +105,29 @@ export async function runImageKnowledgeBypass(
   let promptAppendix = "";
 
   try {
+    const resolved = await resolveImageBase64(
+      imageBase64ForMediaSearch,
+      imageUrlForMediaSearch,
+      imageMimeForMediaSearch,
+    );
+    if (!resolved) {
+      mediaStepOutput = { outcome: "skipped_no_image_data" };
+      return { promptAppendix: "" };
+    }
+
+    const rawApproxBytes = Math.floor((resolved.base64.length * 3) / 4);
+
     const normalizeImageForEmbedding =
       deps?.normalizeImageForEmbedding ??
       (await import("@/lib/memory/image-normalize")).normalizeImageForEmbedding;
-    const normalized = await normalizeImageForEmbedding(imageBase64ForMediaSearch, imageMimeForMediaSearch);
+    const normalized = await normalizeImageForEmbedding(resolved.base64, resolved.mimeType);
     if (!normalized) {
       mediaStepOutput = {
         outcome: "skipped_unsupported_mime",
-        sourceMime: imageMimeForMediaSearch,
+        sourceMime: resolved.mimeType,
       };
       console.warn(
-        `[agent-loop] trace=${traceId} skip media-search: unsupported image mime=${imageMimeForMediaSearch}`,
+        `[agent-loop] trace=${traceId} skip media-search: unsupported image mime=${resolved.mimeType}`,
       );
     } else {
       const approxBytes = Math.floor((normalized.base64.length * 3) / 4);
@@ -134,7 +169,7 @@ export async function runImageKnowledgeBypass(
             (await import("@/lib/memory/embedding")).embedContent;
           if (normalized.converted) {
             console.log(
-              `[agent-loop] trace=${traceId} media-search image converted for embedding: ${imageMimeForMediaSearch} -> ${normalized.mimeType}`,
+              `[agent-loop] trace=${traceId} media-search image converted for embedding: ${resolved.mimeType} -> ${normalized.mimeType}`,
             );
           }
           console.log(
@@ -192,6 +227,8 @@ export async function runImageKnowledgeBypass(
         }
       }
     }
+
+    mediaStepOutput = { ...mediaStepOutput, sourceBytesApprox: rawApproxBytes };
   } catch (err) {
     mediaStepStatus = "failed";
     mediaStepError = err instanceof Error ? err.message : "Media search bypass exception";
@@ -210,7 +247,8 @@ export async function runImageKnowledgeBypass(
         tool_name: "media_search_bypass",
         tool_input_json: trimPayload({
           sourceMime: imageMimeForMediaSearch,
-          sourceBytesApprox: rawApproxBytes,
+          sourceUrl: imageUrlForMediaSearch ? "[present]" : null,
+          hasBase64: !!imageBase64ForMediaSearch,
         }),
         tool_output_json: trimPayload(mediaStepOutput),
         model_text: "",
@@ -219,7 +257,7 @@ export async function runImageKnowledgeBypass(
         latency_ms: Math.max(0, Date.now() - mediaSearchStartedAt),
       });
     } catch {
-      // non-blocking: synthetic step log should never break agent flow
+      // non-blocking
     }
   }
 

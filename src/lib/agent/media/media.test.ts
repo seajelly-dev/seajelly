@@ -4,18 +4,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CommandT } from "@/lib/agent/commands/types";
 import { buildInboundUserMessages } from "@/lib/agent/media";
 import { handlePendingImageEdit } from "@/lib/agent/media";
-import type { ResolvedInboundFile } from "@/lib/agent/media";
+import type { StagedFile } from "@/lib/jellybox/storage";
 import type { PlatformSender } from "@/lib/platform/types";
 import type { Session } from "@/types/database";
 
-function makeResolvedFile(overrides: Partial<ResolvedInboundFile> = {}): ResolvedInboundFile {
+function makeStagedFile(overrides: Partial<StagedFile> = {}): StagedFile {
   return {
+    fileRecordId: null,
+    publicUrl: null,
     base64: Buffer.from("hello").toString("base64"),
     mimeType: "text/plain",
+    effectiveImageMime: "text/plain",
     fileName: "note.txt",
     sizeBytes: 5,
-    detectedImageMime: null,
-    effectiveImageMime: "text/plain",
     ...overrides,
   };
 }
@@ -69,9 +70,9 @@ function makeT(): CommandT {
   }) as CommandT;
 }
 
-test("buildInboundUserMessages creates image+text content for images", () => {
+test("buildInboundUserMessages creates image+text content for images (base64 fallback)", () => {
   const result = buildInboundUserMessages({
-    resolvedFile: makeResolvedFile({
+    stagedFile: makeStagedFile({
       mimeType: "image/jpeg",
       effectiveImageMime: "image/png",
       base64: "abc123",
@@ -90,10 +91,31 @@ test("buildInboundUserMessages creates image+text content for images", () => {
   assert.equal(content[0]?.mediaType, "image/png");
 });
 
+test("buildInboundUserMessages creates image+text content for images (URL mode)", () => {
+  const result = buildInboundUserMessages({
+    stagedFile: makeStagedFile({
+      mimeType: "image/jpeg",
+      effectiveImageMime: "image/jpeg",
+      publicUrl: "https://r2.example.com/temp/test.jpg",
+      base64: null,
+      fileName: "pic.jpg",
+    }),
+    hasFileInput: true,
+    messageText: "describe this",
+  });
+
+  assert.equal(result.fileHandled, true);
+  assert.equal(result.imageUrlForMediaSearch, "https://r2.example.com/temp/test.jpg");
+  assert.equal(result.imageBase64ForMediaSearch, null);
+  const content = result.userMessages[0]?.content as Array<Record<string, unknown>>;
+  assert.equal(content[0]?.type, "image");
+  assert.ok(content[0]?.image instanceof URL);
+});
+
 test("buildInboundUserMessages truncates text files and preserves labels", () => {
   const longText = "a".repeat(60_000);
   const result = buildInboundUserMessages({
-    resolvedFile: makeResolvedFile({
+    stagedFile: makeStagedFile({
       base64: Buffer.from(longText, "utf-8").toString("base64"),
       mimeType: "text/plain",
       effectiveImageMime: "text/plain",
@@ -110,9 +132,9 @@ test("buildInboundUserMessages truncates text files and preserves labels", () =>
   assert.ok(content.length < longText.length);
 });
 
-test("buildInboundUserMessages creates file+text content for pdf", () => {
+test("buildInboundUserMessages creates file+text content for pdf (base64)", () => {
   const result = buildInboundUserMessages({
-    resolvedFile: makeResolvedFile({
+    stagedFile: makeStagedFile({
       mimeType: "application/pdf",
       effectiveImageMime: "application/pdf",
       base64: "pdfdata",
@@ -129,7 +151,7 @@ test("buildInboundUserMessages creates file+text content for pdf", () => {
 
 test("buildInboundUserMessages creates binary description for unknown mime", () => {
   const result = buildInboundUserMessages({
-    resolvedFile: makeResolvedFile({
+    stagedFile: makeStagedFile({
       mimeType: "application/octet-stream",
       effectiveImageMime: "application/octet-stream",
       fileName: "blob.bin",
@@ -145,7 +167,7 @@ test("buildInboundUserMessages creates binary description for unknown mime", () 
 
 test("buildInboundUserMessages falls back to text with warning when file download failed", () => {
   const result = buildInboundUserMessages({
-    resolvedFile: null,
+    stagedFile: null,
     hasFileInput: true,
     messageText: "hello",
   });
@@ -158,7 +180,7 @@ test("buildInboundUserMessages falls back to text with warning when file downloa
 
 test("buildInboundUserMessages returns early warning when file download failed and no text", () => {
   const result = buildInboundUserMessages({
-    resolvedFile: null,
+    stagedFile: null,
     hasFileInput: true,
     messageText: "",
   });
@@ -190,7 +212,7 @@ test("handlePendingImageEdit completes image edit and clears pending state", asy
   });
 
   const result = await handlePendingImageEdit({
-    resolvedFile: makeResolvedFile({
+    stagedFile: makeStagedFile({
       mimeType: "image/png",
       effectiveImageMime: "image/png",
       base64: Buffer.from("png").toString("base64"),
@@ -236,7 +258,7 @@ test("handlePendingImageEdit returns no-prompt without clearing pending", async 
   const { sender, sent } = makeSender();
 
   const result = await handlePendingImageEdit({
-    resolvedFile: makeResolvedFile({
+    stagedFile: makeStagedFile({
       mimeType: "image/png",
       effectiveImageMime: "image/png",
       base64: Buffer.from("png").toString("base64"),
@@ -267,7 +289,7 @@ test("handlePendingImageEdit ignores non-image files", async () => {
   const { sender } = makeSender();
 
   const result = await handlePendingImageEdit({
-    resolvedFile: makeResolvedFile({
+    stagedFile: makeStagedFile({
       mimeType: "application/pdf",
       effectiveImageMime: "application/pdf",
     }),

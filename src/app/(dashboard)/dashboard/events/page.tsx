@@ -28,7 +28,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { TablePagination } from "@/components/table-pagination";
 import { toast } from "sonner";
-import { RefreshCw, RotateCcw, Radio, Copy, Clock, Webhook, Hand, Search } from "lucide-react";
+import { RefreshCw, RotateCcw, Radio, Copy, Clock, Webhook, Hand, Search, XCircle } from "lucide-react";
 import {
   TelegramIcon,
   FeishuIcon,
@@ -56,6 +56,7 @@ const STATUS_OPTIONS = [
   "processed",
   "failed",
   "dead",
+  "cancelled",
 ];
 
 const SOURCE_ICON: Record<string, React.FC<{ className?: string }>> = {
@@ -236,6 +237,26 @@ export default function EventsPage() {
     }
   };
 
+  const handleCancel = async (eventId: string) => {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("events")
+      .update({
+        status: "cancelled",
+        locked_until: null,
+        error_message: "Manually cancelled by admin",
+      })
+      .eq("id", eventId)
+      .eq("status", "processing");
+
+    if (error) {
+      toast.error(t("events.cancelFailed"));
+    } else {
+      toast.success(t("events.cancelSuccess"));
+      fetchEvents(page);
+    }
+  };
+
   const handleCopyError = (text: string) => {
     navigator.clipboard.writeText(text).then(
       () => toast.success(t("events.copySuccess")),
@@ -255,6 +276,7 @@ export default function EventsPage() {
   const statusVariant = (status: string) => {
     if (status === "processed") return "default" as const;
     if (status === "failed" || status === "dead") return "destructive" as const;
+    if (status === "cancelled") return "outline" as const;
     return "secondary" as const;
   };
 
@@ -369,9 +391,21 @@ export default function EventsPage() {
                         <TableCell className="text-xs text-muted-foreground">
                           {new Date(e.created_at).toLocaleString()}
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right space-x-1">
+                          {e.status === "processing" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1 text-destructive hover:text-destructive"
+                              onClick={() => handleCancel(e.id)}
+                            >
+                              <XCircle className="size-3.5" />
+                              {t("events.cancel")}
+                            </Button>
+                          )}
                           {(e.status === "failed" ||
-                            e.status === "dead") && (
+                            e.status === "dead" ||
+                            e.status === "cancelled") && (
                             <Button
                               variant="ghost"
                               size="sm"

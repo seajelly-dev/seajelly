@@ -837,7 +837,7 @@ CREATE TABLE IF NOT EXISTS public.events (
   platform_chat_id  text,
   dedup_key         text UNIQUE,
   payload         jsonb NOT NULL DEFAULT '{}',
-  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','processed','failed','dead')),
+  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','processed','failed','dead','cancelled')),
   locked_until    timestamptz,
   retry_count     int NOT NULL DEFAULT 0,
   max_retries     int NOT NULL DEFAULT 5,
@@ -1790,6 +1790,7 @@ CREATE TABLE IF NOT EXISTS public.jellybox_files (
   mime_type     text,
   file_size     bigint NOT NULL DEFAULT 0,
   public_url    text NOT NULL,
+  zone          text NOT NULL DEFAULT 'persistent',
   metadata      jsonb NOT NULL DEFAULT '{}',
   created_at    timestamptz NOT NULL DEFAULT now()
 );

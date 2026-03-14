@@ -31,6 +31,7 @@ function makeParams(overrides: Partial<Parameters<typeof runImageKnowledgeBypass
       sessionId: "session_1",
       imageBase64ForMediaSearch: "aGVsbG8=",
       imageMimeForMediaSearch: "image/png",
+      imageUrlForMediaSearch: null,
       hasImageInput: true,
       hasEmbeddingApiKey: true,
       canImageKnowledgeSearchByModel: true,

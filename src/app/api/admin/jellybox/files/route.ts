@@ -17,7 +17,8 @@ export async function GET(request: NextRequest) {
 
   let countQ = db
     .from("jellybox_files")
-    .select("id", { count: "exact", head: true });
+    .select("id", { count: "exact", head: true })
+    .eq("zone", "persistent");
   if (storageId) countQ = countQ.eq("storage_id", storageId);
   if (search) countQ = countQ.ilike("original_name", `%${search}%`);
   const { count } = await countQ;
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest) {
   let q = db
     .from("jellybox_files")
     .select("*, jellybox_storages(name)")
+    .eq("zone", "persistent")
     .order("created_at", { ascending: false })
     .range(from, to);
   if (storageId) q = q.eq("storage_id", storageId);

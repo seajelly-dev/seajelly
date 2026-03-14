@@ -15,7 +15,8 @@ export async function GET() {
 
   const { data: files } = await db
     .from("jellybox_files")
-    .select("storage_id, file_size");
+    .select("storage_id, file_size")
+    .eq("zone", "persistent");
 
   const usageMap = new Map<string, { count: number; bytes: number }>();
   for (const f of files ?? []) {

@@ -4,6 +4,7 @@ import {
   DeleteObjectCommand,
   HeadObjectCommand,
   HeadBucketCommand,
+  CopyObjectCommand,
 } from "@aws-sdk/client-s3";
 
 export interface R2Credentials {
@@ -75,6 +76,21 @@ export async function headFromR2(
     }
     throw err;
   }
+}
+
+export async function copyInR2(
+  client: S3Client,
+  bucket: string,
+  sourceKey: string,
+  destKey: string,
+): Promise<void> {
+  await client.send(
+    new CopyObjectCommand({
+      Bucket: bucket,
+      CopySource: `${bucket}/${sourceKey}`,
+      Key: destKey,
+    }),
+  );
 }
 
 export async function testR2Connection(

@@ -740,7 +740,6 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
     ...createJellyBoxToolkitTools({
       agentId,
       channelId,
-      supabase,
     }),
   };
 

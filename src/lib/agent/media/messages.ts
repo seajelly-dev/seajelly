@@ -4,44 +4,58 @@ import type { BuildInboundUserMessagesParams, MediaMessageBuildResult } from "./
 export function buildInboundUserMessages(
   params: BuildInboundUserMessagesParams,
 ): MediaMessageBuildResult {
-  const { resolvedFile, hasFileInput, messageText, logger } = params;
+  const { stagedFile, hasFileInput, messageText, logger } = params;
 
-  if (resolvedFile) {
-    const mime = resolvedFile.mimeType;
+  if (stagedFile) {
+    const mime = stagedFile.mimeType;
     const textPrompt = messageText || "";
+    const hasUrl = !!stagedFile.publicUrl;
 
     if (isImageMime(mime)) {
+      const imageContent = hasUrl
+        ? { type: "image" as const, image: new URL(stagedFile.publicUrl!) }
+        : { type: "image" as const, image: stagedFile.base64!, mediaType: stagedFile.effectiveImageMime };
+
       return {
         userMessages: [
           {
             role: "user",
             content: [
-              { type: "image", image: resolvedFile.base64, mediaType: resolvedFile.effectiveImageMime },
+              imageContent,
               { type: "text", text: textPrompt || "Please describe or analyze this image." },
             ],
           },
         ],
         fileHandled: true,
         userWarning: null,
-        imageBase64ForMediaSearch: resolvedFile.base64,
-        imageMimeForMediaSearch: resolvedFile.effectiveImageMime,
+        imageBase64ForMediaSearch: stagedFile.base64,
+        imageMimeForMediaSearch: stagedFile.effectiveImageMime,
+        imageUrlForMediaSearch: stagedFile.publicUrl,
       };
     }
 
     if (isTextMime(mime)) {
-      const decoded = Buffer.from(resolvedFile.base64, "base64").toString("utf-8");
-      const label = resolvedFile.fileName ? `[File: ${resolvedFile.fileName}]` : "[Text file]";
+      let textContent: string;
+      if (stagedFile.base64) {
+        textContent = Buffer.from(stagedFile.base64, "base64").toString("utf-8");
+      } else if (stagedFile.publicUrl) {
+        textContent = `[File available at: ${stagedFile.publicUrl}]`;
+      } else {
+        textContent = "[File content unavailable]";
+      }
+      const label = stagedFile.fileName ? `[File: ${stagedFile.fileName}]` : "[Text file]";
       return {
         userMessages: [
           {
             role: "user",
-            content: `${label}\n\`\`\`\n${decoded.slice(0, 50_000)}\n\`\`\`\n\n${textPrompt || "Please analyze this file."}`,
+            content: `${label}\n\`\`\`\n${textContent.slice(0, 50_000)}\n\`\`\`\n\n${textPrompt || "Please analyze this file."}`,
           },
         ],
         fileHandled: true,
         userWarning: null,
         imageBase64ForMediaSearch: null,
         imageMimeForMediaSearch: null,
+        imageUrlForMediaSearch: null,
       };
     }
 
@@ -52,37 +66,61 @@ export function buildInboundUserMessages(
           : mime.startsWith("video/")
             ? "Please analyze this video."
             : "Please analyze this audio.";
-      return {
-        userMessages: [
-          {
-            role: "user",
-            content: [
-              { type: "file", data: resolvedFile.base64, mediaType: mime },
-              { type: "text", text: textPrompt || defaultPrompt },
-            ],
-          },
-        ],
-        fileHandled: true,
-        userWarning: null,
-        imageBase64ForMediaSearch: null,
-        imageMimeForMediaSearch: null,
-      };
+
+      if (hasUrl) {
+        return {
+          userMessages: [
+            {
+              role: "user",
+              content: [
+                { type: "file" as const, data: new URL(stagedFile.publicUrl!), mediaType: mime },
+                { type: "text", text: textPrompt || defaultPrompt },
+              ],
+            },
+          ],
+          fileHandled: true,
+          userWarning: null,
+          imageBase64ForMediaSearch: null,
+          imageMimeForMediaSearch: null,
+          imageUrlForMediaSearch: null,
+        };
+      }
+
+      if (stagedFile.base64) {
+        return {
+          userMessages: [
+            {
+              role: "user",
+              content: [
+                { type: "file" as const, data: stagedFile.base64, mediaType: mime },
+                { type: "text", text: textPrompt || defaultPrompt },
+              ],
+            },
+          ],
+          fileHandled: true,
+          userWarning: null,
+          imageBase64ForMediaSearch: null,
+          imageMimeForMediaSearch: null,
+          imageUrlForMediaSearch: null,
+        };
+      }
     }
 
-    const label = resolvedFile.fileName
-      ? `[File: ${resolvedFile.fileName}, type: ${mime}]`
+    const label = stagedFile.fileName
+      ? `[File: ${stagedFile.fileName}, type: ${mime}]`
       : `[File: ${mime}]`;
     return {
       userMessages: [
         {
           role: "user",
-          content: `${label}\n(Binary file — ${resolvedFile.sizeBytes} bytes)\n\n${textPrompt || "I sent you a file. What can you help me with?"}`,
+          content: `${label}\n(Binary file — ${stagedFile.sizeBytes} bytes)\n\n${textPrompt || "I sent you a file. What can you help me with?"}`,
         },
       ],
       fileHandled: true,
       userWarning: null,
       imageBase64ForMediaSearch: null,
       imageMimeForMediaSearch: null,
+      imageUrlForMediaSearch: null,
     };
   }
 
@@ -95,6 +133,7 @@ export function buildInboundUserMessages(
         userWarning: "⚠️ Failed to process the file you sent. Please try again or send as a different format.",
         imageBase64ForMediaSearch: null,
         imageMimeForMediaSearch: null,
+        imageUrlForMediaSearch: null,
       };
     }
     return {
@@ -103,6 +142,7 @@ export function buildInboundUserMessages(
       userWarning: "⚠️ File could not be loaded. Responding to your text only.",
       imageBase64ForMediaSearch: null,
       imageMimeForMediaSearch: null,
+      imageUrlForMediaSearch: null,
     };
   }
 
@@ -112,5 +152,6 @@ export function buildInboundUserMessages(
     userWarning: null,
     imageBase64ForMediaSearch: null,
     imageMimeForMediaSearch: null,
+    imageUrlForMediaSearch: null,
   };
 }

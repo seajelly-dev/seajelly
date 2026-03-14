@@ -272,7 +272,8 @@ export type EventStatus =
   | "processing"
   | "processed"
   | "failed"
-  | "dead";
+  | "dead"
+  | "cancelled";
 
 export interface AgentEvent {
   id: string;
@@ -386,6 +387,8 @@ export interface JellyBoxStorage {
   updated_at: string;
 }
 
+export type JellyBoxFileZone = "temp" | "persistent";
+
 export interface JellyBoxFile {
   id: string;
   storage_id: string;
@@ -396,6 +399,7 @@ export interface JellyBoxFile {
   mime_type: string | null;
   file_size: number;
   public_url: string;
+  zone: JellyBoxFileZone;
   metadata: Record<string, unknown>;
   created_at: string;
 }
