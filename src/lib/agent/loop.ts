@@ -822,7 +822,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
 
     if (event.id) {
       lockRenewTimer = setInterval(() => {
-        renewEventLock(event.id, 360).catch(() => {});
+        renewEventLock(event.id, 295).catch(() => {});
       }, 60_000);
     }
 

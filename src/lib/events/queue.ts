@@ -8,9 +8,9 @@ function getSupabase() {
   );
 }
 
-// Keep lock longer than the agent loop max wall time (240s)
-// to avoid duplicate claims while a long workflow is still running.
-const LOCK_DURATION_SECONDS = 360;
+// Lock covers agent wall time (275s) + buffer, but expires before
+// Vercel's 300s hard kill so zombies become reclaimable almost immediately.
+const LOCK_DURATION_SECONDS = 295;
 const BATCH_SIZE = 5;
 
 export async function claimPendingEvents(): Promise<AgentEvent[]> {
