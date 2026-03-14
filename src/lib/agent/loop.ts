@@ -340,6 +340,78 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+interface ClaimedCompanionTextEvent {
+  eventId: string;
+  text: string;
+}
+
+async function claimTelegramCompanionTextEvent(params: {
+  baseEvent: AgentEvent;
+  agentId: string;
+  platformChatId: string;
+  platformUid: string;
+}): Promise<ClaimedCompanionTextEvent | null> {
+  const { baseEvent, agentId, platformChatId, platformUid } = params;
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  const baseCreatedAtMs = Date.parse(baseEvent.created_at);
+  if (!Number.isFinite(baseCreatedAtMs)) return null;
+  const windowEnd = new Date(baseCreatedAtMs + TELEGRAM_COALESCE_WINDOW_MS).toISOString();
+
+  const { data: candidates } = await supabase
+    .from("events")
+    .select("id, payload, created_at")
+    .eq("source", "telegram")
+    .eq("agent_id", agentId)
+    .eq("platform_chat_id", platformChatId)
+    .eq("status", "pending")
+    .gt("created_at", baseEvent.created_at)
+    .lte("created_at", windowEnd)
+    .order("created_at", { ascending: true })
+    .limit(TELEGRAM_COALESCE_SCAN_LIMIT);
+
+  const candidateRows = (candidates ?? []) as Array<{
+    id: string;
+    payload: Record<string, unknown> | null;
+    created_at: string;
+  }>;
+
+  for (const row of candidateRows) {
+    const rowPayload = (row.payload ?? {}) as Record<string, unknown>;
+    const rowUid = readEventPlatformUid(rowPayload);
+    if (rowUid !== platformUid) continue;
+    const snapshot = readEventMessageSnapshot(rowPayload);
+    if (!snapshot.text.trim() || snapshot.fileId) continue;
+
+    const lockedUntil = new Date(Date.now() + EVENT_LOCK_SECONDS * 1000).toISOString();
+    const { data: claimed } = await supabase
+      .from("events")
+      .update({
+        status: "processing",
+        locked_until: lockedUntil,
+      })
+      .eq("id", row.id)
+      .eq("status", "pending")
+      .select("id, payload")
+      .maybeSingle();
+
+    if (!claimed) continue;
+
+    const claimedPayload = ((claimed as { payload: Record<string, unknown> | null }).payload ?? {}) as Record<string, unknown>;
+    const claimedSnapshot = readEventMessageSnapshot(claimedPayload);
+    if (!claimedSnapshot.text.trim()) continue;
+
+    return {
+      eventId: (claimed as { id: string }).id,
+      text: claimedSnapshot.text,
+    };
+  }
+
+  return null;
+}
+
 interface ClaimedCompanionFileEvent {
   eventId: string;
   text: string;
@@ -571,6 +643,24 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       }
     }
 
+    // Reverse coalesce: file arrives first (e.g. Telegram sticker/webp), text follows.
+    if (platform === "telegram" && platformUid && fileId && !messageText.trim()) {
+      await sleep(TELEGRAM_COALESCE_WAIT_MS);
+      const textCompanion = await claimTelegramCompanionTextEvent({
+        baseEvent: event,
+        agentId: typedAgent.id,
+        platformChatId,
+        platformUid,
+      });
+      if (textCompanion) {
+        messageText = textCompanion.text;
+        coalescedCompanionEventId = textCompanion.eventId;
+        console.log(
+          `[agent-loop] trace=${traceId} coalesced file+text events: base=${event.id ?? "unknown"} companion=${textCompanion.eventId} text="${textCompanion.text.slice(0, 50)}"`
+        );
+      }
+    }
+
     // ── Resolve channel from event payload ──
     const channel = await resolveOrCreateChannel({
       supabase,
@@ -791,6 +881,7 @@ export async function runAgentLoop(event: AgentEvent): Promise<LoopResult> {
       : resolveGenerateTextToolDirective({
           availableToolNames: Object.keys(tools),
           messageText,
+          hasFile: !!resolvedInboundFile,
         });
     const runWithToolDirective = !!toolDirective;
 

@@ -148,6 +148,7 @@ export function buildToolPolicySections(params: {
 export function resolveGenerateTextToolDirective(params: {
   availableToolNames: Iterable<string>;
   messageText: string;
+  hasFile?: boolean;
 }): { activeTools: string[]; toolChoice?: "required" } | null {
   const toolNames = new Set(params.availableToolNames);
   const activeTools = new Set<string>();
@@ -157,6 +158,7 @@ export function resolveGenerateTextToolDirective(params: {
     const directive = toolkit.getGenerateTextDirective?.({
       availableToolNames: toolNames,
       messageText: params.messageText,
+      hasFile: params.hasFile,
     });
     if (!directive) continue;
 

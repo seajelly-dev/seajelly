@@ -159,17 +159,18 @@ export async function executeAgentRun(
   let loggedOutputTokens = 0;
 
   try {
+    const filteredTools = toolDirective
+      ? Object.fromEntries(
+          Object.entries(tools).filter(([name]) => toolDirective.activeTools.includes(name)),
+        )
+      : tools;
+
     const generated = await generateText({
       model,
       system: systemPrompt || undefined,
       messages,
-      tools,
-      ...(toolDirective
-        ? {
-            activeTools: toolDirective.activeTools as never,
-            ...(toolDirective.toolChoice ? { toolChoice: toolDirective.toolChoice } : {}),
-          }
-        : {}),
+      tools: filteredTools,
+      ...(toolDirective?.toolChoice ? { toolChoice: toolDirective.toolChoice } : {}),
       stopWhen: stepCountIs(maxSteps),
       maxOutputTokens: maxTokens,
       abortSignal: abortController.signal,

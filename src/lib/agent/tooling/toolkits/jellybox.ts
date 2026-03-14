@@ -32,6 +32,12 @@ const JELLYBOX_SOFT_PATTERNS = [
   /(有没有|有多少|还有).{0,6}(文件|图片|照片|存储)/,
 ];
 
+const UPLOAD_ONLY_PATTERNS = [
+  /(存一下|存下来|帮我存|存起来|存到|存入|转存|备份一下|保存一下|保存下来)/,
+  /(上传|保存|存储|备份|转存).{0,8}(到|进|去)?\s*(jellybox|云盘|云端|r2)/i,
+  /\b(upload|save|store|persist|backup)\b.{0,20}\b(to|in|into)?\s*(jellybox|cloud|r2)\b/i,
+];
+
 function hasJellyBoxIntent(messageText: string): boolean {
   return JELLYBOX_SOFT_PATTERNS.some((p) => p.test(messageText));
 }
@@ -75,11 +81,15 @@ export const JELLYBOX_TOOLKIT: ToolkitRuntimeDefinition = {
     );
   },
 
-  getGenerateTextDirective: ({ availableToolNames, messageText }: ToolkitGenerateTextContext): ToolkitGenerateTextDirective | null => {
+  getGenerateTextDirective: ({ availableToolNames, messageText, hasFile }: ToolkitGenerateTextContext): ToolkitGenerateTextDirective | null => {
     const activeTools = JELLYBOX_TOOL_NAMES.filter((t) => availableToolNames.has(t));
     if (activeTools.length === 0) return null;
 
     if (shouldForceJellyBoxToolUse(messageText)) {
+      const isUploadOnlyIntent = UPLOAD_ONLY_PATTERNS.some((p) => p.test(messageText));
+      if (isUploadOnlyIntent && !hasFile) {
+        return { activeTools: [...activeTools] };
+      }
       return {
         activeTools: [...activeTools],
         toolChoice: "required" as const,
