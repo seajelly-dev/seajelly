@@ -59,35 +59,11 @@ export function createStrictServiceClient() {
 
 /**
  * Admin client with service role key — bypasses RLS entirely.
- * Use in dashboard server components (already behind auth middleware).
- * Tries env var first, falls back to encrypted value in secrets table.
+ * Use in dashboard server components and admin APIs.
+ * This follows the deployment env as the single source of truth.
  */
 export async function createAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-
-  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return createSupabaseClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY);
-  }
-
-  const { decrypt } = await import("@/lib/crypto/encrypt");
-
-  const anonClient = createServerClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-    cookies: { getAll: () => [], setAll() {} },
-  });
-
-  const { data } = await anonClient
-    .from("secrets")
-    .select("encrypted_value")
-    .eq("key_name", "SUPABASE_SERVICE_ROLE_KEY")
-    .single();
-
-  if (!data?.encrypted_value) {
-    throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY not found in env or secrets table"
-    );
-  }
-
-  return createSupabaseClient(url, decrypt(data.encrypted_value));
+  return createStrictServiceClient();
 }
 
 /** @deprecated Use createAdminClient instead */

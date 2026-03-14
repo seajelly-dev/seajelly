@@ -26,7 +26,7 @@
 | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | 让应用连接到你的 Supabase 项目 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 浏览器端和会话态服务端访问 |
-| `SUPABASE_SERVICE_ROLE_KEY` | 严格服务端访问和安全敏感流程需要 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 必须先在 Vercel 里配好，`/setup` 才会继续 |
 | `ENCRYPTION_KEY` | 用于加密数据库中保存的密钥 |
 | `NEXT_PUBLIC_APP_URL` | 用于跳转、webhook、预览和 cron 回调 |
 | `CRON_SECRET` | 保护 worker 路由 |
@@ -60,6 +60,8 @@ SEAJelly 会自动：
 
 正常 setup 流程下，你不需要自己手动跑 SQL。
 
+现在 SEAJelly 会把 PAT 和 Project Ref 临时放进一个 HttpOnly setup cookie，所以只要还是同一个浏览器，刷新页面后通常也能安全续跑，直到 setup 完成。
+
 ## 第 2 步：创建第一个管理员
 
 填写：
@@ -74,8 +76,8 @@ SEAJelly 会自动：
 
 这一步至少需要：
 
-- `Supabase Service Role Key`
 - 至少一个大模型 Provider API Key
+- 如果你想现在就配，也可以顺手填上 Embedding 凭证
 
 当前 setup 内置支持填写的 Provider 包括：
 
@@ -88,7 +90,7 @@ SEAJelly 会自动：
 
 - 你只需要填写一个 Provider Key 就能继续完成 setup
 - 更多 Provider 和模型后续都可以在 Dashboard 里补充
-- `SUPABASE_SERVICE_ROLE_KEY` 对 worker、严格服务端访问和很多高权限流程都很重要
+- `SUPABASE_SERVICE_ROLE_KEY` 现在被视为部署前提，不再通过 setup 表单粘贴
 
 ## 第 4 步：创建第一个 Agent
 

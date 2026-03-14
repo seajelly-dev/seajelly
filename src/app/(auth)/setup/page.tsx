@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,78 +33,91 @@ import {
   QQBotIcon,
   WhatsAppIcon,
 } from "@/components/icons/platform-icons";
+import {
+  getMissingSetupPlatformFields,
+  SETUP_GENERATED_FIELDS,
+  SETUP_PLATFORM_FIELDS,
+  type SetupPlatform,
+} from "@/lib/setup/platforms";
 
-type SetupPlatform = "telegram" | "feishu" | "wecom" | "slack" | "qqbot" | "whatsapp" | "none";
+type SetupStatusResponse = {
+  needsSetup: boolean;
+  setupComplete: boolean;
+  currentStep: number;
+  hasSupabaseKeys: boolean;
+  hasAdmin: boolean;
+  hasServiceRoleEnv: boolean;
+  hasLLMKey: boolean;
+  hasAgent: boolean;
+  hasBootstrapCookie: boolean;
+  blockingReason: "missing_service_role_env" | null;
+};
+
+type SetupStepKey = "connect" | "register" | "secrets" | "agent";
+
+const PROVIDER_CHOICES = [
+  { id: "00000000-0000-0000-0000-000000000001", name: "Anthropic" },
+  { id: "00000000-0000-0000-0000-000000000002", name: "OpenAI" },
+  { id: "00000000-0000-0000-0000-000000000003", name: "Google" },
+  { id: "00000000-0000-0000-0000-000000000004", name: "DeepSeek" },
+];
+
+const SETUP_STEPS: readonly SetupStepKey[] = [
+  "connect",
+  "register",
+  "secrets",
+  "agent",
+];
+
+const SETUP_BOOTSTRAP_MISSING_CODE = "setup_bootstrap_missing";
+const SETUP_BLOCKING_REASON_CODE = "missing_service_role_env";
 
 const SETUP_PLATFORMS = [
   {
     key: "telegram" as const,
     label: "Telegram",
     icon: TelegramIcon,
-    fields: [{ name: "bot_token", label: "Bot Token", secret: true }],
+    fields: SETUP_PLATFORM_FIELDS.telegram,
   },
   {
     key: "feishu" as const,
     label: "Feishu / 飞书",
     icon: FeishuIcon,
-    fields: [
-      { name: "app_id", label: "App ID", secret: true },
-      { name: "app_secret", label: "App Secret", secret: true },
-      { name: "verification_token", label: "Verification Token", secret: true },
-    ],
+    fields: SETUP_PLATFORM_FIELDS.feishu,
   },
   {
     key: "wecom" as const,
     label: "WeCom / 企业微信",
     icon: WeComIcon,
-    fields: [
-      { name: "corp_id", label: "Corp ID", secret: true },
-      { name: "corp_secret", label: "Corp Secret", secret: true },
-      { name: "agent_id", label: "Agent ID", secret: false },
-      { name: "token", label: "Token", secret: true },
-      { name: "encoding_aes_key", label: "EncodingAESKey", secret: true },
-    ],
+    fields: SETUP_PLATFORM_FIELDS.wecom,
   },
   {
     key: "slack" as const,
     label: "Slack",
     icon: SlackIcon,
-    fields: [
-      { name: "bot_token", label: "Bot Token", secret: true },
-      { name: "signing_secret", label: "Signing Secret", secret: true },
-    ],
+    fields: SETUP_PLATFORM_FIELDS.slack,
   },
   {
     key: "qqbot" as const,
     label: "QQ Bot",
     icon: QQBotIcon,
-    fields: [
-      { name: "app_id", label: "AppID", secret: false },
-      { name: "app_secret", label: "AppSecret", secret: true },
-    ],
+    fields: SETUP_PLATFORM_FIELDS.qqbot,
   },
   {
     key: "whatsapp" as const,
     label: "WhatsApp",
     icon: WhatsAppIcon,
-    fields: [
-      { name: "access_token", label: "Access Token", secret: true },
-      { name: "phone_number_id", label: "Phone Number ID", secret: false },
-      { name: "verify_token", label: "Verify Token", secret: true },
-      { name: "app_secret", label: "App Secret", secret: true },
-    ],
+    fields: SETUP_PLATFORM_FIELDS.whatsapp,
   },
 ];
-
-const SETUP_GENERATED_FIELDS: Partial<Record<SetupPlatform, string[]>> = {
-  feishu: ["verification_token"],
-  whatsapp: ["verify_token"],
-};
 
 export default function SetupPage() {
   const router = useRouter();
   const t = useT();
+
+  const [setupStatus, setSetupStatus] = useState<SetupStatusResponse | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
+  const [forceReconnect, setForceReconnect] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
 
@@ -116,21 +129,15 @@ export default function SetupPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const [secrets, setSecrets] = useState({
-    SUPABASE_SERVICE_ROLE_KEY: "",
     EMBEDDING_API_KEY: "",
   });
 
-  const PROVIDER_CHOICES = [
-    { id: "00000000-0000-0000-0000-000000000001", name: "Anthropic" },
-    { id: "00000000-0000-0000-0000-000000000002", name: "OpenAI" },
-    { id: "00000000-0000-0000-0000-000000000003", name: "Google" },
-    { id: "00000000-0000-0000-0000-000000000004", name: "DeepSeek" },
-  ];
   const [providerKeys, setProviderKeys] = useState<Record<string, string>>(
-    () => Object.fromEntries(PROVIDER_CHOICES.map((p) => [p.id, ""]))
+    () => Object.fromEntries(PROVIDER_CHOICES.map((provider) => [provider.id, ""]))
   );
 
-  const [selectedPlatform, setSelectedPlatform] = useState<SetupPlatform>("telegram");
+  const [selectedPlatform, setSelectedPlatform] =
+    useState<SetupPlatform>("telegram");
   const [platformCreds, setPlatformCreds] = useState<Record<string, string>>({});
 
   const [agentName, setAgentName] = useState("Jelly");
@@ -172,6 +179,20 @@ You have persistent memory across conversations. Use it wisely:
   );
   const [model, setModel] = useState("");
   const [availableModels, setAvailableModels] = useState<ModelDef[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [modelsError, setModelsError] = useState("");
+
+  const isSetupBlocked = setupStatus?.blockingReason === "missing_service_role_env";
+  const hasBootstrapCredentials =
+    Boolean(supabasePAT.trim() && projectRef.trim()) ||
+    Boolean(setupStatus?.hasBootstrapCookie);
+  const resumeUnavailable =
+    !isSetupBlocked && currentStep > 0 && !forceReconnect && !hasBootstrapCredentials;
+  const effectiveStep = forceReconnect ? 0 : currentStep;
+  const stepKey = SETUP_STEPS[effectiveStep];
+  const selectedPlatformConfig = SETUP_PLATFORMS.find(
+    (platform) => platform.key === selectedPlatform
+  );
 
   const generateOpaqueToken = () => {
     const bytes = new Uint8Array(24);
@@ -200,47 +221,139 @@ You have persistent memory across conversations. Use it wisely:
     return null;
   };
 
-  const STEPS_KEYS = ["connect", "register", "secrets", "agent"] as const;
+  const refreshSetupStatus = async () => {
+    const res = await fetch("/api/admin/setup", { cache: "no-store" });
+    const data = (await res.json()) as SetupStatusResponse & {
+      error?: string;
+      code?: string;
+    };
+
+    if (!res.ok) {
+      throw new Error(data.error || t("setup.errors.statusRefreshFailed"));
+    }
+
+    if (data.setupComplete) {
+      router.replace("/login");
+      return null;
+    }
+
+    setSetupStatus(data);
+    setCurrentStep(Math.min(data.currentStep ?? 0, SETUP_STEPS.length - 1));
+    setForceReconnect(false);
+    return data;
+  };
+
+  const resetToConnect = () => {
+    setForceReconnect(true);
+    setCurrentStep(0);
+    setSupabasePAT("");
+    setProjectRef("");
+    setAvailableModels([]);
+    setModel("");
+    setModelsError("");
+  };
+
+  const handleSetupApiError = (
+    data: { error?: string; code?: string },
+    fallbackMessage: string
+  ) => {
+    if (data.code === SETUP_BOOTSTRAP_MISSING_CODE) {
+      toast.error(t("setup.errors.resumeExpired"));
+      resetToConnect();
+      return;
+    }
+    if (data.code === SETUP_BLOCKING_REASON_CODE) {
+      toast.error(t("setup.errors.serviceRoleEnvMissing"));
+      return;
+    }
+    toast.error(data.error || fallbackMessage);
+  };
 
   const loadAvailableModels = async () => {
+    setLoadingModels(true);
+    setModelsError("");
     try {
       const res = await fetch("/api/admin/models");
-      if (res.ok) {
-        const data = await res.json();
-        const models: ModelDef[] = (data.models ?? []).map((m: ModelDef & Record<string, unknown>) => ({
-          id: m.id,
-          model_id: m.model_id,
-          label: m.label,
-          provider_id: m.provider_id,
-          provider_name: m.provider_name,
-        }));
-        setAvailableModels(models);
-        if (models.length > 0 && !model) {
-          setModel(models[0].model_id);
-        }
+      const data = (await res.json()) as {
+        error?: string;
+        models?: ModelDef[];
+      };
+      if (!res.ok) {
+        throw new Error(data.error || t("setup.errors.modelsLoadFailed"));
       }
-    } catch {}
+      const models: ModelDef[] = (data.models ?? []).map((item) => ({
+        id: item.id,
+        model_id: item.model_id,
+        label: item.label,
+        provider_id: item.provider_id,
+        provider_name: item.provider_name,
+      }));
+      setAvailableModels(models);
+      if (models.length === 0) {
+        setModel("");
+        setModelsError(t("setup.noModels"));
+        return;
+      }
+      if (!models.some((item) => item.model_id === model)) {
+        setModel(models[0].model_id);
+      }
+    } catch (err) {
+      setAvailableModels([]);
+      setModel("");
+      setModelsError(
+        err instanceof Error ? err.message : t("setup.errors.modelsLoadFailed")
+      );
+    } finally {
+      setLoadingModels(false);
+    }
   };
 
   useEffect(() => {
-    fetch("/api/admin/setup")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.setupComplete) {
-          router.replace("/login");
-          return;
+    let active = true;
+
+    (async () => {
+      try {
+        if (!active) return;
+        await refreshSetupStatus();
+      } catch {
+        if (active) {
+          toast.error(t("setup.errors.statusRefreshFailed"));
         }
-        setCurrentStep(Math.min(data.currentStep ?? 0, 3));
-        if (data.configuredKeys) {
-          loadAvailableModels();
+      } finally {
+        if (active) {
+          setChecking(false);
         }
-        setChecking(false);
-      })
-      .catch(() => setChecking(false));
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
+  useEffect(() => {
+    if (
+      effectiveStep === 3 &&
+      !forceReconnect &&
+      setupStatus?.hasServiceRoleEnv &&
+      setupStatus.hasLLMKey
+    ) {
+      void loadAvailableModels();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    effectiveStep,
+    forceReconnect,
+    setupStatus?.hasServiceRoleEnv,
+    setupStatus?.hasLLMKey,
+  ]);
+
   const handleConnect = async () => {
+    if (isSetupBlocked) {
+      toast.error(t("setup.errors.serviceRoleEnvMissing"));
+      return;
+    }
     if (!supabasePAT.trim()) {
       toast.error(t("setup.errors.supabasePATRequired"));
       return;
@@ -262,17 +375,26 @@ You have persistent memory across conversations. Use it wisely:
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) {
+        handleSetupApiError(data, t("setup.errors.connectionFailed"));
+        return;
+      }
       toast.success(data.message || t("setup.success.dbInitialized"));
-      setCurrentStep(1);
+      await refreshSetupStatus();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("setup.errors.connectionFailed"));
+      toast.error(
+        err instanceof Error ? err.message : t("setup.errors.connectionFailed")
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const handleRegister = async () => {
+    if (resumeUnavailable) {
+      toast.error(t("setup.errors.resumeExpired"));
+      return;
+    }
     if (!email || !password) {
       toast.error(t("setup.errors.fillEmailPassword"));
       return;
@@ -299,30 +421,40 @@ You have persistent memory across conversations. Use it wisely:
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) {
+        handleSetupApiError(data, t("setup.errors.registrationFailed"));
+        return;
+      }
+      if (data.sessionEstablished === false && data.loginUrl) {
+        toast.success(t("setup.success.adminCreatedLogin"));
+        router.push(data.loginUrl);
+        return;
+      }
       toast.success(t("setup.success.adminCreated"));
-      setCurrentStep(2);
+      await refreshSetupStatus();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("setup.errors.registrationFailed"));
+      toast.error(
+        err instanceof Error ? err.message : t("setup.errors.registrationFailed")
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const handleSecrets = async () => {
-    if (!secrets.SUPABASE_SERVICE_ROLE_KEY) {
-      toast.error(t("setup.errors.serviceRoleRequired"));
+    if (resumeUnavailable) {
+      toast.error(t("setup.errors.resumeExpired"));
       return;
     }
-    const hasProviderKey = Object.values(providerKeys).some((v) => v.trim() !== "");
+    const hasProviderKey = Object.values(providerKeys).some((value) => value.trim() !== "");
     if (!hasProviderKey) {
       toast.error(t("setup.errors.llmKeyRequired"));
       return;
     }
     setLoading(true);
     try {
-      const pkEntries = Object.entries(providerKeys)
-        .filter(([, v]) => v.trim() !== "")
+      const providerEntries = Object.entries(providerKeys)
+        .filter(([, value]) => value.trim() !== "")
         .map(([providerId, apiKey]) => ({ providerId, apiKey }));
 
       const res = await fetch("/api/admin/setup", {
@@ -331,35 +463,60 @@ You have persistent memory across conversations. Use it wisely:
         body: JSON.stringify({
           step: "secrets",
           secrets,
-          providerKeys: pkEntries,
+          providerKeys: providerEntries,
           access_token: supabasePAT,
           project_ref: projectRef,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) {
+        handleSetupApiError(data, t("setup.errors.saveKeysFailed"));
+        return;
+      }
       toast.success(t("setup.success.keysSaved", { count: data.count }));
-      loadAvailableModels();
-      setCurrentStep(3);
+      await refreshSetupStatus();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("setup.errors.saveKeysFailed"));
+      toast.error(
+        err instanceof Error ? err.message : t("setup.errors.saveKeysFailed")
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const handleCreateAgent = async () => {
+    if (resumeUnavailable) {
+      toast.error(t("setup.errors.resumeExpired"));
+      return;
+    }
     if (!agentName.trim()) {
       toast.error(t("setup.errors.agentNameRequired"));
       return;
     }
+    if (!model.trim()) {
+      toast.error(t("setup.errors.modelRequired"));
+      return;
+    }
+    const missingPlatformFields = getMissingSetupPlatformFields(
+      selectedPlatform,
+      platformCreds
+    );
+    if (missingPlatformFields.length > 0) {
+      toast.error(
+        t("setup.errors.platformFieldsRequired", {
+          fields: missingPlatformFields.join(", "),
+        })
+      );
+      return;
+    }
+
     setLoading(true);
     try {
-      const telegramToken = selectedPlatform === "telegram" ? (platformCreds.bot_token || "") : "";
-      const pc: Record<string, Record<string, string>> = {};
+      const telegramToken =
+        selectedPlatform === "telegram" ? (platformCreds.bot_token || "") : "";
+      const platformCredentials: Record<string, Record<string, string>> = {};
       if (selectedPlatform !== "none" && selectedPlatform !== "telegram") {
-        const hasValues = Object.values(platformCreds).some((v) => v.trim());
-        if (hasValues) pc[selectedPlatform] = { ...platformCreds };
+        platformCredentials[selectedPlatform] = { ...platformCreds };
       }
 
       const res = await fetch("/api/admin/setup", {
@@ -371,14 +528,20 @@ You have persistent memory across conversations. Use it wisely:
           system_prompt: systemPrompt,
           model,
           telegram_bot_token: telegramToken,
-          platform_credentials: Object.keys(pc).length > 0 ? pc : undefined,
+          platform_credentials:
+            Object.keys(platformCredentials).length > 0
+              ? platformCredentials
+              : undefined,
           app_origin: window.location.origin,
           access_token: supabasePAT,
           project_ref: projectRef,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) {
+        handleSetupApiError(data, t("setup.errors.createAgentFailed"));
+        return;
+      }
       toast.success(t("setup.success.agentCreated"));
       if (data.loginGateEnabled && data.loginUrl) {
         window.alert(
@@ -409,8 +572,6 @@ You have persistent memory across conversations. Use it wisely:
     );
   }
 
-  const stepKey = STEPS_KEYS[currentStep];
-
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-8 p-4">
       <div className="absolute right-4 top-4">
@@ -423,16 +584,20 @@ You have persistent memory across conversations. Use it wisely:
           {t("setup.title")}
         </h1>
         <p className="text-sm text-muted-foreground">
-          {t("setup.stepOf", { current: currentStep + 1, total: STEPS_KEYS.length })} -- {t(`setup.steps.${stepKey}.desc` as const)}
+          {t("setup.stepOf", {
+            current: effectiveStep + 1,
+            total: SETUP_STEPS.length,
+          })}{" "}
+          -- {t(`setup.steps.${stepKey}.desc` as const)}
         </p>
       </div>
 
       <div className="flex gap-2">
-        {STEPS_KEYS.map((_, i) => (
+        {SETUP_STEPS.map((_, index) => (
           <div
-            key={i}
+            key={index}
             className={`h-1.5 w-12 rounded-full transition-colors ${
-              i <= currentStep ? "bg-primary" : "bg-muted"
+              index <= effectiveStep ? "bg-primary" : "bg-muted"
             }`}
           />
         ))}
@@ -443,8 +608,34 @@ You have persistent memory across conversations. Use it wisely:
           <CardTitle>{t(`setup.steps.${stepKey}.title` as const)}</CardTitle>
           <CardDescription>{t(`setup.steps.${stepKey}.desc` as const)}</CardDescription>
         </CardHeader>
-        <CardContent>
-          {currentStep === 0 && (
+        <CardContent className="flex flex-col gap-4">
+          {isSetupBlocked && (
+            <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
+              <p className="font-medium text-destructive">
+                {t("setup.serviceRoleEnvRequiredTitle")}
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                {t("setup.serviceRoleEnvRequiredDesc")}
+              </p>
+            </div>
+          )}
+
+          {resumeUnavailable && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+              <p className="font-medium">{t("setup.resumeMissingTitle")}</p>
+              <p className="mt-1">{t("setup.resumeMissingDesc")}</p>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-3"
+                onClick={resetToConnect}
+              >
+                {t("setup.restartSetup")}
+              </Button>
+            </div>
+          )}
+
+          {effectiveStep === 0 && (
             <div className="flex flex-col gap-4">
               <SecretField
                 label={t("setup.supabasePAT")}
@@ -471,13 +662,16 @@ You have persistent memory across conversations. Use it wisely:
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
                 {t("setup.connectNote")}
               </div>
-              <Button onClick={handleConnect} disabled={loading}>
+              <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+                {t("setup.resumeEnabled")}
+              </div>
+              <Button onClick={handleConnect} disabled={loading || isSetupBlocked}>
                 {loading ? t("setup.connectingBtn") : t("setup.connectBtn")}
               </Button>
             </div>
           )}
 
-          {currentStep === 1 && (
+          {effectiveStep === 1 && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="email">{t("setup.email")}</Label>
@@ -500,7 +694,9 @@ You have persistent memory across conversations. Use it wisely:
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="confirmPassword">{t("setup.confirmPassword")}</Label>
+                <Label htmlFor="confirmPassword">
+                  {t("setup.confirmPassword")}
+                </Label>
                 <Input
                   id="confirmPassword"
                   type="password"
@@ -509,24 +705,17 @@ You have persistent memory across conversations. Use it wisely:
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />
               </div>
-              <Button onClick={handleRegister} disabled={loading}>
+              <Button onClick={handleRegister} disabled={loading || resumeUnavailable}>
                 {loading ? t("common.creating") : t("setup.createAdminBtn")}
               </Button>
             </div>
           )}
 
-          {currentStep === 2 && (
+          {effectiveStep === 2 && (
             <div className="flex flex-col gap-4">
-              <SecretField
-                label={t("setup.serviceRoleKey")}
-                required
-                hint={t("setup.serviceRoleKeyHint")}
-                placeholder={t("setup.pasteKeyPlaceholder")}
-                value={secrets.SUPABASE_SERVICE_ROLE_KEY}
-                onChange={(v) =>
-                  setSecrets((s) => ({ ...s, SUPABASE_SERVICE_ROLE_KEY: v }))
-                }
-              />
+              <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+                {t("setup.serviceRoleEnvManaged")}
+              </div>
               <div className="border-t pt-4">
                 <p className="mb-3 text-sm font-medium text-muted-foreground">
                   {t("setup.llmKeysTitle")}
@@ -535,14 +724,17 @@ You have persistent memory across conversations. Use it wisely:
                   {t("setup.llmKeysHint")}
                 </p>
                 <div className="flex flex-col gap-3">
-                  {PROVIDER_CHOICES.map((p) => (
+                  {PROVIDER_CHOICES.map((provider) => (
                     <SecretField
-                      key={p.id}
-                      label={`${p.name} API Key`}
+                      key={provider.id}
+                      label={`${provider.name} API Key`}
                       placeholder={t("setup.pasteKeyPlaceholder")}
-                      value={providerKeys[p.id] ?? ""}
-                      onChange={(v) =>
-                        setProviderKeys((prev) => ({ ...prev, [p.id]: v }))
+                      value={providerKeys[provider.id] ?? ""}
+                      onChange={(value) =>
+                        setProviderKeys((current) => ({
+                          ...current,
+                          [provider.id]: value,
+                        }))
                       }
                     />
                   ))}
@@ -552,17 +744,20 @@ You have persistent memory across conversations. Use it wisely:
                 label={t("setup.embeddingKey")}
                 placeholder={t("setup.pasteKeyPlaceholder")}
                 value={secrets.EMBEDDING_API_KEY}
-                onChange={(v) =>
-                  setSecrets((s) => ({ ...s, EMBEDDING_API_KEY: v }))
+                onChange={(value) =>
+                  setSecrets((current) => ({
+                    ...current,
+                    EMBEDDING_API_KEY: value,
+                  }))
                 }
               />
-              <Button onClick={handleSecrets} disabled={loading}>
+              <Button onClick={handleSecrets} disabled={loading || resumeUnavailable}>
                 {loading ? t("common.saving") : t("setup.saveAndContinue")}
               </Button>
             </div>
           )}
 
-          {currentStep === 3 && (
+          {effectiveStep === 3 && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="agentName">{t("setup.agentName")}</Label>
@@ -573,102 +768,129 @@ You have persistent memory across conversations. Use it wisely:
                 />
               </div>
 
-              {/* Platform selector */}
               <div className="flex flex-col gap-2">
                 <Label>
                   {t("setup.imPlatform")}{" "}
-                  <span className="text-xs text-muted-foreground">{t("setup.botTokenOptional")}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t("setup.botTokenOptional")}
+                  </span>
                 </Label>
-                <p className="text-xs text-muted-foreground">{t("setup.imPlatformHint")}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("setup.imPlatformHint")}
+                </p>
                 <div className="grid grid-cols-3 gap-1.5">
-                  {SETUP_PLATFORMS.map((p) => (
+                  {SETUP_PLATFORMS.map((platform) => (
                     <button
-                      key={p.key}
+                      key={platform.key}
                       type="button"
-                      onClick={() => { setSelectedPlatform(p.key); setPlatformCreds({}); }}
-                      className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 transition-colors text-center ${
-                        selectedPlatform === p.key
+                      onClick={() => {
+                        setSelectedPlatform(platform.key);
+                        setPlatformCreds({});
+                      }}
+                      className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-center transition-colors ${
+                        selectedPlatform === platform.key
                           ? "border-primary bg-primary/5"
                           : "hover:bg-muted/50"
                       }`}
                     >
-                      <p.icon className="size-5" />
-                      <span className="text-[10px] font-medium leading-tight">{p.label.split(" / ")[0]}</span>
+                      <platform.icon className="size-5" />
+                      <span className="text-[10px] font-medium leading-tight">
+                        {platform.label.split(" / ")[0]}
+                      </span>
                     </button>
                   ))}
                   <button
                     type="button"
-                    onClick={() => { setSelectedPlatform("none"); setPlatformCreds({}); }}
+                    onClick={() => {
+                      setSelectedPlatform("none");
+                      setPlatformCreds({});
+                    }}
                     className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2.5 transition-colors ${
                       selectedPlatform === "none"
                         ? "border-primary bg-primary/5"
                         : "hover:bg-muted/50"
                     }`}
                   >
-                    <span className="text-xs text-muted-foreground">{t("setup.skipPlatform")}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t("setup.skipPlatform")}
+                    </span>
                   </button>
                 </div>
-                {selectedPlatform !== "none" && (() => {
-                  const plat = SETUP_PLATFORMS.find((p) => p.key === selectedPlatform);
-                  if (!plat) return null;
-                  return (
-                    <div className="flex flex-col gap-2 rounded-lg border p-3 mt-1">
-                      {plat.fields.map((f) => (
-                        <div key={f.name} className="flex flex-col gap-1">
-                          <Label className="text-xs">{f.label}</Label>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type={f.secret ? "password" : "text"}
-                              placeholder={f.label}
-                              value={platformCreds[f.name] || ""}
-                              onChange={(e) =>
-                                setPlatformCreds((prev) => ({ ...prev, [f.name]: e.target.value }))
-                              }
-                            />
-                            {(SETUP_GENERATED_FIELDS[selectedPlatform]?.includes(f.name) ?? false) && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="shrink-0"
-                                onClick={() => fillGeneratedCredential(f.name)}
-                              >
-                                {t("agents.generateToken")}
-                              </Button>
-                            )}
-                          </div>
-                          {getPlatformFieldGuide(selectedPlatform, f.name) && (
-                            <p className="text-xs text-muted-foreground">
-                              {getPlatformFieldGuide(selectedPlatform, f.name)}
-                            </p>
+                {selectedPlatform !== "none" && selectedPlatformConfig && (
+                  <div className="mt-1 flex flex-col gap-2 rounded-lg border p-3">
+                    {selectedPlatformConfig.fields.map((field) => (
+                      <div key={field.name} className="flex flex-col gap-1">
+                        <Label className="text-xs">{field.label}</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type={field.secret ? "password" : "text"}
+                            placeholder={field.label}
+                            value={platformCreds[field.name] || ""}
+                            onChange={(e) =>
+                              setPlatformCreds((current) => ({
+                                ...current,
+                                [field.name]: e.target.value,
+                              }))
+                            }
+                          />
+                          {(SETUP_GENERATED_FIELDS[selectedPlatform]?.includes(field.name) ??
+                            false) && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0"
+                              onClick={() => fillGeneratedCredential(field.name)}
+                            >
+                              {t("agents.generateToken")}
+                            </Button>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  );
-                })()}
+                        {getPlatformFieldGuide(selectedPlatform, field.name) && (
+                          <p className="text-xs text-muted-foreground">
+                            {getPlatformFieldGuide(selectedPlatform, field.name)}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="model">{t("setup.model")}</Label>
-                {availableModels.length === 0 ? (
-                  <p className="text-sm text-destructive">
-                    {t("setup.noModels")}
+                {loadingModels ? (
+                  <p className="text-sm text-muted-foreground">
+                    {t("setup.modelsLoading")}
                   </p>
+                ) : availableModels.length === 0 ? (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-sm text-destructive">
+                      {modelsError || t("setup.noModels")}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void loadAvailableModels()}
+                      disabled={loadingModels}
+                    >
+                      {t("common.refresh")}
+                    </Button>
+                  </div>
                 ) : (
                   <Select
                     value={model}
-                    onValueChange={(v) => setModel(v ?? model)}
+                    onValueChange={(value) => setModel(value ?? "")}
                   >
                     <SelectTrigger id="setup-model-select-trigger">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableModels.map((m) => (
-                        <SelectItem key={m.model_id} value={m.model_id}>
-                          {m.label}
+                      {availableModels.map((item) => (
+                        <SelectItem key={item.model_id} value={item.model_id}>
+                          {item.label}
                           <span className="ml-2 text-xs text-muted-foreground">
-                            {m.provider_name}
+                            {item.provider_name}
                           </span>
                         </SelectItem>
                       ))}
@@ -676,6 +898,7 @@ You have persistent memory across conversations. Use it wisely:
                   </Select>
                 )}
               </div>
+
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="systemPrompt">{t("setup.systemPrompt")}</Label>
                 <Textarea
@@ -686,7 +909,17 @@ You have persistent memory across conversations. Use it wisely:
                   onChange={(e) => setSystemPrompt(e.target.value)}
                 />
               </div>
-              <Button onClick={handleCreateAgent} disabled={loading}>
+
+              <Button
+                onClick={handleCreateAgent}
+                disabled={
+                  loading ||
+                  loadingModels ||
+                  resumeUnavailable ||
+                  availableModels.length === 0 ||
+                  !model.trim()
+                }
+              >
                 {loading ? t("common.creating") : t("setup.createAgentBtn")}
               </Button>
             </div>
@@ -710,7 +943,7 @@ function SecretField({
   hint?: string;
   placeholder?: string;
   value: string;
-  onChange: (v: string) => void;
+  onChange: (value: string) => void;
 }) {
   return (
     <div className="flex flex-col gap-1.5">

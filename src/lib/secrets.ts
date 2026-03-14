@@ -1,15 +1,11 @@
-import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto/encrypt";
+import { createStrictServiceClient } from "@/lib/supabase/server";
 import type { SecretKeyName } from "@/types/database";
 
 let _cache: Map<string, string> | null = null;
 
 function getSupabaseForSecrets() {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  return createStrictServiceClient();
 }
 
 export async function getSecret(keyName: SecretKeyName): Promise<string | null> {

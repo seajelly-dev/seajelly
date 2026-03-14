@@ -30,6 +30,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const gateKey = searchParams.get("k") ?? "";
+      const nextUrl = searchParams.get("next") || "/dashboard";
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
@@ -47,7 +48,7 @@ export default function LoginPage() {
       if (gateKey) {
         sessionStorage.setItem("seajelly_login_gate_key", gateKey);
       }
-      router.push("/dashboard");
+      router.push(nextUrl);
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("login.loginFailed"));

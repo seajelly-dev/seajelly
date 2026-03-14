@@ -1,6 +1,19 @@
-import { NextResponse } from "next/server";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/crypto/encrypt";
+import {
+  clearSetupBootstrapCookie,
+  resolveSetupBootstrapCredentials,
+  setSetupBootstrapCookie,
+  SETUP_BOOTSTRAP_MISSING_CODE,
+  type SetupBootstrapCredentials,
+} from "@/lib/setup/bootstrap";
+import {
+  getMissingSetupPlatformFields,
+  SETUP_PLATFORM_FIELDS,
+  type SetupPlatform,
+} from "@/lib/setup/platforms";
+import { getSetupStatus } from "@/lib/setup/status";
 import {
   LOGIN_GATE_ENABLED_KEY,
   LOGIN_GATE_HASH_KEY,
@@ -9,97 +22,110 @@ import {
 } from "@/lib/security/login-gate";
 
 const MGMT_BASE = "https://api.supabase.com/v1";
+const SETUP_BLOCKING_REASON_CODE = "missing_service_role_env";
+
+interface SetupRequestBody {
+  step?: string;
+  access_token?: string;
+  project_ref?: string;
+  email?: string;
+  password?: string;
+  secrets?: Record<string, string>;
+  providerKeys?: { providerId: string; apiKey: string }[];
+  name?: string;
+  system_prompt?: string;
+  model?: string;
+  telegram_bot_token?: string;
+  platform_credentials?: Partial<Record<SetupPlatform, Record<string, string>>>;
+  app_origin?: string;
+}
 
 // ─── GET: check setup status ───
 
 export async function GET() {
-  let db;
-  try {
-    db = await createAdminClient();
-  } catch {
-    db = await createClient();
-  }
-
-  const [admins, secrets, agents, providerKeys] = await Promise.all([
-    db.from("admins").select("*", { count: "exact", head: true }),
-    db.from("secrets").select("key_name"),
-    db.from("agents").select("*", { count: "exact", head: true }),
-    db.from("provider_api_keys").select("*", { count: "exact", head: true }),
-  ]);
-
-  const hasAdmin = (admins.count ?? 0) > 0;
-  const secretKeys = (secrets.data ?? []).map((s) => s.key_name);
-  const hasSupabaseKeys =
-    secretKeys.includes("SUPABASE_ACCESS_TOKEN") &&
-    secretKeys.includes("SUPABASE_PROJECT_REF");
-  const hasServiceRole = secretKeys.includes("SUPABASE_SERVICE_ROLE_KEY");
-  const hasLLMKey = (providerKeys.count ?? 0) > 0;
-  const hasAgent = (agents.count ?? 0) > 0;
-
-  const setupComplete =
-    hasSupabaseKeys && hasAdmin && hasServiceRole && hasLLMKey && hasAgent;
-
-  let currentStep = 0;
-  if (hasSupabaseKeys) currentStep = 1;
-  if (hasSupabaseKeys && hasAdmin) currentStep = 2;
-  if (hasSupabaseKeys && hasAdmin && hasServiceRole && hasLLMKey)
-    currentStep = 3;
-  if (setupComplete) currentStep = 4;
-
-  return NextResponse.json({
-    needsSetup: !setupComplete,
-    setupComplete,
-    currentStep,
-    hasSupabaseKeys,
-    hasAdmin,
-    hasServiceRole,
-    hasLLMKey,
-    hasAgent,
-    configuredKeys: secretKeys,
-  });
+  return NextResponse.json(await getSetupStatus());
 }
 
 // ─── POST: handle each setup step ───
 
-export async function POST(request: Request) {
-  const body = await request.json();
+export async function POST(request: NextRequest) {
+  const body = (await request.json()) as SetupRequestBody;
   const { step } = body;
+  const status = await getSetupStatus();
 
-  if (step !== "connect") {
-    try {
-      const db = await createAdminClient();
-      const { count } = await db
-        .from("admins")
-        .select("*", { count: "exact", head: true });
-      const { count: agentCount } = await db
-        .from("agents")
-        .select("*", { count: "exact", head: true });
-      if ((count ?? 0) > 0 && (agentCount ?? 0) > 0) {
-        return NextResponse.json(
-          { error: "Setup already completed" },
-          { status: 403 }
-        );
-      }
-    } catch {
-      /* first-time: createAdminClient may fail — allow setup to proceed */
-    }
+  if (status.blockingReason === "missing_service_role_env") {
+    return missingServiceRoleEnvResponse();
+  }
+
+  if (status.setupComplete) {
+    return NextResponse.json(
+      { error: "Setup already completed" },
+      { status: 403 }
+    );
   }
 
   if (step === "connect") return handleConnect(body);
-  if (step === "register") return handleRegister(body);
-  if (step === "secrets") return handleSecrets(body);
-  if (step === "agent") return handleAgent(body);
+
+  const bootstrap = resolveSetupBootstrapCredentials(request, body);
+  if (!bootstrap) {
+    return missingSetupBootstrapResponse();
+  }
+
+  if (step === "register") return handleRegister(body, bootstrap);
+  if (step === "secrets") return handleSecrets(body, bootstrap);
+  if (step === "agent") return handleAgent(body, bootstrap);
 
   return NextResponse.json({ error: "Invalid step" }, { status: 400 });
 }
 
+function missingServiceRoleEnvResponse() {
+  return NextResponse.json(
+    {
+      error:
+        "SUPABASE_SERVICE_ROLE_KEY must be configured in the deployment environment before setup",
+      code: SETUP_BLOCKING_REASON_CODE,
+    },
+    { status: 400 }
+  );
+}
+
+function missingSetupBootstrapResponse() {
+  return NextResponse.json(
+    {
+      error: "Setup bootstrap session expired. Please redo Step 0",
+      code: SETUP_BOOTSTRAP_MISSING_CODE,
+    },
+    { status: 400 }
+  );
+}
+
+async function execManagementSql(
+  credentials: SetupBootstrapCredentials,
+  sql: string
+) {
+  const res = await fetch(
+    `${MGMT_BASE}/projects/${credentials.project_ref}/database/query`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${credentials.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query: sql }),
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`SQL failed (HTTP ${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
 // ─── Step 0: Connect Supabase + run migrations ───
 
-async function handleConnect(body: {
-  access_token: string;
-  project_ref: string;
-}) {
-  const { access_token, project_ref } = body;
+async function handleConnect(body: SetupRequestBody) {
+  const access_token = body.access_token?.trim() ?? "";
+  const project_ref = body.project_ref?.trim() ?? "";
   if (!access_token || !project_ref) {
     return NextResponse.json(
       { error: "access_token and project_ref are required" },
@@ -107,37 +133,22 @@ async function handleConnect(body: {
     );
   }
 
-  async function execSQL(sql: string) {
-    const res = await fetch(
-      `${MGMT_BASE}/projects/${project_ref}/database/query`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ query: sql }),
-      }
-    );
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`SQL execution failed (HTTP ${res.status}): ${text}`);
-    }
-    return res.json();
-  }
+  const bootstrap = { access_token, project_ref };
 
   try {
     // Verify connection with a simple query
-    await execSQL("SELECT 1 AS ok;");
+    await execManagementSql(bootstrap, "SELECT 1 AS ok;");
 
     // Run the full schema (idempotent — uses IF NOT EXISTS everywhere)
-    await execSQL(SCHEMA_SQL);
+    await execManagementSql(bootstrap, SCHEMA_SQL);
 
     // Enable scheduling extensions
-    await execSQL(
+    await execManagementSql(
+      bootstrap,
       "CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;"
     );
-    await execSQL(
+    await execManagementSql(
+      bootstrap,
       "CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;"
     );
 
@@ -147,7 +158,7 @@ async function handleConnect(body: {
     // We need a temporary permissive approach: the SCHEMA_SQL creates the table
     // with admin-only policy, but we haven't registered an admin yet.
     // Solution: use Management API to insert directly.
-    await execSQL(`
+    await execManagementSql(bootstrap, `
       INSERT INTO public.secrets (key_name, encrypted_value)
       VALUES
         ('SUPABASE_ACCESS_TOKEN', '${encrypt(access_token).replace(/'/g, "''")}'),
@@ -155,10 +166,12 @@ async function handleConnect(body: {
       ON CONFLICT (key_name) DO UPDATE SET encrypted_value = EXCLUDED.encrypted_value, updated_at = now();
     `);
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       message: "Database initialized, extensions enabled, credentials saved",
     });
+    setSetupBootstrapCookie(response, bootstrap);
+    return response;
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Connection failed" },
@@ -170,43 +183,24 @@ async function handleConnect(body: {
 // ─── Step 1: Register admin ───
 // Front-end passes PAT + ref (cached from Step 0) to bypass RLS bootstrap issue
 
-async function handleRegister(body: {
-  email: string;
-  password: string;
-  access_token: string;
-  project_ref: string;
-}) {
-  const { email, password, access_token, project_ref } = body;
-  if (!access_token || !project_ref) {
+async function handleRegister(
+  body: SetupRequestBody,
+  bootstrap: SetupBootstrapCredentials
+) {
+  const email = body.email?.trim() ?? "";
+  const password = body.password ?? "";
+  if (!email || !password) {
     return NextResponse.json(
-      { error: "Missing Supabase credentials — please redo Step 0" },
+      { error: "Email and password are required" },
       { status: 400 }
     );
   }
 
   const supabase = await createClient();
 
-  async function execSQL(sql: string) {
-    const res = await fetch(
-      `${MGMT_BASE}/projects/${project_ref}/database/query`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ query: sql }),
-      }
-    );
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`SQL failed (HTTP ${res.status}): ${text}`);
-    }
-    return res.json();
-  }
-
   try {
-    const countResult = await execSQL(
+    const countResult = await execManagementSql(
+      bootstrap,
       "SELECT count(*)::int AS cnt FROM public.admins;"
     );
     const adminCount =
@@ -235,11 +229,11 @@ async function handleRegister(body: {
 
     // Auto-confirm the user's email via Management API so auth.uid() works in RLS
     const confirmRes = await fetch(
-      `${MGMT_BASE}/projects/${project_ref}/database/query`,
+      `${MGMT_BASE}/projects/${bootstrap.project_ref}/database/query`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${access_token}`,
+          Authorization: `Bearer ${bootstrap.access_token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -252,15 +246,26 @@ async function handleRegister(body: {
     }
 
     const escapedEmail = email.replace(/'/g, "''");
-    await execSQL(`
+    await execManagementSql(bootstrap, `
       INSERT INTO public.admins (auth_uid, email, is_super_admin)
       VALUES ('${authData.user.id}', '${escapedEmail}', true);
     `);
 
     // Sign in immediately so the session cookie is set with a confirmed user
-    await supabase.auth.signInWithPassword({ email, password });
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    return NextResponse.json({ success: true });
+    if (signInError) {
+      return NextResponse.json({
+        success: true,
+        sessionEstablished: false,
+        loginUrl: "/login?next=/setup",
+      });
+    }
+
+    return NextResponse.json({ success: true, sessionEstablished: true });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Registration failed" },
@@ -280,49 +285,24 @@ const LLM_KEY_TO_PROVIDER: Record<string, string> = {
   DEEPSEEK_API_KEY: "00000000-0000-0000-0000-000000000004",
 };
 
-async function handleSecrets(body: {
-  secrets: Record<string, string>;
-  providerKeys?: { providerId: string; apiKey: string }[];
-  access_token: string;
-  project_ref: string;
-}) {
-  const { access_token, project_ref } = body;
-  if (!access_token || !project_ref) {
-    return NextResponse.json(
-      { error: "Missing Supabase credentials — please redo Step 0" },
-      { status: 400 }
-    );
-  }
-
-  async function execSQL(sql: string) {
-    const res = await fetch(
-      `${MGMT_BASE}/projects/${project_ref}/database/query`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ query: sql }),
-      }
-    );
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`SQL failed (HTTP ${res.status}): ${text}`);
-    }
-    return res.json();
-  }
-
+async function handleSecrets(
+  body: SetupRequestBody,
+  bootstrap: SetupBootstrapCredentials
+) {
   try {
     let saved = 0;
 
-    const secretEntries = Object.entries(body.secrets).filter(
-      ([key, value]) => value && value.trim() !== "" && !LLM_KEY_TO_PROVIDER[key]
+    const secretEntries = Object.entries(body.secrets ?? {}).filter(
+      ([key, value]) =>
+        value &&
+        value.trim() !== "" &&
+        key !== "SUPABASE_SERVICE_ROLE_KEY" &&
+        !LLM_KEY_TO_PROVIDER[key]
     );
     for (const [keyName, value] of secretEntries) {
       const encryptedValue = encrypt(value).replace(/'/g, "''");
       const escapedKey = keyName.replace(/'/g, "''");
-      await execSQL(`
+      await execManagementSql(bootstrap, `
         INSERT INTO public.secrets (key_name, encrypted_value)
         VALUES ('${escapedKey}', '${encryptedValue}')
         ON CONFLICT (key_name) DO UPDATE SET encrypted_value = EXCLUDED.encrypted_value, updated_at = now();
@@ -333,10 +313,16 @@ async function handleSecrets(body: {
     const providerKeyEntries = body.providerKeys?.filter(
       (pk) => pk.apiKey && pk.apiKey.trim() !== ""
     ) ?? [];
+    if (providerKeyEntries.length === 0) {
+      return NextResponse.json(
+        { error: "At least one LLM provider key is required" },
+        { status: 400 }
+      );
+    }
     for (const pk of providerKeyEntries) {
       const encryptedValue = encrypt(pk.apiKey).replace(/'/g, "''");
       const escapedProviderId = pk.providerId.replace(/'/g, "''");
-      await execSQL(`
+      await execManagementSql(bootstrap, `
         INSERT INTO public.provider_api_keys (provider_id, encrypted_value, label, is_active)
         VALUES ('${escapedProviderId}', '${encryptedValue}', 'Setup Key', true);
       `);
@@ -355,51 +341,50 @@ async function handleSecrets(body: {
 // ─── Step 3: Create first agent ───
 // Uses Management API to bypass RLS
 
-async function handleAgent(body: {
-  name: string;
-  system_prompt: string;
-  model: string;
-  telegram_bot_token?: string;
-  platform_credentials?: Record<string, Record<string, string>>;
-  app_origin?: string;
-  access_token: string;
-  project_ref: string;
-}) {
-  const { access_token, project_ref } = body;
-  if (!access_token || !project_ref) {
+async function handleAgent(
+  body: SetupRequestBody,
+  bootstrap: SetupBootstrapCredentials
+) {
+  const name = body.name?.trim() ?? "";
+  const model = body.model?.trim() ?? "";
+  if (!name) {
     return NextResponse.json(
-      { error: "Missing Supabase credentials — please redo Step 0" },
+      { error: "Agent name is required" },
+      { status: 400 }
+    );
+  }
+  if (!model) {
+    return NextResponse.json(
+      { error: "Model is required" },
       { status: 400 }
     );
   }
 
   try {
-    async function execSQL(sql: string) {
-      const res = await fetch(
-        `${MGMT_BASE}/projects/${project_ref}/database/query`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${access_token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ query: sql }),
+    if (body.platform_credentials) {
+      for (const [platform, fields] of Object.entries(body.platform_credentials)) {
+        const missingFields = getMissingSetupPlatformFields(
+          platform as SetupPlatform,
+          fields ?? {}
+        );
+        if (missingFields.length > 0) {
+          return NextResponse.json(
+            {
+              error: `Missing required platform fields: ${missingFields.join(", ")}`,
+            },
+            { status: 400 }
+          );
         }
-      );
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`SQL failed (HTTP ${res.status}): ${text}`);
       }
-      return res.json();
     }
 
-    const escapedName = body.name.replace(/'/g, "''");
-    const escapedPrompt = body.system_prompt.replace(/'/g, "''");
-    const escapedModel = body.model.replace(/'/g, "''");
+    const escapedName = name.replace(/'/g, "''");
+    const escapedPrompt = (body.system_prompt ?? "").replace(/'/g, "''");
+    const escapedModel = model.replace(/'/g, "''");
     const tokenValue = body.telegram_bot_token
       ? `'${encrypt(body.telegram_bot_token).replace(/'/g, "''")}'`
       : "NULL";
-    const data = await execSQL(`
+    const data = await execManagementSql(bootstrap, `
       INSERT INTO public.agents (name, system_prompt, model, is_default, telegram_bot_token)
       VALUES ('${escapedName}', '${escapedPrompt}', '${escapedModel}', true, ${tokenValue})
       RETURNING id, name;
@@ -410,7 +395,7 @@ async function handleAgent(body: {
     const loginGateKey = randomBytes(24).toString("hex");
     const loginGateHash = (await sha256Hex(loginGateKey)).replace(/'/g, "''");
     const gateEnabledValue = process.env.NODE_ENV === "production" ? "true" : "false";
-    await execSQL(`
+    await execManagementSql(bootstrap, `
       INSERT INTO public.system_settings (key, value)
       VALUES
         ('${LOGIN_GATE_ENABLED_KEY}', '${gateEnabledValue}'),
@@ -432,7 +417,8 @@ async function handleAgent(body: {
           });
           await bot.api.setMyCommands(BOT_COMMANDS);
           const escapedSecret = webhookSecret.replace(/'/g, "''");
-          await execSQL(
+          await execManagementSql(
+            bootstrap,
             `UPDATE public.agents SET webhook_secret = '${escapedSecret}' WHERE id = '${agentId}';`
           );
         } catch (webhookErr) {
@@ -442,20 +428,14 @@ async function handleAgent(body: {
     }
 
     if (agentId && body.platform_credentials) {
-      const PLATFORM_CRED_KEYS: Record<string, string[]> = {
-        feishu: ["app_id", "app_secret", "encrypt_key", "verification_token"],
-        wecom: ["corp_id", "corp_secret", "agent_id", "token", "encoding_aes_key"],
-        slack: ["bot_token", "signing_secret"],
-        qqbot: ["app_id", "app_secret"],
-        whatsapp: ["access_token", "phone_number_id", "verify_token", "app_secret"],
-      };
       for (const [platform, fields] of Object.entries(body.platform_credentials)) {
-        const allowed = PLATFORM_CRED_KEYS[platform];
+        const allowed = SETUP_PLATFORM_FIELDS[platform as Exclude<SetupPlatform, "none">];
         if (!allowed) continue;
+        const allowedFieldNames = allowed.map((field) => field.name);
         for (const [key, value] of Object.entries(fields)) {
-          if (!allowed.includes(key) || !value?.trim()) continue;
+          if (!allowedFieldNames.includes(key) || !value?.trim()) continue;
           const escapedVal = encrypt(value).replace(/'/g, "''");
-          await execSQL(`
+          await execManagementSql(bootstrap, `
             INSERT INTO public.agent_credentials (agent_id, platform, credential_type, encrypted_value)
             VALUES ('${agentId}', '${platform}', '${key}', '${escapedVal}')
             ON CONFLICT (agent_id, platform, credential_type) DO UPDATE SET encrypted_value = EXCLUDED.encrypted_value;
@@ -476,13 +456,15 @@ async function handleAgent(body: {
     const loginPath = `/login?${LOGIN_GATE_QUERY_PARAM}=${encodeURIComponent(loginGateKey)}`;
     const dashboardPath = `/dashboard?${LOGIN_GATE_QUERY_PARAM}=${encodeURIComponent(loginGateKey)}`;
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       agent: data,
       loginUrl: origin ? `${origin}${loginPath}` : loginPath,
       dashboardUrl: origin ? `${origin}${dashboardPath}` : dashboardPath,
       loginGateEnabled: gateEnabledValue === "true",
     });
+    clearSetupBootstrapCookie(response);
+    return response;
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to create agent" },

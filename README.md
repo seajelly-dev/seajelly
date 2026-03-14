@@ -51,7 +51,7 @@ For a beginner-friendly walkthrough, use:
 Typical flow:
 
 1. Click `Deploy with Vercel`.
-2. Fill in the bootstrap environment variables listed below.
+2. Fill in the bootstrap environment variables listed below, especially `SUPABASE_SERVICE_ROLE_KEY`.
 3. Finish the deployment.
 4. Open `/setup`.
 5. Follow the detailed setup guide.
@@ -78,7 +78,7 @@ Most runtime secrets are designed to be entered in `/setup` or the dashboard and
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Browser/server session client |
-| `SUPABASE_SERVICE_ROLE_KEY` | Recommended | Required for strict server-side access and security-sensitive routes |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Required before `/setup` can continue, and used for strict server-side access and security-sensitive routes |
 | `ENCRYPTION_KEY` | Yes | AES-256-GCM key for encrypting stored secrets |
 | `NEXT_PUBLIC_APP_URL` | Yes | Public base URL used by webhook, preview, cron, and voice-link flows |
 | `CRON_SECRET` | Yes | Protects worker and agent invocation endpoints |
@@ -105,10 +105,12 @@ In short, `/setup` does four things:
 
 1. Connect Supabase with a PAT and project ref
 2. Create the first admin account
-3. Save the service-role key and at least one model provider key
+3. Save at least one model provider key and optional embedding credentials
 4. Create the first agent and optionally attach an IM platform
 
 If setup shows a **security login URL** at the end in production, save it immediately.
+
+The setup flow now supports refresh-safe resume in the same browser via a temporary HttpOnly cookie. If that cookie is lost, `/setup` will ask you to reconnect Supabase from step 1.
 
 ## What Exists Today
 

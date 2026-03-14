@@ -28,7 +28,7 @@ Before opening `/setup`, make sure your deployment has:
 | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Connects the app to your Supabase project |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser and session-auth client |
-| `SUPABASE_SERVICE_ROLE_KEY` | Needed for strict server-side access and security-sensitive flows |
+| `SUPABASE_SERVICE_ROLE_KEY` | Must already exist in Vercel before `/setup` can continue |
 | `ENCRYPTION_KEY` | Encrypts stored secrets |
 | `NEXT_PUBLIC_APP_URL` | Public base URL for redirects, webhooks, previews, and cron |
 | `CRON_SECRET` | Protects worker endpoints |
@@ -62,6 +62,8 @@ SEAJelly will:
 
 You do not need to run SQL manually for the normal setup path.
 
+SEAJelly now keeps your PAT and project ref in a temporary HttpOnly setup cookie, so refreshing in the same browser can resume the setup flow safely until setup finishes.
+
 ## Step 2: Create the First Admin
 
 Enter:
@@ -76,8 +78,8 @@ This account becomes the first dashboard admin. Use a real email you control and
 
 This step requires:
 
-- `Supabase Service Role Key`
 - at least one LLM provider API key
+- optional embedding credentials if you want them immediately
 
 The built-in setup form currently accepts provider keys for:
 
@@ -90,7 +92,7 @@ Notes:
 
 - You only need one provider key to finish setup.
 - You can add more providers and models later in the dashboard.
-- The service-role key is especially important for worker routes, strict server access, and other privileged flows.
+- `SUPABASE_SERVICE_ROLE_KEY` is now treated as a deployment prerequisite, not something you paste into the setup form.
 
 ## Step 4: Create the First Agent
 
