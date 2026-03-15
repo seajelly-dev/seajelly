@@ -25,6 +25,26 @@ The gateway is driven by `gateway.json`. Adding a new forwarding target means up
   --config /etc/seajelly/gateway.json
 ```
 
+If you only need static-IP HTTP forwarding, the command above is enough.
+
+If you want browser clients to connect through `wss://` or `https://`, the gateway entrypoint itself must actually speak TLS. In practice that means one of these must be true:
+
+- Start the gateway with `--cert` and `--key`
+- Or terminate TLS in front of the gateway with another proxy/load balancer
+
+Example:
+
+```bash
+./seajelly-gateway \
+  --port 9100 \
+  --secret "your-secret" \
+  --config /etc/seajelly/gateway.json \
+  --cert /path/to/fullchain.pem \
+  --key /path/to/privkey.pem
+```
+
+If you keep the gateway on plain HTTP, server-side use cases such as WeCom static-IP forwarding still work, but HTTPS pages in the browser will not be allowed to open `ws://` connections for ASR.
+
 Startup output includes:
 
 ```text
@@ -149,6 +169,8 @@ After changing `gateway.json`, restart the service:
 ```bash
 sudo systemctl restart seajelly-gateway
 ```
+
+If you need direct HTTPS/WSS on the gateway port, add `--cert` and `--key` to the final service command or place the gateway behind an existing TLS-enabled entrypoint.
 
 ## Build From Source
 

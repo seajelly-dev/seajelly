@@ -25,6 +25,26 @@ English: [README.md](./README.md)
   --config /etc/seajelly/gateway.json
 ```
 
+如果你只是要解决静态 IP 的 HTTP 转发问题，上面的启动方式就够了。
+
+如果你希望浏览器侧通过 `wss://` 或 `https://` 访问网关，那么网关入口本身必须真的启用 TLS。实际做法二选一：
+
+- 启动网关时显式传入 `--cert` 和 `--key`
+- 或者在网关前面放一个已经做完 TLS 终止的入口层
+
+例如：
+
+```bash
+./seajelly-gateway \
+  --port 9100 \
+  --secret "你的密钥" \
+  --config /etc/seajelly/gateway.json \
+  --cert /path/to/fullchain.pem \
+  --key /path/to/privkey.pem
+```
+
+如果网关仍然只是明文 HTTP，那么像企微这种服务端静态 IP 转发仍然可以正常工作，但浏览器中的 HTTPS 页面不能去连接 `ws://` 的 ASR WebSocket。
+
 启动输出类似：
 
 ```text
@@ -149,6 +169,8 @@ curl -fsSL https://raw.githubusercontent.com/your-username/seajelly/main/tools/e
 ```bash
 sudo systemctl restart seajelly-gateway
 ```
+
+如果你希望网关端口直接提供 HTTPS/WSS，请在最终服务命令里补上 `--cert` 和 `--key`，或者把它放到一个已有 TLS 能力的入口层后面。
 
 ## 从源码构建
 
