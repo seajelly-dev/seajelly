@@ -11,7 +11,7 @@
 
 > English: [README.md](./README.md)
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/shepherdwitty/opencrab)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fshepherdwitty%2Fopencrab&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY,ENCRYPTION_KEY,NEXT_PUBLIC_APP_URL,CRON_SECRET&envDescription=%E8%AF%B7%E5%85%88%E9%85%8D%E7%BD%AE%20SEAJelly%20%E9%83%A8%E7%BD%B2%E6%89%80%E9%9C%80%E7%9A%84%E5%9F%BA%E7%A1%80%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8F%E5%90%8E%E5%86%8D%E5%AE%8C%E6%88%90%E9%83%A8%E7%BD%B2%E3%80%82&envLink=https%3A%2F%2Fgithub.com%2Fshepherdwitty%2Fopencrab%2Fblob%2Fmain%2Fsetup.zh-CN.md)
 
 ## 为什么是 SEAJelly
 

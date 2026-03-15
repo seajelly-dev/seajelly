@@ -11,7 +11,7 @@ Official domain: [seajelly.ai](https://seajelly.ai)
 
 > 中文说明: [README.zh-CN.md](./README.zh-CN.md)
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/shepherdwitty/opencrab)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fshepherdwitty%2Fopencrab&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY,ENCRYPTION_KEY,NEXT_PUBLIC_APP_URL,CRON_SECRET&envDescription=Configure%20the%20required%20SEAJelly%20bootstrap%20environment%20variables%20before%20deploying.&envLink=https%3A%2F%2Fgithub.com%2Fshepherdwitty%2Fopencrab%2Fblob%2Fmain%2Fsetup.md)
 
 ## Why SEAJelly
 
