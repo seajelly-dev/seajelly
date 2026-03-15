@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto/encrypt";
+import { GATEWAY_CAPABILITIES } from "@/lib/gateway/capabilities";
+import { getGatewayConnection, postGatewayRoute } from "@/lib/gateway/client";
 import type { PlatformSender, SendOptions, ButtonRow } from "../types";
 
 interface WeComCredentials {
@@ -11,37 +13,13 @@ interface WeComCredentials {
   encodingAesKey: string;
 }
 
-interface GatewayConfig {
-  url: string;
-  secret: string;
-}
-
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
-let _gatewayCache: GatewayConfig | null | undefined;
 
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
-}
-
-async function getGatewayConfig(): Promise<GatewayConfig | null> {
-  if (_gatewayCache !== undefined) return _gatewayCache;
-  const supabase = getSupabase();
-  const { data } = await supabase
-    .from("system_settings")
-    .select("key, value")
-    .in("key", ["gateway_url", "gateway_secret"]);
-  const map: Record<string, string> = {};
-  for (const r of data || []) map[r.key] = r.value;
-  if (map.gateway_url && map.gateway_secret) {
-    _gatewayCache = { url: map.gateway_url, secret: map.gateway_secret };
-  } else {
-    _gatewayCache = null;
-  }
-  setTimeout(() => { _gatewayCache = undefined; }, 60_000);
-  return _gatewayCache;
 }
 
 export async function resolveWeComCredentials(agentId: string): Promise<WeComCredentials> {
@@ -69,27 +47,29 @@ export async function resolveWeComCredentials(agentId: string): Promise<WeComCre
 }
 
 export async function wecomApiFetch(url: string, init?: RequestInit): Promise<Response> {
-  const gw = await getGatewayConfig();
-  if (!gw) return fetch(url, init);
+  const gateway = await getGatewayConnection();
+  if (!gateway) return fetch(url, init);
 
   const reqHeaders: Record<string, string> = {};
   if (init?.headers) {
     const entries = init.headers instanceof Headers
       ? init.headers.entries()
-      : Object.entries(init.headers as Record<string, string>);
+      : Array.isArray(init.headers)
+        ? init.headers
+        : Object.entries(init.headers as Record<string, string>);
     for (const [k, v] of entries) reqHeaders[k] = v;
   }
 
-  return fetch(`${gw.url.replace(/\/$/, "")}/proxy`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Gateway-Secret": gw.secret },
-    body: JSON.stringify({
+  return postGatewayRoute(
+    GATEWAY_CAPABILITIES.wecomHttp,
+    {
       url,
       method: init?.method || "GET",
       headers: Object.keys(reqHeaders).length > 0 ? reqHeaders : undefined,
       body: typeof init?.body === "string" ? init.body : undefined,
-    }),
-  });
+    },
+    { connection: gateway },
+  );
 }
 
 async function getAccessToken(agentId: string): Promise<string> {
@@ -197,19 +177,19 @@ export class WeComAdapter implements PlatformSender {
 
     const token = await getAccessToken(this.agentId);
     const uploadUrl = `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=voice`;
-    const gw = await getGatewayConfig();
+    const gateway = await getGatewayConnection();
 
     let uploadData: { errcode?: number; media_id?: string };
-    if (gw) {
-      const resp = await fetch(`${gw.url.replace(/\/$/, "")}/upload`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Gateway-Secret": gw.secret },
-        body: JSON.stringify({
+    if (gateway) {
+      const resp = await postGatewayRoute(
+        GATEWAY_CAPABILITIES.wecomMediaUpload,
+        {
           url: uploadUrl,
           file_name: name,
           file_data: audio.toString("base64"),
-        }),
-      });
+        },
+        { connection: gateway },
+      );
       uploadData = await resp.json();
     } else {
       const form = new FormData();
@@ -232,19 +212,19 @@ export class WeComAdapter implements PlatformSender {
   async sendPhoto(chatId: string, photo: Buffer, caption?: string): Promise<void> {
     const token = await getAccessToken(this.agentId);
     const uploadUrl = `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=image`;
-    const gw = await getGatewayConfig();
+    const gateway = await getGatewayConnection();
 
     let uploadData: { errcode?: number; media_id?: string };
-    if (gw) {
-      const resp = await fetch(`${gw.url.replace(/\/$/, "")}/upload`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Gateway-Secret": gw.secret },
-        body: JSON.stringify({
+    if (gateway) {
+      const resp = await postGatewayRoute(
+        GATEWAY_CAPABILITIES.wecomMediaUpload,
+        {
           url: uploadUrl,
           file_name: "chart.png",
           file_data: photo.toString("base64"),
-        }),
-      });
+        },
+        { connection: gateway },
+      );
       uploadData = await resp.json();
     } else {
       const form = new FormData();

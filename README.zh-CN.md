@@ -149,6 +149,17 @@ SEAJelly 仍处于快速迭代和开源前加固阶段。
 - QQ Bot
 - WhatsApp
 
+#### WeCom 接入补充
+
+如果你使用的是企业微信自建应用，并且部署形态是 Vercel 这类 Serverless 环境，通常还需要一个带固定公网 IP 的 Edge Gateway，来解决企微 API 白名单和部分后端转发场景。
+
+根目录 README 只保留高层指引：
+
+- 在 Dashboard 的 `Settings -> Edge Gateway` 中填写网关地址和密钥
+- 将网关公网 IP 加入企业微信后台的 IP 白名单
+- 网关的安装、`gateway.json` 配置、systemd 方式和能力声明，请直接深度阅读 [tools/edge-gateway/README.zh-CN.md](./tools/edge-gateway/README.zh-CN.md)
+- 如果你想快速理解安装脚本会做什么，也可以直接查看 [tools/edge-gateway/install.sh](./tools/edge-gateway/install.sh)
+
 ### 模型 Provider
 
 当前内置 Provider 包括：
@@ -202,6 +213,7 @@ flowchart LR
 ## 延伸阅读
 
 - [setup.zh-CN.md](./setup.zh-CN.md)：面向小白用户的 setup 详细指南
+- [tools/edge-gateway/README.zh-CN.md](./tools/edge-gateway/README.zh-CN.md)：Edge Gateway 的安装、`gateway.json` 配置和能力声明说明
 - [src/lib/agent/README.md](./src/lib/agent/README.md)：Agent 运行时架构与 tool 开发指南
 - [src/lib/agent/tooling/README.md](./src/lib/agent/tooling/README.md)：内置 toolkit、catalog 与运行时策略说明
 - [src/app/api/app/README.md](./src/app/api/app/README.md)：Sub-App 后端开发与 bearer-link 安全指南

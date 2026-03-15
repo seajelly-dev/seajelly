@@ -1,365 +1,169 @@
 # SEAJelly Edge Gateway
 
-A single-binary gateway service that solves two Serverless (Vercel) pain points:
+中文说明: [README.zh-CN.md](./README.zh-CN.md)
 
-1. **Static IP Proxy** — Forward HTTP API calls (e.g. WeCom) through a fixed-IP host to satisfy IP whitelist requirements. Vercel's official solution costs $100/month for 2 static IPs.
-2. **WebSocket Relay** — Proxy real-time WebSocket connections (e.g. Doubao ASR) that Vercel cannot maintain. Credentials are fetched from Supabase at runtime — nothing is hardcoded on the gateway host.
+Config-driven single-binary gateway for serverless deployments that need:
 
----
+1. Static-IP outbound forwarding for allowlisted APIs such as WeCom
+2. Long-lived WebSocket relays for browser-only or backend-only upstream services such as Doubao ASR
 
-## One-Line Install (Linux)
+The gateway is driven by `gateway.json`. Adding a new forwarding target means updating JSON and restarting the binary, not recompiling Go code.
+
+## What Changed
+
+- HTTP forwarding, multipart upload forwarding, and WebSocket relay are generic route kinds
+- Routes are discovered through `GET /manifest`
+- Sensitive upstream values come from external sources, not from hardcoded Go logic
+- Legacy fixed routes like `/proxy`, `/upload`, and `/ws/doubao-asr` are removed
+
+## Quick Start
+
+```bash
+./seajelly-gateway \
+  --port 9100 \
+  --secret "your-secret" \
+  --config /etc/seajelly/gateway.json
+```
+
+Startup output includes:
+
+```text
+SEAJelly Edge Gateway v2.0.0
+Public IP:      1.2.3.4
+Listen:         :9100
+Gateway Secret: your-secret
+Config:         /etc/seajelly/gateway.json
+Health:         http://1.2.3.4:9100/health
+Manifest:       http://1.2.3.4:9100/manifest
+Routes:
+  - platform.wecom.http          http_forward     /routes/wecom/http
+  - platform.wecom.media-upload  multipart_upload /routes/wecom/upload
+  - voice.doubao-asr.ws          ws_relay         /routes/voice/doubao-asr
+```
+
+## Configuration File
+
+Use [`config.example.json`](./config.example.json) as the baseline.
+
+```json
+{
+  "version": "v1",
+  "sources": [
+    {
+      "id": "voice-settings",
+      "kind": "supabase_rest_kv",
+      "url_env": "SUPABASE_URL",
+      "service_key_env": "SUPABASE_SERVICE_ROLE_KEY",
+      "table": "voice_settings",
+      "key_column": "key",
+      "value_column": "value",
+      "cache_ttl_ms": 30000
+    }
+  ],
+  "routes": [
+    {
+      "id": "wecom-http",
+      "capability": "platform.wecom.http",
+      "kind": "http_forward",
+      "path": "/routes/wecom/http",
+      "allowed_hosts": ["qyapi.weixin.qq.com"]
+    },
+    {
+      "id": "wecom-media-upload",
+      "capability": "platform.wecom.media-upload",
+      "kind": "multipart_upload",
+      "path": "/routes/wecom/upload",
+      "allowed_hosts": ["qyapi.weixin.qq.com"],
+      "form_field_name": "media"
+    },
+    {
+      "id": "doubao-asr-ws",
+      "capability": "voice.doubao-asr.ws",
+      "kind": "ws_relay",
+      "path": "/routes/voice/doubao-asr",
+      "upstream": {
+        "url": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel",
+        "headers": {
+          "X-Api-App-Key": { "source": "voice-settings", "key": "doubao_app_key" },
+          "X-Api-Access-Key": { "source": "voice-settings", "key": "doubao_access_key" },
+          "X-Api-Resource-Id": { "value": "volc.bigasr.sauc.duration" },
+          "X-Api-Connect-Id": { "generated": "uuid" }
+        }
+      }
+    }
+  ]
+}
+```
+
+### Supported Source Kinds
+
+- `supabase_rest_kv`
+  - Reads a key/value table through PostgREST
+  - Supabase project URL and service role key are injected via env vars referenced by `url_env` and `service_key_env`
+- `env`
+  - Reads values from process env vars
+  - Supports direct lookups, `prefix`, or explicit `key_to_env` mappings
+
+### Supported Route Kinds
+
+- `http_forward`
+  - Expects a JSON body containing `url`, `method`, `headers`, `body`
+  - Target hostname must match `allowed_hosts`
+- `multipart_upload`
+  - Expects `url`, `file_name`, `file_data` (base64), `mime_type`
+  - Upload form field name comes from `form_field_name`
+- `ws_relay`
+  - Bridges browser WebSocket frames to a fixed upstream URL
+  - Header values can be resolved from:
+    - `value`
+    - `source` + `key`
+    - `env`
+    - `generated: "uuid"`
+
+## Public Endpoints
+
+All endpoints require `X-Gateway-Secret` or `?secret=`:
+
+- `GET /health`
+  - Returns basic status, version, config version, and route count
+- `GET /manifest`
+  - Returns public route metadata only: version, config version, public IP, routes, capabilities
+- Route paths declared in `gateway.json`
+  - Example: `/routes/wecom/http`, `/routes/wecom/upload`, `/routes/voice/doubao-asr`
+
+## Install Script
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/your-username/seajelly/main/tools/edge-gateway/install.sh | bash
 ```
 
-The script will:
-- Auto-detect your CPU architecture (amd64/arm64)
-- Download the pre-built binary
-- Walk you through secret/port configuration interactively
-- Create and start a systemd service automatically
+The installer will:
 
-> **No Go, Node.js, or any runtime required.** The binary is statically compiled and self-contained (~7MB).
+- Download the correct statically linked binary
+- Write `/etc/seajelly/gateway.json` if it does not exist
+- Write `/etc/seajelly/gateway.env` for optional source env vars
+- Install a `systemd` service that runs `--config /etc/seajelly/gateway.json`
 
-### Manual Install
-
-```bash
-# Download (choose your arch)
-wget https://github.com/your-username/seajelly/releases/latest/download/seajelly-gateway-linux-amd64
-chmod +x seajelly-gateway-linux-amd64
-mv seajelly-gateway-linux-amd64 /usr/local/bin/seajelly-gateway
-
-# Run
-seajelly-gateway --port 9100 --secret "your-secret"
-```
-
----
-
-## Quick Start
+After changing `gateway.json`, restart the service:
 
 ```bash
-# HTTP proxy only (WeCom)
-seajelly-gateway --port 9100 --secret "your-secret"
-
-# Full mode (HTTP proxy + Doubao ASR WebSocket relay)
-seajelly-gateway \
-  --port 9100 \
-  --secret "your-secret" \
-  --supabase-url "https://xxx.supabase.co" \
-  --supabase-key "eyJ..."
+sudo systemctl restart seajelly-gateway
 ```
 
-Startup output:
-
-```
-SEAJelly Edge Gateway v1.0.0
-Public IP:      1.2.3.4
-Listen:         :9100
-Gateway Secret: your-secret
-HTTP Proxy:     http://1.2.3.4:9100/proxy
-WS Proxy:       ws://1.2.3.4:9100/ws/doubao-asr
-Health:         http://1.2.3.4:9100/health
-Supabase:       connected
-```
-
-## Configuration
-
-| Flag | Env Var | Default | Description |
-|---|---|---|---|
-| `--port` | — | `9100` | Listen port |
-| `--secret` | `PROXY_SECRET` | (auto-generated) | Gateway secret for authentication |
-| `--supabase-url` | `SUPABASE_URL` | — | Supabase project URL (enables WS proxy) |
-| `--supabase-key` | `SUPABASE_SERVICE_ROLE_KEY` | — | Supabase service_role key |
-| `--allow-domains` | — | `qyapi.weixin.qq.com` | Comma-separated allowed domains for HTTP proxy |
-| `--cert` | — | — | TLS certificate file |
-| `--key` | — | — | TLS key file |
-
-## API Endpoints
-
-### `GET /health`
-Health check. Requires `X-Gateway-Secret` header or `?secret=` query param.
-```bash
-curl -H "X-Gateway-Secret: your-secret" http://your-ip:9100/health
-```
-
-### `POST /proxy`
-HTTP forward proxy for WeCom API calls etc. Requires `X-Gateway-Secret` header.
-```bash
-curl -X POST http://your-ip:9100/proxy \
-  -H "X-Gateway-Secret: your-secret" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=xxx","method":"GET"}'
-```
-
-### `GET /ws/doubao-asr?secret=xxx`
-WebSocket relay to Doubao ASR. Credentials are fetched from Supabase on each connection.
-
-## Production Deployment
-
-### systemd (auto-configured by install.sh)
-
-```ini
-[Unit]
-Description=SEAJelly Edge Gateway
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/seajelly-gateway --port 9100 --secret "xxx"
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable seajelly-gateway
-sudo systemctl start seajelly-gateway
-journalctl -u seajelly-gateway -f
-```
-
-### Nginx Reverse Proxy (SSL)
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name gw.yourdomain.com;
-
-    ssl_certificate     /etc/letsencrypt/live/gw.yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/gw.yourdomain.com/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:9100;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 86400;
-        proxy_send_timeout 86400;
-    }
-}
-```
-
-## Build from Source
+## Build From Source
 
 Requires Go 1.22+.
 
 ```bash
 cd tools/edge-gateway
 
-# Linux AMD64
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/seajelly-gateway-linux-amd64
-
-# Linux ARM64
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/seajelly-gateway-linux-arm64
 ```
 
-## Security
+## Security Notes
 
-- All endpoints require secret verification
-- HTTP proxy enforces URL domain whitelist (prevents SSRF)
-- WebSocket proxy credentials fetched from Supabase at runtime — nothing stored on disk
-- Optional TLS via `--cert`/`--key` or use Nginx for SSL termination
-
----
-
-# SEAJelly Edge Gateway（中文文档）
-
-解决 Serverless (Vercel) 架构的两个核心痛点：
-
-1. **静态 IP 代理** — 将 HTTP API 调用（如企微）通过固定 IP 主机转发，解决 IP 白名单限制。Vercel 官方方案 $100/月/2IP。
-2. **WebSocket 中继** — 代理实时 WebSocket 连接（如豆包 ASR），凭据从 Supabase 动态拉取，网关主机无需配置任何 API 密钥。
-
-## 一行命令安装（Linux）
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/your-username/seajelly/main/tools/edge-gateway/install.sh | bash
-```
-
-安装脚本会自动：
-- 检测 CPU 架构（amd64/arm64）
-- 下载预编译的二进制文件
-- 交互式引导你配置密钥和端口
-- 自动创建并启动 systemd 服务
-
-> **无需安装 Go、Node.js 或任何运行时。** 二进制文件完全静态编译，自包含，约 7MB。
-
-### 手动安装
-
-```bash
-# 下载（选择你的架构）
-wget https://github.com/your-username/seajelly/releases/latest/download/seajelly-gateway-linux-amd64
-chmod +x seajelly-gateway-linux-amd64
-mv seajelly-gateway-linux-amd64 /usr/local/bin/seajelly-gateway
-
-# 运行
-seajelly-gateway --port 9100 --secret "你的密钥"
-```
-
-## 快速开始
-
-```bash
-# 仅 HTTP 代理（企微）
-seajelly-gateway --port 9100 --secret "你的密钥"
-
-# 完整模式（HTTP 代理 + 豆包 ASR WebSocket 中继）
-seajelly-gateway \
-  --port 9100 \
-  --secret "你的密钥" \
-  --supabase-url "https://xxx.supabase.co" \
-  --supabase-key "eyJ..."
-```
-
-启动后输出：
-
-```
-SEAJelly Edge Gateway v1.0.0
-Public IP:      1.2.3.4
-Listen:         :9100
-Gateway Secret: your-secret
-HTTP Proxy:     http://1.2.3.4:9100/proxy
-WS Proxy:       ws://1.2.3.4:9100/ws/doubao-asr
-Health:         http://1.2.3.4:9100/health
-Supabase:       connected
-```
-
-## 配置参数
-
-| 参数 | 环境变量 | 默认值 | 说明 |
-|---|---|---|---|
-| `--port` | — | `9100` | 监听端口 |
-| `--secret` | `PROXY_SECRET` | （自动生成） | 网关认证密钥 |
-| `--supabase-url` | `SUPABASE_URL` | — | Supabase 项目地址（启用 WS 代理） |
-| `--supabase-key` | `SUPABASE_SERVICE_ROLE_KEY` | — | Supabase service_role 密钥 |
-| `--allow-domains` | — | `qyapi.weixin.qq.com` | 允许转发的域名（逗号分隔） |
-| `--cert` | — | — | TLS 证书文件 |
-| `--key` | — | — | TLS 密钥文件 |
-
-## API 端点
-
-### `GET /health`
-健康检查。需要 `X-Gateway-Secret` 请求头或 `?secret=` 查询参数。
-```bash
-curl -H "X-Gateway-Secret: 你的密钥" http://你的IP:9100/health
-# {"ok":true,"ip":"1.2.3.4","version":"1.0.0","ws_enabled":true}
-```
-
-### `POST /proxy`
-HTTP 转发代理，用于企微 API 调用等。需要 `X-Gateway-Secret` 请求头。
-```bash
-curl -X POST http://你的IP:9100/proxy \
-  -H "X-Gateway-Secret: 你的密钥" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=xxx","method":"GET"}'
-```
-
-### `GET /ws/doubao-asr?secret=xxx`
-WebSocket 中继到豆包 ASR。每次连接时从 Supabase `voice_settings` 表动态拉取 `doubao_app_key` 和 `doubao_access_key`。
-
-## 生产部署
-
-### systemd 服务（安装脚本自动配置）
-
-```bash
-# 查看状态
-sudo systemctl status seajelly-gateway
-
-# 查看日志
-journalctl -u seajelly-gateway -f
-
-# 重启
-sudo systemctl restart seajelly-gateway
-
-# 停止
-sudo systemctl stop seajelly-gateway
-```
-
-### Nginx 反向代理（SSL）
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name gw.yourdomain.com;
-
-    ssl_certificate     /etc/letsencrypt/live/gw.yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/gw.yourdomain.com/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:9100;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 86400;
-        proxy_send_timeout 86400;
-    }
-}
-
-server {
-    listen 80;
-    server_name gw.yourdomain.com;
-    return 301 https://$host$request_uri;
-}
-```
-
-### 宝塔面板
-
-1. 将二进制文件上传到 `/www/wwwroot/seajelly-gateway/`
-2. 通过 SSH 执行上面的 systemd 配置即可
-3. 在宝塔的「网站」中配置 Nginx 反向代理
-
-## 企微 IP 白名单配置
-
-1. 在固定 IP 主机上安装网关（一行命令）
-2. 记下启动输出中的 **Public IP**
-3. 企微管理后台 → 应用详情 → **IP 白名单** → 添加该 IP
-4. SEAJelly Dashboard → **设置 → Edge Gateway** → 填入网关地址和密钥
-5. 点击「测试连接」验证
-
-## 豆包 ASR 配置
-
-1. 安装网关时带上 `--supabase-url` 和 `--supabase-key` 参数
-2. SEAJelly Dashboard → **语音模型 → ASR** → 填入豆包的 App Key 和 Access Key
-3. 网关会在每次 WebSocket 连接时从 Supabase 动态拉取凭据
-4. **网关主机上无需配置任何 API 密钥**
-
-## 安全设计
-
-- 所有端点都需要密钥验证
-- HTTP 代理有域名白名单，防止被滥用为 SSRF 跳板
-- WebSocket 代理的凭据从 Supabase 动态拉取，不存储在磁盘上，也不暴露给前端
-- 可选 TLS（通过 `--cert`/`--key` 参数，或使用 Nginx 做 SSL 终止）
-
-## 从源码编译
-
-需要 Go 1.22+。
-
-```bash
-cd tools/edge-gateway
-
-# Linux AMD64
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/seajelly-gateway-linux-amd64
-
-# Linux ARM64
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/seajelly-gateway-linux-arm64
-```
-
-## 常见问题
-
-**Q: 安装后连接不上？**
-- 检查防火墙是否开放了对应端口（如 9100）
-- `sudo ufw allow 9100` 或 `sudo firewall-cmd --add-port=9100/tcp --permanent`
-
-**Q: 企微还是报 IP 白名单错误？**
-- 确认 `/health` 返回的 Public IP 与企微后台白名单中的 IP 一致
-- 如果主机在 NAT 后面，需要确保出站 IP 也是该固定 IP
-
-**Q: 豆包 ASR 连接失败？**
-- 确认启动时带了 `--supabase-url` 和 `--supabase-key`
-- 确认 Dashboard → 语音模型 → ASR 中的 App Key 和 Access Key 已保存
-- 查看日志：`journalctl -u seajelly-gateway -f`
+- Every endpoint is secret-protected
+- `http_forward` and `multipart_upload` are restricted by `allowed_hosts`
+- Manifest output never includes source definitions or resolved secret values
+- WebSocket credentials can be sourced from Supabase or env vars without storing them in `gateway.json`

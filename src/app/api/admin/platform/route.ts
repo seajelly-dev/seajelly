@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
+import { fetchGatewayManifest } from "@/lib/gateway/client";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { getBotForAgent, resetBotForAgent } from "@/lib/telegram/bot";
 import { getBotCommands, getBotLocaleOrDefault } from "@/lib/i18n/bot";
@@ -310,20 +311,13 @@ async function handleGateway(action: string, body: Record<string, unknown>) {
     if (!gatewayUrl || !gatewaySecret) {
       return NextResponse.json({ error: "gateway_url and gateway_secret required" }, { status: 400 });
     }
-    const res = await fetch(`${gatewayUrl.replace(/\/$/, "")}/health`, {
-      headers: { "X-Gateway-Secret": gatewaySecret },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Gateway returned ${res.status}: ${text}`);
-    }
-    const data = await res.json();
+    const data = await fetchGatewayManifest({ url: gatewayUrl, secret: gatewaySecret });
     return NextResponse.json({
       success: true,
-      ip: data.ip,
+      ip: data.publicIp,
       version: data.version,
-      ws_enabled: data.ws_enabled,
+      config_version: data.configVersion,
+      capabilities: data.capabilities,
     });
   }
   return NextResponse.json({ error: "Invalid gateway action" }, { status: 400 });

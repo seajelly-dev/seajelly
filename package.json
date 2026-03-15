@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:unit": "node --import tsx --test src/lib/memory/session.test.ts src/lib/events/queue.test.ts src/lib/agent/commands/commands.test.ts src/lib/agent/media/media.test.ts src/lib/agent/channel-session.test.ts src/lib/agent/runtime-context.test.ts src/lib/agent/execution.test.ts src/lib/agent/media-search.test.ts src/lib/jellybox/remote-fetch.test.ts"
+    "test:unit": "node --import tsx --test src/lib/memory/session.test.ts src/lib/events/queue.test.ts src/lib/agent/commands/commands.test.ts src/lib/agent/media/media.test.ts src/lib/agent/channel-session.test.ts src/lib/agent/runtime-context.test.ts src/lib/agent/execution.test.ts src/lib/agent/media-search.test.ts src/lib/jellybox/remote-fetch.test.ts src/lib/gateway/client.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.58",

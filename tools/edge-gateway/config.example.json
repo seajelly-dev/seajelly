@@ -1,0 +1,57 @@
+{
+  "version": "v1",
+  "sources": [
+    {
+      "id": "voice-settings",
+      "kind": "supabase_rest_kv",
+      "url_env": "SUPABASE_URL",
+      "service_key_env": "SUPABASE_SERVICE_ROLE_KEY",
+      "table": "voice_settings",
+      "key_column": "key",
+      "value_column": "value",
+      "cache_ttl_ms": 30000
+    }
+  ],
+  "routes": [
+    {
+      "id": "wecom-http",
+      "capability": "platform.wecom.http",
+      "kind": "http_forward",
+      "path": "/routes/wecom/http",
+      "allowed_hosts": ["qyapi.weixin.qq.com"]
+    },
+    {
+      "id": "wecom-media-upload",
+      "capability": "platform.wecom.media-upload",
+      "kind": "multipart_upload",
+      "path": "/routes/wecom/upload",
+      "allowed_hosts": ["qyapi.weixin.qq.com"],
+      "form_field_name": "media"
+    },
+    {
+      "id": "doubao-asr-ws",
+      "capability": "voice.doubao-asr.ws",
+      "kind": "ws_relay",
+      "path": "/routes/voice/doubao-asr",
+      "upstream": {
+        "url": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel",
+        "headers": {
+          "X-Api-App-Key": {
+            "source": "voice-settings",
+            "key": "doubao_app_key"
+          },
+          "X-Api-Access-Key": {
+            "source": "voice-settings",
+            "key": "doubao_access_key"
+          },
+          "X-Api-Resource-Id": {
+            "value": "volc.bigasr.sauc.duration"
+          },
+          "X-Api-Connect-Id": {
+            "generated": "uuid"
+          }
+        }
+      }
+    }
+  ]
+}

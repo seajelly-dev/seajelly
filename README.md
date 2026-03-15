@@ -149,6 +149,17 @@ SEAJelly is in active development and still being hardened for public release.
 - QQ Bot
 - WhatsApp
 
+#### WeCom Integration Note
+
+If you use a WeCom custom app on a serverless deployment such as Vercel, you will often also need an Edge Gateway with a fixed public IP to satisfy WeCom IP allowlists and related backend-only forwarding cases.
+
+The root README intentionally keeps this high level:
+
+- Configure the gateway URL and secret in `Settings -> Edge Gateway`
+- Add the gateway's public IP to the WeCom admin allowlist
+- For gateway install, `gateway.json` structure, systemd setup, and capability routing, read [tools/edge-gateway/README.md](./tools/edge-gateway/README.md)
+- If you want to quickly inspect what the installer does, read [tools/edge-gateway/install.sh](./tools/edge-gateway/install.sh)
+
 ### Model providers
 
 Built-in providers include:
@@ -202,6 +213,7 @@ flowchart LR
 ## Further Reading
 
 - [setup.md](./setup.md): beginner-friendly setup walkthrough
+- [tools/edge-gateway/README.md](./tools/edge-gateway/README.md): Edge Gateway install, `gateway.json` configuration, and capability manifest guide
 - [src/lib/agent/README.md](./src/lib/agent/README.md): agent runtime architecture and tool development guide
 - [src/lib/agent/tooling/README.md](./src/lib/agent/tooling/README.md): builtin toolkits, catalog, and runtime policy guide
 - [src/app/api/app/README.md](./src/app/api/app/README.md): Sub-App backend and bearer-link security guide

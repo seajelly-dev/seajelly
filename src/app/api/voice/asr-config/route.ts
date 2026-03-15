@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { decrypt } from "@/lib/crypto/encrypt";
+import { GATEWAY_CAPABILITIES } from "@/lib/gateway/capabilities";
+import { buildGatewayRouteUrl, findGatewayCapability, getGatewayConnection } from "@/lib/gateway/client";
 import { createStrictServiceClient } from "@/lib/supabase/server";
 import { loadValidVoiceTempLink } from "@/lib/voice/temp-links";
 
@@ -28,17 +30,22 @@ export async function GET(req: NextRequest) {
     const engine = (link.config as Record<string, string>)?.engine || settings.asr_engine || "gemini-asr";
 
     if (engine === "doubao-asr") {
-      // Try Edge Gateway first (doubao credentials stored in voice_settings, gateway fetches from Supabase)
-      const { data: gwRows } = await supabase
-        .from("system_settings")
-        .select("key, value")
-        .in("key", ["gateway_url", "gateway_secret"]);
-      const gw: Record<string, string> = {};
-      for (const r of gwRows || []) gw[r.key] = r.value;
+      const gateway = await getGatewayConnection();
+      if (gateway) {
+        const route = findGatewayCapability(gateway.manifest, GATEWAY_CAPABILITIES.doubaoAsrWs);
+        if (!route) {
+          return NextResponse.json(
+            { error: `Gateway capability missing: ${GATEWAY_CAPABILITIES.doubaoAsrWs}` },
+            { status: 500 },
+          );
+        }
 
-      if (gw.gateway_url && gw.gateway_secret) {
-        const wsUrl = `${gw.gateway_url.replace(/^http/, "ws").replace(/\/$/, "")}/ws/doubao-asr?secret=${encodeURIComponent(gw.gateway_secret)}`;
-        return NextResponse.json({ engine, proxyUrl: wsUrl });
+        const proxyUrl = buildGatewayRouteUrl(gateway.url, route.path, {
+          transport: "ws",
+          includeSecretQuery: true,
+          secret: gateway.secret,
+        });
+        return NextResponse.json({ engine, proxyUrl });
       }
 
       // Fallback: legacy direct proxy URL
@@ -68,6 +75,9 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     console.error("ASR config error:", err);
-    return NextResponse.json({ error: "Failed to get ASR config" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to get ASR config" },
+      { status: 500 },
+    );
   }
 }

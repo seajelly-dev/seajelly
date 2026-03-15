@@ -1,12 +1,14 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 INSTALL_DIR="/usr/local/bin"
 SERVICE_NAME="seajelly-gateway"
+CONFIG_DIR="/etc/seajelly"
+CONFIG_PATH="${CONFIG_DIR}/gateway.json"
+ENV_PATH="${CONFIG_DIR}/gateway.env"
 REPO="your-username/seajelly"
 VERSION="latest"
 
-# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -16,12 +18,11 @@ info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# Detect architecture
 ARCH=$(uname -m)
 case "$ARCH" in
   x86_64|amd64)  ARCH_SUFFIX="amd64" ;;
-  aarch64|arm64)  ARCH_SUFFIX="arm64" ;;
-  *)              error "Unsupported architecture: $ARCH" ;;
+  aarch64|arm64) ARCH_SUFFIX="arm64" ;;
+  *)             error "Unsupported architecture: $ARCH" ;;
 esac
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -33,66 +34,139 @@ BINARY_NAME="seajelly-gateway-linux-${ARCH_SUFFIX}"
 
 info "Detected: Linux ${ARCH_SUFFIX}"
 
-# Download binary
-if [ -n "$GATEWAY_DOWNLOAD_URL" ]; then
+if [ -n "${GATEWAY_DOWNLOAD_URL:-}" ]; then
   DOWNLOAD_URL="$GATEWAY_DOWNLOAD_URL"
 else
   DOWNLOAD_URL="https://github.com/${REPO}/releases/${VERSION}/download/${BINARY_NAME}"
 fi
 
 info "Downloading ${BINARY_NAME}..."
-if command -v curl &>/dev/null; then
-  curl -fsSL -o /tmp/${BINARY_NAME} "$DOWNLOAD_URL" || error "Download failed. Check URL: $DOWNLOAD_URL"
-elif command -v wget &>/dev/null; then
-  wget -q -O /tmp/${BINARY_NAME} "$DOWNLOAD_URL" || error "Download failed. Check URL: $DOWNLOAD_URL"
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL -o "/tmp/${BINARY_NAME}" "$DOWNLOAD_URL" || error "Download failed. Check URL: $DOWNLOAD_URL"
+elif command -v wget >/dev/null 2>&1; then
+  wget -q -O "/tmp/${BINARY_NAME}" "$DOWNLOAD_URL" || error "Download failed. Check URL: $DOWNLOAD_URL"
 else
   error "Neither curl nor wget found. Install one and retry."
 fi
 
-# Install binary
-info "Installing to ${INSTALL_DIR}/seajelly-gateway..."
-chmod +x /tmp/${BINARY_NAME}
+chmod +x "/tmp/${BINARY_NAME}"
+info "Installing binary to ${INSTALL_DIR}/seajelly-gateway..."
 if [ -w "$INSTALL_DIR" ]; then
-  mv /tmp/${BINARY_NAME} ${INSTALL_DIR}/seajelly-gateway
+  mv "/tmp/${BINARY_NAME}" "${INSTALL_DIR}/seajelly-gateway"
 else
-  sudo mv /tmp/${BINARY_NAME} ${INSTALL_DIR}/seajelly-gateway
+  sudo mv "/tmp/${BINARY_NAME}" "${INSTALL_DIR}/seajelly-gateway"
 fi
 
-# Verify installation
-if seajelly-gateway --help &>/dev/null 2>&1 || ${INSTALL_DIR}/seajelly-gateway --help &>/dev/null 2>&1; then
-  info "Binary installed successfully."
-else
-  warn "Binary installed but could not verify. Check: ${INSTALL_DIR}/seajelly-gateway"
-fi
-
-# Interactive setup
 echo ""
 echo "============================================"
 echo "  SEAJelly Edge Gateway - Quick Setup"
 echo "============================================"
 echo ""
 
-read -p "Gateway Secret (leave empty to auto-generate): " SECRET_INPUT
+read -r -p "Gateway Secret (leave empty to auto-generate): " SECRET_INPUT
 if [ -z "$SECRET_INPUT" ]; then
   SECRET_INPUT=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | od -An -tx1 | tr -d ' \n')
   info "Auto-generated secret: ${SECRET_INPUT}"
 fi
 
-read -p "Listen port [9100]: " PORT_INPUT
+read -r -p "Listen port [9100]: " PORT_INPUT
 PORT_INPUT=${PORT_INPUT:-9100}
 
-read -p "Supabase URL (optional, for Doubao ASR proxy): " SUPA_URL
-read -p "Supabase Service Role Key (optional): " SUPA_KEY
+read -r -p "Supabase URL (optional, only if gateway.json references it): " SUPA_URL
+read -r -p "Supabase Service Role Key (optional): " SUPA_KEY
 
-# Create systemd service
+info "Ensuring ${CONFIG_DIR} exists..."
+if [ -d "$CONFIG_DIR" ]; then
+  :
+elif [ -w "$(dirname "$CONFIG_DIR")" ]; then
+  mkdir -p "$CONFIG_DIR"
+else
+  sudo mkdir -p "$CONFIG_DIR"
+fi
+
+if [ ! -f "$CONFIG_PATH" ]; then
+  info "Writing default config to ${CONFIG_PATH}"
+  cat > /tmp/seajelly-gateway.json <<'JSONEOF'
+{
+  "version": "v1",
+  "sources": [
+    {
+      "id": "voice-settings",
+      "kind": "supabase_rest_kv",
+      "url_env": "SUPABASE_URL",
+      "service_key_env": "SUPABASE_SERVICE_ROLE_KEY",
+      "table": "voice_settings",
+      "key_column": "key",
+      "value_column": "value",
+      "cache_ttl_ms": 30000
+    }
+  ],
+  "routes": [
+    {
+      "id": "wecom-http",
+      "capability": "platform.wecom.http",
+      "kind": "http_forward",
+      "path": "/routes/wecom/http",
+      "allowed_hosts": ["qyapi.weixin.qq.com"]
+    },
+    {
+      "id": "wecom-media-upload",
+      "capability": "platform.wecom.media-upload",
+      "kind": "multipart_upload",
+      "path": "/routes/wecom/upload",
+      "allowed_hosts": ["qyapi.weixin.qq.com"],
+      "form_field_name": "media"
+    },
+    {
+      "id": "doubao-asr-ws",
+      "capability": "voice.doubao-asr.ws",
+      "kind": "ws_relay",
+      "path": "/routes/voice/doubao-asr",
+      "upstream": {
+        "url": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel",
+        "headers": {
+          "X-Api-App-Key": {
+            "source": "voice-settings",
+            "key": "doubao_app_key"
+          },
+          "X-Api-Access-Key": {
+            "source": "voice-settings",
+            "key": "doubao_access_key"
+          },
+          "X-Api-Resource-Id": {
+            "value": "volc.bigasr.sauc.duration"
+          },
+          "X-Api-Connect-Id": {
+            "generated": "uuid"
+          }
+        }
+      }
+    }
+  ]
+}
+JSONEOF
+  if [ -w "$CONFIG_DIR" ]; then
+    mv /tmp/seajelly-gateway.json "$CONFIG_PATH"
+  else
+    sudo mv /tmp/seajelly-gateway.json "$CONFIG_PATH"
+  fi
+else
+  warn "Config already exists at ${CONFIG_PATH}; leaving it unchanged."
+fi
+
+cat > /tmp/seajelly-gateway.env <<EOF
+# Optional upstream source values for gateway.json
+SUPABASE_URL=${SUPA_URL}
+SUPABASE_SERVICE_ROLE_KEY=${SUPA_KEY}
+EOF
+if [ -w "$CONFIG_DIR" ]; then
+  mv /tmp/seajelly-gateway.env "$ENV_PATH"
+else
+  sudo mv /tmp/seajelly-gateway.env "$ENV_PATH"
+fi
+
 if [ -d /etc/systemd/system ]; then
   info "Creating systemd service..."
-
-  EXEC_CMD="${INSTALL_DIR}/seajelly-gateway --port ${PORT_INPUT} --secret \"${SECRET_INPUT}\""
-  if [ -n "$SUPA_URL" ] && [ -n "$SUPA_KEY" ]; then
-    EXEC_CMD="${EXEC_CMD} --supabase-url \"${SUPA_URL}\" --supabase-key \"${SUPA_KEY}\""
-  fi
-
   cat > /tmp/seajelly-gateway.service <<SERVICEEOF
 [Unit]
 Description=SEAJelly Edge Gateway
@@ -100,7 +174,8 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=${EXEC_CMD}
+EnvironmentFile=-${ENV_PATH}
+ExecStart=${INSTALL_DIR}/seajelly-gateway --port ${PORT_INPUT} --secret "${SECRET_INPUT}" --config ${CONFIG_PATH}
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -117,18 +192,18 @@ SERVICEEOF
   fi
 
   sudo systemctl daemon-reload
-  sudo systemctl enable seajelly-gateway
-  sudo systemctl start seajelly-gateway
+  sudo systemctl enable "${SERVICE_NAME}"
+  sudo systemctl restart "${SERVICE_NAME}"
 
   sleep 2
-  if systemctl is-active --quiet seajelly-gateway; then
-    info "Service started successfully!"
+  if systemctl is-active --quiet "${SERVICE_NAME}"; then
+    info "Service started successfully."
   else
-    warn "Service may have failed to start. Check: journalctl -u seajelly-gateway -f"
+    warn "Service may have failed to start. Check: journalctl -u ${SERVICE_NAME} -f"
   fi
 else
   warn "systemd not found. Run manually:"
-  echo "  seajelly-gateway --port ${PORT_INPUT} --secret \"${SECRET_INPUT}\""
+  echo "  ${INSTALL_DIR}/seajelly-gateway --port ${PORT_INPUT} --secret \"${SECRET_INPUT}\" --config ${CONFIG_PATH}"
 fi
 
 echo ""
@@ -136,15 +211,14 @@ echo "============================================"
 echo "  Setup Complete!"
 echo "============================================"
 echo ""
+echo "  Config:  ${CONFIG_PATH}"
+echo "  Env:     ${ENV_PATH}"
 echo "  Port:    ${PORT_INPUT}"
 echo "  Secret:  ${SECRET_INPUT}"
 echo ""
-echo "  Test:    curl -H 'X-Gateway-Secret: ${SECRET_INPUT}' http://localhost:${PORT_INPUT}/health"
+echo "  Test:    curl -H 'X-Gateway-Secret: ${SECRET_INPUT}' http://localhost:${PORT_INPUT}/manifest"
 echo ""
-echo "  Copy the Secret and your server's public IP to"
-echo "  SEAJelly Dashboard → Settings → Edge Gateway"
-echo ""
-echo "  Logs:    journalctl -u seajelly-gateway -f"
-echo "  Restart: sudo systemctl restart seajelly-gateway"
-echo "  Stop:    sudo systemctl stop seajelly-gateway"
+echo "  Edit ${CONFIG_PATH} to add or change routes."
+echo "  Restart after changes: sudo systemctl restart ${SERVICE_NAME}"
+echo "  Logs: journalctl -u ${SERVICE_NAME} -f"
 echo "============================================"

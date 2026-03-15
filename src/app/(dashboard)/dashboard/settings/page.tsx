@@ -37,7 +37,11 @@ export default function SettingsPage() {
   const [gatewaySecret, setGatewaySecret] = useState("");
   const [savingGateway, setSavingGateway] = useState(false);
   const [testingGateway, setTestingGateway] = useState(false);
-  const [gatewayTestResult, setGatewayTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [gatewayTestResult, setGatewayTestResult] = useState<{
+    ok: boolean;
+    message: string;
+    capabilities?: string[];
+  } | null>(null);
 
   const [gateEnabled, setGateEnabled] = useState(false);
   const [customKey, setCustomKey] = useState("");
@@ -153,7 +157,8 @@ export default function SettingsPage() {
       if (data.success) {
         setGatewayTestResult({
           ok: true,
-          message: `IP: ${data.ip} | v${data.version} | WS: ${data.ws_enabled ? "enabled" : "disabled"}`,
+          message: `IP: ${data.ip} | v${data.version} | config ${data.config_version}`,
+          capabilities: Array.isArray(data.capabilities) ? data.capabilities : [],
         });
       } else {
         setGatewayTestResult({ ok: false, message: data.error || "Test failed" });
@@ -391,13 +396,20 @@ export default function SettingsPage() {
                   {testingGateway ? t("settings.gatewayTesting") : t("settings.gatewayTest")}
                 </Button>
                 {gatewayTestResult && (
-                  <Badge
-                    variant={gatewayTestResult.ok ? "secondary" : "destructive"}
-                    className={`gap-1 ${gatewayTestResult.ok ? "text-green-600 dark:text-green-400" : ""}`}
-                  >
-                    {gatewayTestResult.ok ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}
-                    {gatewayTestResult.message}
-                  </Badge>
+                  <div className="flex flex-col gap-1 rounded-lg border px-3 py-2">
+                    <Badge
+                      variant={gatewayTestResult.ok ? "secondary" : "destructive"}
+                      className={`gap-1 w-fit ${gatewayTestResult.ok ? "text-green-600 dark:text-green-400" : ""}`}
+                    >
+                      {gatewayTestResult.ok ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}
+                      {gatewayTestResult.message}
+                    </Badge>
+                    {gatewayTestResult.ok && gatewayTestResult.capabilities?.length ? (
+                      <p className="text-xs text-muted-foreground break-all">
+                        {t("settings.gatewayCapabilities")}: {gatewayTestResult.capabilities.join(", ")}
+                      </p>
+                    ) : null}
+                  </div>
                 )}
               </div>
               <Collapsible>
