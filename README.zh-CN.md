@@ -229,17 +229,17 @@ pnpm test:unit
 pnpm build
 ```
 
-## 安全说明
+## 技术栈
 
-SEAJelly 天然包含多个公共暴露面，例如 setup、webhook、worker 回调、语音链接、HTML 预览和 bearer-link sub-app。把某个部署视为“可生产使用”之前，建议重点复核：
+SEAJelly 构建在现代且强大的开源技术栈之上：
 
-- admin 鉴权边界
-- service-role 使用方式
-- webhook 验签
-- SQL 工具护栏
-- sub-app token 与 RLS 是否一致
-- preview / voice-link 是否存在数据泄露面
+- **框架**: [Next.js](https://nextjs.org/) (App Router), [React](https://react.dev/)
+- **数据库与鉴权**: [Supabase](https://supabase.com/) (Postgres, pgvector, RLS)
+- **AI 编排**: [Vercel AI SDK](https://sdk.vercel.ai/), [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
+- **代码执行**: [E2B](https://e2b.dev/) (安全代码解释器)
+- **样式方案**: [Tailwind CSS](https://tailwindcss.com/), [Shadcn UI](https://ui.shadcn.com/)
+- **图标**: [Lucide React](https://lucide.dev/)
 
 ## 许可证
 
-当前仓库根目录还没有真正的 `LICENSE` 文件。正式公开发布前请先补齐。
+本项目采用 [MIT 许可证](LICENSE) 开源。

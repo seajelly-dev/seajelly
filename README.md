@@ -229,17 +229,17 @@ pnpm test:unit
 pnpm build
 ```
 
-## Security Note
+## Tech Stack
 
-SEAJelly contains several public surfaces by design: setup, webhooks, worker callbacks, voice links, previews, and bearer-link sub-apps. Before calling a deployment production-ready, re-check:
+SEAJelly is built on a modern, robust open-source stack:
 
-- admin authorization boundaries
-- service-role usage
-- webhook verification
-- SQL tool guardrails
-- sub-app token/RLS alignment
-- preview and voice-link data exposure
+- **Framework**: [Next.js](https://nextjs.org/) (App Router), [React](https://react.dev/)
+- **Database & Auth**: [Supabase](https://supabase.com/) (Postgres, pgvector, RLS)
+- **AI Orchestration**: [Vercel AI SDK](https://sdk.vercel.ai/), [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
+- **Execution**: [E2B](https://e2b.dev/) (Security Code Interpreters)
+- **Styling**: [Tailwind CSS](https://tailwindcss.com/), [Shadcn UI](https://ui.shadcn.com/)
+- **Icons**: [Lucide React](https://lucide.dev/)
 
 ## License
 
-This checkout does not currently include a root `LICENSE` file. Add one before publishing the repository publicly.
+This project is licensed under the [MIT License](LICENSE).
