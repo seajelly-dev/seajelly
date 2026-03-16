@@ -1,8 +1,15 @@
 import { cookies } from "next/headers";
 import { SETUP_BOOTSTRAP_COOKIE } from "@/lib/setup/bootstrap";
+import {
+  getSetupEnvironmentIssues,
+  type SetupEnvironmentIssue,
+} from "@/lib/setup/environment";
 import { createStrictServiceClient } from "@/lib/supabase/server";
 
-export type SetupBlockingReason = "missing_service_role_env" | null;
+export type SetupBlockingReason =
+  | "missing_service_role_env"
+  | "invalid_deployment_env"
+  | null;
 
 export interface SetupStatus {
   needsSetup: boolean;
@@ -15,14 +22,21 @@ export interface SetupStatus {
   hasAgent: boolean;
   hasBootstrapCookie: boolean;
   blockingReason: SetupBlockingReason;
+  environmentIssues: SetupEnvironmentIssue[];
 }
 
 export async function getSetupStatus(): Promise<SetupStatus> {
   const cookieStore = await cookies();
   const hasBootstrapCookie = Boolean(cookieStore.get(SETUP_BOOTSTRAP_COOKIE)?.value);
   const hasServiceRoleEnv = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const environmentIssues = getSetupEnvironmentIssues();
+  const blockingReason: SetupBlockingReason = !hasServiceRoleEnv
+    ? "missing_service_role_env"
+    : environmentIssues.length > 0
+      ? "invalid_deployment_env"
+      : null;
 
-  if (!hasServiceRoleEnv) {
+  if (blockingReason) {
     return {
       needsSetup: true,
       setupComplete: false,
@@ -33,7 +47,8 @@ export async function getSetupStatus(): Promise<SetupStatus> {
       hasLLMKey: false,
       hasAgent: false,
       hasBootstrapCookie,
-      blockingReason: "missing_service_role_env",
+      blockingReason,
+      environmentIssues,
     };
   }
 
@@ -73,5 +88,6 @@ export async function getSetupStatus(): Promise<SetupStatus> {
     hasAgent,
     hasBootstrapCookie,
     blockingReason: null,
+    environmentIssues,
   };
 }

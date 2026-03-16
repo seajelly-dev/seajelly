@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { fetchGatewayManifest } from "@/lib/gateway/client";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
-import { getBotForAgent, resetBotForAgent } from "@/lib/telegram/bot";
+import {
+  createTelegramBot,
+  getBotForAgent,
+  resetBotForAgent,
+} from "@/lib/telegram/bot";
 import { getBotCommands, getBotLocaleOrDefault } from "@/lib/i18n/bot";
 
 async function getAgentBotCommands(agentId: string) {
@@ -12,13 +16,21 @@ async function getAgentBotCommands(agentId: string) {
 }
 
 async function handleTelegram(action: string, agentId: string, body: Record<string, unknown>) {
+  const inlineToken = (body.inline_token as string | undefined)?.trim();
+  const resolveBot = async () => {
+    if (inlineToken) {
+      return createTelegramBot(inlineToken);
+    }
+    resetBotForAgent(agentId);
+    return getBotForAgent(agentId);
+  };
+
   if (action === "set-webhook") {
     const webhookUrl = body.webhook_url as string | undefined;
     if (!webhookUrl) {
       return NextResponse.json({ error: "webhook_url required" }, { status: 400 });
     }
-    resetBotForAgent(agentId);
-    const bot = await getBotForAgent(agentId);
+    const bot = await resolveBot();
     const webhookWithAgent = webhookUrl.includes("/[agentId]")
       ? webhookUrl.replace("/[agentId]", `/${agentId}`)
       : `${webhookUrl}/${agentId}`;
@@ -32,31 +44,26 @@ async function handleTelegram(action: string, agentId: string, body: Record<stri
   }
 
   if (action === "register-commands") {
-    resetBotForAgent(agentId);
-    const bot = await getBotForAgent(agentId);
+    const bot = await resolveBot();
     const cmds = await getAgentBotCommands(agentId);
     await bot.api.setMyCommands(cmds);
     return NextResponse.json({ success: true, commands: cmds });
   }
 
   if (action === "get-info") {
-    resetBotForAgent(agentId);
-    const bot = await getBotForAgent(agentId);
+    const bot = await resolveBot();
     const info = await bot.api.getWebhookInfo();
     const me = await bot.api.getMe();
     return NextResponse.json({ webhook: info, bot: me });
   }
 
   if (action === "test-connection") {
-    const inlineToken = (body.inline_token as string)?.trim();
     if (inlineToken) {
-      const { Bot } = await import("grammy");
-      const tmpBot = new Bot(inlineToken);
+      const tmpBot = createTelegramBot(inlineToken);
       const me = await tmpBot.api.getMe();
       return NextResponse.json({ success: true, message: `Bot @${me.username} is alive` });
     }
-    resetBotForAgent(agentId);
-    const bot = await getBotForAgent(agentId);
+    const bot = await resolveBot();
     const me = await bot.api.getMe();
     return NextResponse.json({ success: true, message: `Bot @${me.username} is alive` });
   }

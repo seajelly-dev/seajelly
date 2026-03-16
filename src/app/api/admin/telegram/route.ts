@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
-import { getBotForAgent, resetBotForAgent } from "@/lib/telegram/bot";
+import {
+  createTelegramBot,
+  getBotForAgent,
+  resetBotForAgent,
+} from "@/lib/telegram/bot";
 import { getBotCommands, getBotLocaleOrDefault } from "@/lib/i18n/bot";
 
 async function getAgentBotCommands(agentId: string) {
@@ -17,11 +21,20 @@ export async function POST(request: Request) {
     return authErrorResponse(e);
   }
 
-  const { action, agent_id, webhook_url } = await request.json();
+  const { action, agent_id, webhook_url, inline_token } = await request.json();
 
   if (!agent_id) {
     return NextResponse.json({ error: "agent_id required" }, { status: 400 });
   }
+
+  const resolveBot = async () => {
+    const inlineToken = typeof inline_token === "string" ? inline_token.trim() : "";
+    if (inlineToken) {
+      return createTelegramBot(inlineToken);
+    }
+    resetBotForAgent(agent_id);
+    return getBotForAgent(agent_id);
+  };
 
   if (action === "set-webhook") {
     if (!webhook_url) {
@@ -32,8 +45,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      resetBotForAgent(agent_id);
-      const bot = await getBotForAgent(agent_id);
+      const bot = await resolveBot();
       const webhookWithAgent = webhook_url.includes("/[agentId]")
         ? webhook_url.replace("/[agentId]", `/${agent_id}`)
         : `${webhook_url}/${agent_id}`;
@@ -54,8 +66,7 @@ export async function POST(request: Request) {
 
   if (action === "register-commands") {
     try {
-      resetBotForAgent(agent_id);
-      const bot = await getBotForAgent(agent_id);
+      const bot = await resolveBot();
       const cmds = await getAgentBotCommands(agent_id);
       await bot.api.setMyCommands(cmds);
       return NextResponse.json({ success: true, commands: cmds });
@@ -69,8 +80,7 @@ export async function POST(request: Request) {
 
   if (action === "get-info") {
     try {
-      resetBotForAgent(agent_id);
-      const bot = await getBotForAgent(agent_id);
+      const bot = await resolveBot();
       const info = await bot.api.getWebhookInfo();
       const me = await bot.api.getMe();
       return NextResponse.json({ webhook: info, bot: me });

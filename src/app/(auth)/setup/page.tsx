@@ -2,7 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Copy, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -39,6 +48,7 @@ import {
   SETUP_PLATFORM_FIELDS,
   type SetupPlatform,
 } from "@/lib/setup/platforms";
+import type { SetupEnvironmentIssue } from "@/lib/setup/environment";
 
 type SetupStatusResponse = {
   needsSetup: boolean;
@@ -50,7 +60,14 @@ type SetupStatusResponse = {
   hasLLMKey: boolean;
   hasAgent: boolean;
   hasBootstrapCookie: boolean;
-  blockingReason: "missing_service_role_env" | null;
+  blockingReason: "missing_service_role_env" | "invalid_deployment_env" | null;
+  environmentIssues: SetupEnvironmentIssue[];
+};
+
+type SetupCompletionDialogState = {
+  loginUrl: string;
+  dashboardUrl: string;
+  redirectUrl: string;
 };
 
 type SetupStepKey = "connect" | "register" | "secrets" | "agent";
@@ -71,6 +88,7 @@ const SETUP_STEPS: readonly SetupStepKey[] = [
 
 const SETUP_BOOTSTRAP_MISSING_CODE = "setup_bootstrap_missing";
 const SETUP_BLOCKING_REASON_CODE = "missing_service_role_env";
+const SETUP_INVALID_ENV_CODE = "invalid_deployment_env";
 
 const SETUP_PLATFORMS = [
   {
@@ -181,8 +199,10 @@ You have persistent memory across conversations. Use it wisely:
   const [availableModels, setAvailableModels] = useState<ModelDef[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState("");
+  const [completionDialog, setCompletionDialog] =
+    useState<SetupCompletionDialogState | null>(null);
 
-  const isSetupBlocked = setupStatus?.blockingReason === "missing_service_role_env";
+  const isSetupBlocked = Boolean(setupStatus?.blockingReason);
   const hasBootstrapCredentials =
     Boolean(supabasePAT.trim() && projectRef.trim()) ||
     Boolean(setupStatus?.hasBootstrapCookie);
@@ -193,6 +213,36 @@ You have persistent memory across conversations. Use it wisely:
   const selectedPlatformConfig = SETUP_PLATFORMS.find(
     (platform) => platform.key === selectedPlatform
   );
+
+  const formatEnvironmentIssue = (issue: SetupEnvironmentIssue) => {
+    switch (issue.code) {
+      case "missing":
+        return t("setup.envIssueMissing", { key: issue.key });
+      case "invalid_url":
+        return t("setup.envIssueInvalidUrl", { key: issue.key });
+      case "must_be_https":
+        return t("setup.envIssueMustBeHttps", { key: issue.key });
+      case "must_be_origin":
+        return t("setup.envIssueMustBeOrigin", { key: issue.key });
+      case "invalid_encryption_key":
+        return t("setup.envIssueInvalidEncryptionKey");
+      default:
+        return issue.message;
+    }
+  };
+
+  const navigateAfterSetup = (target: string) => {
+    try {
+      const url = new URL(target, window.location.origin);
+      if (url.origin === window.location.origin) {
+        router.push(`${url.pathname}${url.search}${url.hash}`);
+        return;
+      }
+      window.location.assign(url.toString());
+    } catch {
+      router.push(target);
+    }
+  };
 
   const generateOpaqueToken = () => {
     const bytes = new Uint8Array(24);
@@ -254,7 +304,11 @@ You have persistent memory across conversations. Use it wisely:
   };
 
   const handleSetupApiError = (
-    data: { error?: string; code?: string },
+    data: {
+      error?: string;
+      code?: string;
+      environmentIssues?: SetupEnvironmentIssue[];
+    },
     fallbackMessage: string
   ) => {
     if (data.code === SETUP_BOOTSTRAP_MISSING_CODE) {
@@ -266,7 +320,31 @@ You have persistent memory across conversations. Use it wisely:
       toast.error(t("setup.errors.serviceRoleEnvMissing"));
       return;
     }
+    if (data.code === SETUP_INVALID_ENV_CODE) {
+      if (data.environmentIssues?.length) {
+        setSetupStatus((current) =>
+          current
+            ? {
+                ...current,
+                blockingReason: "invalid_deployment_env",
+                environmentIssues: data.environmentIssues ?? [],
+              }
+            : current
+        );
+      }
+      toast.error(t("setup.errors.deploymentEnvInvalid"));
+      return;
+    }
     toast.error(data.error || fallbackMessage);
+  };
+
+  const copySecurityUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(t("setup.securityUrlCopied"));
+    } catch {
+      toast.error(t("setup.errors.copySecurityUrlFailed"));
+    }
   };
 
   const loadAvailableModels = async () => {
@@ -351,7 +429,11 @@ You have persistent memory across conversations. Use it wisely:
 
   const handleConnect = async () => {
     if (isSetupBlocked) {
-      toast.error(t("setup.errors.serviceRoleEnvMissing"));
+      toast.error(
+        setupStatus?.blockingReason === "missing_service_role_env"
+          ? t("setup.errors.serviceRoleEnvMissing")
+          : t("setup.errors.deploymentEnvInvalid")
+      );
       return;
     }
     if (!supabasePAT.trim()) {
@@ -543,18 +625,19 @@ You have persistent memory across conversations. Use it wisely:
         return;
       }
       toast.success(t("setup.success.agentCreated"));
-      if (data.loginGateEnabled && data.loginUrl) {
-        window.alert(
-          t("setup.loginGateWarning", {
-            url: data.loginUrl,
-          })
-        );
-      }
       const nextUrl =
         (data.loginUrl as string | undefined) ||
         (data.dashboardUrl as string | undefined) ||
         "/dashboard";
-      setTimeout(() => router.push(nextUrl), 200);
+      if (data.loginGateEnabled && data.loginUrl) {
+        setCompletionDialog({
+          loginUrl: data.loginUrl,
+          dashboardUrl: (data.dashboardUrl as string | undefined) || "",
+          redirectUrl: nextUrl,
+        });
+        return;
+      }
+      setTimeout(() => navigateAfterSetup(nextUrl), 200);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("setup.errors.createAgentFailed")
@@ -612,11 +695,26 @@ You have persistent memory across conversations. Use it wisely:
           {isSetupBlocked && (
             <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
               <p className="font-medium text-destructive">
-                {t("setup.serviceRoleEnvRequiredTitle")}
+                {setupStatus?.blockingReason === "missing_service_role_env"
+                  ? t("setup.serviceRoleEnvRequiredTitle")
+                  : t("setup.deploymentEnvInvalidTitle")}
               </p>
               <p className="mt-1 text-muted-foreground">
-                {t("setup.serviceRoleEnvRequiredDesc")}
+                {setupStatus?.blockingReason === "missing_service_role_env"
+                  ? t("setup.serviceRoleEnvRequiredDesc")
+                  : t("setup.deploymentEnvInvalidDesc")}
               </p>
+              {setupStatus?.environmentIssues?.length ? (
+                <ul className="mt-3 space-y-2 rounded-md border border-destructive/20 bg-background/60 p-3 text-xs text-foreground">
+                  {setupStatus.environmentIssues.map((issue) => (
+                    <li key={`${issue.key}:${issue.code}`} className="leading-relaxed">
+                      <span className="font-mono text-[11px]">{issue.key}</span>
+                      <span className="mx-1 text-muted-foreground">-</span>
+                      <span>{formatEnvironmentIssue(issue)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           )}
 
@@ -926,6 +1024,84 @@ You have persistent memory across conversations. Use it wisely:
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(completionDialog)}
+        onOpenChange={(open) => {
+          if (open) return;
+        }}
+      >
+        <DialogContent showCloseButton={false} className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="size-5 text-destructive" />
+              {t("setup.securityUrlDialogTitle")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("setup.securityUrlDialogDesc")}
+            </DialogDescription>
+          </DialogHeader>
+
+          {completionDialog && (
+            <div className="flex flex-col gap-4">
+              <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-muted-foreground">
+                {t("setup.securityUrlSaveHint")}
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  {t("setup.securityUrlLoginLabel")}
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    readOnly
+                    value={completionDialog.loginUrl}
+                    className="font-mono text-xs"
+                    onFocus={(event) => event.target.select()}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={() => void copySecurityUrl(completionDialog.loginUrl)}
+                  >
+                    <Copy className="mr-2 size-4" />
+                    {t("common.copy")}
+                  </Button>
+                </div>
+              </div>
+
+              {completionDialog.dashboardUrl ? (
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    {t("setup.securityUrlDashboardLabel")}
+                  </Label>
+                  <Input
+                    readOnly
+                    value={completionDialog.dashboardUrl}
+                    className="font-mono text-xs"
+                    onFocus={(event) => event.target.select()}
+                  />
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={() => {
+                if (!completionDialog) return;
+                const redirectUrl = completionDialog.redirectUrl;
+                setCompletionDialog(null);
+                navigateAfterSetup(redirectUrl);
+              }}
+            >
+              {t("setup.securityUrlConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -37,6 +37,15 @@
 openssl rand -base64 32
 ```
 
+现在 SEAJelly 会在 setup 第 1 步真正执行初始化前，先检查这些部署环境变量。如果有配置错误，`/setup` 会直接阻断，并明确提示你先去 Vercel 修正后重新部署。
+
+最常见的错误包括：
+
+- `NEXT_PUBLIC_APP_URL` 少了 `https://`
+- `NEXT_PUBLIC_APP_URL` 填成了带路径的地址，而不是纯站点根地址
+- `ENCRYPTION_KEY` 不是有效的 32 字节 base64 key
+- `SUPABASE_SERVICE_ROLE_KEY` 或 `CRON_SECRET` 是部署后才补的，但没有重新部署
+
 ## 第 1 步：连接 Supabase
 
 打开 `/setup` 后，第一步会让你填写：
@@ -126,9 +135,9 @@ SEAJelly 会自动：
 
 ## 一个非常重要的生产环境提醒：保存安全登录链接
 
-setup 最后完成时，生产环境里可能会弹出一个**安全登录链接**提示。
+setup 最后完成时，生产环境会弹出一个专门的**安全登录链接确认弹窗**。
 
-请立刻保存它。
+请先保存好这个链接，再点击确认继续。
 
 原因很简单：
 

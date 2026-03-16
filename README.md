@@ -108,7 +108,9 @@ In short, `/setup` does four things:
 3. Save at least one model provider key and optional embedding credentials
 4. Create the first agent and optionally attach an IM platform
 
-If setup shows a **security login URL** at the end in production, save it immediately.
+Setup now validates bootstrap deployment envs before running SQL. If something like `NEXT_PUBLIC_APP_URL` or `ENCRYPTION_KEY` is malformed, it will stop early and tell you to fix Vercel + redeploy first.
+
+If setup shows a **security login URL** dialog at the end in production, save it immediately before confirming.
 
 The setup flow now supports refresh-safe resume in the same browser via a temporary HttpOnly cookie. If that cookie is lost, `/setup` will ask you to reconnect Supabase from step 1.
 

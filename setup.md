@@ -39,6 +39,15 @@ Generate `ENCRYPTION_KEY` and `CRON_SECRET` with:
 openssl rand -base64 32
 ```
 
+SEAJelly now validates these deployment variables in step 1 before it runs any setup SQL. If something is wrong, `/setup` will block and tell you to fix the value in Vercel and redeploy first.
+
+Common mistakes:
+
+- `NEXT_PUBLIC_APP_URL` is missing `https://`
+- `NEXT_PUBLIC_APP_URL` contains a path instead of just the site origin
+- `ENCRYPTION_KEY` is not a valid 32-byte base64 key
+- `SUPABASE_SERVICE_ROLE_KEY` or `CRON_SECRET` was added after deployment, but the app was not redeployed
+
 ## Step 1: Connect Supabase
 
 Open `/setup`. The first step asks for:
@@ -128,9 +137,9 @@ If you are unsure, skip the platform step and finish the dashboard first.
 
 ## Important Production Note: Save The Security Login URL
 
-At the end of setup, production deployments may show a **security login URL**.
+At the end of setup, production deployments show a dedicated **security login URL** confirmation dialog.
 
-Save it immediately.
+Save it immediately and click the confirmation button only after you have copied it somewhere safe.
 
 Why it matters:
 

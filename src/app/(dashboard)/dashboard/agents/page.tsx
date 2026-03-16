@@ -455,6 +455,7 @@ export default function AgentsPage() {
               action: "set-webhook",
               agent_id: savedAgentId,
               webhook_url: `${baseUrl}/api/webhook/telegram`,
+              inline_token: form.telegram_bot_token,
             }),
           });
         } catch {
@@ -538,6 +539,7 @@ export default function AgentsPage() {
           action: "set-webhook",
           agent_id: agentId,
           webhook_url: `${baseUrl}/api/webhook/telegram`,
+          inline_token: form.telegram_bot_token || undefined,
         }),
       });
       const data = await res.json();

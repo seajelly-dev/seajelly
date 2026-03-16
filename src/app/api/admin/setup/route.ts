@@ -23,6 +23,7 @@ import {
 
 const MGMT_BASE = "https://api.supabase.com/v1";
 const SETUP_BLOCKING_REASON_CODE = "missing_service_role_env";
+const SETUP_INVALID_ENV_CODE = "invalid_deployment_env";
 
 interface SetupRequestBody {
   step?: string;
@@ -56,6 +57,9 @@ export async function POST(request: NextRequest) {
   if (status.blockingReason === "missing_service_role_env") {
     return missingServiceRoleEnvResponse();
   }
+  if (status.blockingReason === "invalid_deployment_env") {
+    return invalidDeploymentEnvResponse(status.environmentIssues);
+  }
 
   if (status.setupComplete) {
     return NextResponse.json(
@@ -84,6 +88,20 @@ function missingServiceRoleEnvResponse() {
       error:
         "SUPABASE_SERVICE_ROLE_KEY must be configured in the deployment environment before setup",
       code: SETUP_BLOCKING_REASON_CODE,
+    },
+    { status: 400 }
+  );
+}
+
+function invalidDeploymentEnvResponse(
+  environmentIssues: Awaited<ReturnType<typeof getSetupStatus>>["environmentIssues"]
+) {
+  return NextResponse.json(
+    {
+      error:
+        "Deployment environment variables are invalid. Fix them in Vercel and redeploy before continuing setup.",
+      code: SETUP_INVALID_ENV_CODE,
+      environmentIssues,
     },
     { status: 400 }
   );
@@ -125,7 +143,7 @@ async function execManagementSql(
 
 async function handleConnect(body: SetupRequestBody) {
   const access_token = body.access_token?.trim() ?? "";
-  const project_ref = body.project_ref?.trim() ?? "";
+  const project_ref = normalizeProjectRef(body.project_ref ?? "");
   if (!access_token || !project_ref) {
     return NextResponse.json(
       { error: "access_token and project_ref are required" },
@@ -178,6 +196,23 @@ async function handleConnect(body: SetupRequestBody) {
       { status: 500 }
     );
   }
+}
+
+function normalizeProjectRef(rawValue: string) {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.hostname.endsWith(".supabase.co")) {
+      return parsed.hostname.replace(/\.supabase\.co$/, "");
+    }
+  } catch {
+    // Not a URL, fall through to raw ref normalization.
+  }
+  return trimmed
+    .replace(/^https?:\/\//i, "")
+    .replace(/\.supabase\.co.*$/i, "")
+    .replace(/\/+$/, "");
 }
 
 // ─── Step 1: Register admin ───
@@ -404,6 +439,13 @@ async function handleAgent(
     `);
 
     if (agentId && body.telegram_bot_token) {
+      const escapedTelegramToken = encrypt(body.telegram_bot_token).replace(/'/g, "''");
+      await execManagementSql(bootstrap, `
+        INSERT INTO public.agent_credentials (agent_id, platform, credential_type, encrypted_value)
+        VALUES ('${agentId}', 'telegram', 'bot_token', '${escapedTelegramToken}')
+        ON CONFLICT (agent_id, platform, credential_type) DO UPDATE SET encrypted_value = EXCLUDED.encrypted_value;
+      `);
+
       const appUrl = process.env.NEXT_PUBLIC_APP_URL;
       if (appUrl) {
         try {

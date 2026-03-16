@@ -1,30 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import {
   LOGIN_GATE_COOKIE,
-  LOGIN_GATE_ENABLED_KEY,
-  LOGIN_GATE_HASH_KEY,
-  parseBooleanText,
   sha256Hex,
 } from "@/lib/security/login-gate";
-
-async function loadLoginGateSettings() {
-  const db = createSupabaseClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-  const { data } = await db
-    .from("system_settings")
-    .select("key, value")
-    .in("key", [LOGIN_GATE_ENABLED_KEY, LOGIN_GATE_HASH_KEY]);
-  const map: Record<string, string> = {};
-  for (const row of data ?? []) map[row.key] = row.value;
-  return {
-    enabled: parseBooleanText(map[LOGIN_GATE_ENABLED_KEY]),
-    hash: map[LOGIN_GATE_HASH_KEY] ?? "",
-  };
-}
+import { readLoginGateSettings } from "@/lib/security/login-gate-store";
 
 export async function POST(request: NextRequest) {
   const body = (await request.json()) as {
@@ -40,11 +20,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
   }
 
-  const gate = await loadLoginGateSettings();
+  const gate = await readLoginGateSettings();
   const gateEnabled = gate.enabled && !!gate.hash;
   if (gateEnabled) {
-    const providedHash = await sha256Hex(gateKey);
-    if (!gateKey || providedHash !== gate.hash) {
+    const cookieHash = request.cookies.get(LOGIN_GATE_COOKIE)?.value ?? "";
+    const providedHash = gateKey ? await sha256Hex(gateKey) : "";
+    if (cookieHash !== gate.hash && providedHash !== gate.hash) {
       return NextResponse.json({ error: "Invalid security key" }, { status: 403 });
     }
   }

@@ -108,7 +108,9 @@ README 里只保留简版说明，详细 setup 步骤请看：
 3. 保存至少一个模型 Provider API Key，以及可选的 Embedding 凭证
 4. 创建第一个 Agent，并按需绑定 IM 平台
 
-如果你在生产环境 setup 结束时看到了**安全登录链接**提示，请立刻保存。
+现在 setup 会在真正跑 SQL 之前先校验基础部署环境变量。如果像 `NEXT_PUBLIC_APP_URL`、`ENCRYPTION_KEY` 这类值格式不对，它会提前阻断，并提示你先去 Vercel 修正并重新部署。
+
+如果你在生产环境 setup 结束时看到了**安全登录链接**确认弹窗，请先保存再确认继续。
 
 现在的 setup 支持在同一浏览器里刷新后续跑，依赖一个临时 HttpOnly cookie。若这个 cookie 丢失，`/setup` 会提示你回到第 1 步重新连接 Supabase。
 
