@@ -223,6 +223,7 @@ export default function AgentsPage() {
     platform_credentials: {} as Record<string, Record<string, string>>,
   });
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [allProviders, setAllProviders] = useState<Provider[]>([]);
   const [allModels, setAllModels] = useState<ModelDef[]>([]);
@@ -475,6 +476,7 @@ export default function AgentsPage() {
 
   const confirmDeleteAgent = async () => {
     if (!deleteTarget) return;
+    setDeleting(true);
     try {
       const res = await fetch(`/api/admin/agents?id=${deleteTarget.id}`, { method: "DELETE" });
       const data = await res.json();
@@ -489,6 +491,8 @@ export default function AgentsPage() {
       fetchAgents();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.delete"));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1397,11 +1401,12 @@ export default function AgentsPage() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}
         title={t("agents.deleteAgent")}
         description={t("agents.deleteAgentConfirm", { name: deleteTarget?.name || "" })}
         confirmText={t("common.delete")}
         onConfirm={confirmDeleteAgent}
+        loading={deleting}
       />
     </div>
   );

@@ -92,6 +92,7 @@ export default function ModelsPage() {
   const [modelForm, setModelForm] = useState({ model_id: "", label: "" });
   const [savingModel, setSavingModel] = useState(false);
 
+  const [deleting, setDeleting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ type: "provider" | "key" | "model"; id: string; name: string } | null>(null);
 
   const fetchProviders = useCallback(async () => {
@@ -294,6 +295,7 @@ export default function ModelsPage() {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    setDeleting(true);
     try {
       const urlMap = {
         provider: `/api/admin/providers?id=${deleteTarget.id}`,
@@ -319,6 +321,7 @@ export default function ModelsPage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
     } finally {
+      setDeleting(false);
       setDeleteTarget(null);
     }
   };
@@ -651,12 +654,13 @@ export default function ModelsPage() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}
         title={t("common.delete")}
         description={deleteTarget?.type === "provider"
           ? t("models.deleteProviderConfirm", { name: deleteTarget.name })
           : `Delete "${deleteTarget?.name}"?`}
         confirmText={t("common.delete")}
+        loading={deleting}
         onConfirm={confirmDelete}
       />
     </div>

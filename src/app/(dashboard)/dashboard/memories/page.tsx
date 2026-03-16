@@ -80,6 +80,7 @@ export default function MemoriesPage() {
   const [editContent, setEditContent] = useState("");
   const [editCategory, setEditCategory] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<MemoryRow | null>(null);
 
   const [chLimit, setChLimit] = useState("25");
@@ -205,6 +206,7 @@ export default function MemoriesPage() {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    setDeleting(true);
     try {
       const res = await fetch("/api/admin/memories", {
         method: "DELETE",
@@ -217,6 +219,8 @@ export default function MemoriesPage() {
       fetchMemories(page);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -443,11 +447,12 @@ export default function MemoriesPage() {
       {/* Delete confirm */}
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}
         title={t("memories.deleteTitle")}
         description={t("memories.deleteConfirm")}
         confirmText={t("common.delete")}
         onConfirm={confirmDelete}
+        loading={deleting}
         variant="destructive"
       />
     </div>

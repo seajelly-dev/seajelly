@@ -56,6 +56,7 @@ export default function SecretsPage() {
   const [newKeyName, setNewKeyName] = useState<string>("");
   const [newValue, setNewValue] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<SecretRow | null>(null);
 
   const fetchSecrets = useCallback(async () => {
@@ -107,6 +108,7 @@ export default function SecretsPage() {
 
   const confirmDeleteSecret = async () => {
     if (!deleteTarget) return;
+    setDeleting(true);
     try {
       const res = await fetch(`/api/admin/secrets?id=${deleteTarget.id}`, {
         method: "DELETE",
@@ -117,6 +119,8 @@ export default function SecretsPage() {
       fetchSecrets();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("secrets.deleteFailed"));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -247,10 +251,11 @@ export default function SecretsPage() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}
         title={t("secrets.deleteSecret")}
         description={t("secrets.deleteSecretConfirm", { name: deleteTarget?.key_name || "" })}
         confirmText={t("common.delete")}
+        loading={deleting}
         onConfirm={confirmDeleteSecret}
       />
     </div>

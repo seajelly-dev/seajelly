@@ -138,7 +138,8 @@ export default function KnowledgePage() {
   // Confirm dialog
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmDesc, setConfirmDesc] = useState("");
-  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+  const [confirmAction, setConfirmAction] = useState<(() => void | Promise<void>) | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   // Processing states
   const [chunkingIds, setChunkingIds] = useState<Set<string>>(new Set());
@@ -1138,9 +1139,18 @@ export default function KnowledgePage() {
       {/* ─── Confirm Dialog ─── */}
       <ConfirmDialog
         open={confirmOpen}
-        onOpenChange={setConfirmOpen}
+        onOpenChange={(open) => { if (!open && !confirmLoading) setConfirmOpen(false); }}
         description={confirmDesc}
-        onConfirm={() => { confirmAction?.(); setConfirmOpen(false); }}
+        loading={confirmLoading}
+        onConfirm={async () => {
+          setConfirmLoading(true);
+          try {
+            await confirmAction?.();
+            setConfirmOpen(false);
+          } finally {
+            setConfirmLoading(false);
+          }
+        }}
       />
     </div>
   );

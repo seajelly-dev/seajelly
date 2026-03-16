@@ -576,7 +576,7 @@ export default function SkillsPage() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}
         title={t("common.delete")}
         description={t("skills.deleteConfirm", {
           name: deleteTarget?.name || "",

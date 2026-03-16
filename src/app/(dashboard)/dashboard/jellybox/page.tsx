@@ -94,6 +94,8 @@ export default function JellyBoxPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string; type: "storage" | "file" } | null>(null);
   const [testing, setTesting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -178,34 +180,39 @@ export default function JellyBoxPage() {
       return;
     }
 
-    const payload: Record<string, unknown> = {
-      name: form.name,
-      account_id: form.account_id,
-      bucket_name: form.bucket_name,
-      endpoint: form.endpoint,
-      public_url: form.public_url,
-      is_active_write: form.is_active_write,
-      max_bytes: Math.round(parseFloat(form.max_bytes_gb) * 1024 * 1024 * 1024),
-    };
-    if (editId) payload.id = editId;
-    if (form.access_key_id) payload.access_key_id = form.access_key_id;
-    if (form.secret_access_key) payload.secret_access_key = form.secret_access_key;
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: form.name,
+        account_id: form.account_id,
+        bucket_name: form.bucket_name,
+        endpoint: form.endpoint,
+        public_url: form.public_url,
+        is_active_write: form.is_active_write,
+        max_bytes: Math.round(parseFloat(form.max_bytes_gb) * 1024 * 1024 * 1024),
+      };
+      if (editId) payload.id = editId;
+      if (form.access_key_id) payload.access_key_id = form.access_key_id;
+      if (form.secret_access_key) payload.secret_access_key = form.secret_access_key;
 
-    const res = await fetch("/api/admin/jellybox", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      toast.error(err.error || "Failed");
-      return;
+      const res = await fetch("/api/admin/jellybox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || "Failed");
+        return;
+      }
+
+      toast.success(editId ? t("jellybox.storageUpdated") : t("jellybox.storageCreated"));
+      setShowForm(false);
+      resetForm();
+      await loadStorages();
+    } finally {
+      setSaving(false);
     }
-
-    toast.success(editId ? t("jellybox.storageUpdated") : t("jellybox.storageCreated"));
-    setShowForm(false);
-    resetForm();
-    await loadStorages();
   }
 
   async function handleTest() {
@@ -244,19 +251,24 @@ export default function JellyBoxPage() {
 
   async function handleDelete() {
     if (!confirmDelete) return;
-    const { id, type } = confirmDelete;
-    const url = type === "storage"
-      ? `/api/admin/jellybox?id=${id}`
-      : `/api/admin/jellybox/files?id=${id}`;
-    const res = await fetch(url, { method: "DELETE" });
-    if (!res.ok) {
-      toast.error("Delete failed");
-      return;
+    setDeleting(true);
+    try {
+      const { id, type } = confirmDelete;
+      const url = type === "storage"
+        ? `/api/admin/jellybox?id=${id}`
+        : `/api/admin/jellybox/files?id=${id}`;
+      const res = await fetch(url, { method: "DELETE" });
+      if (!res.ok) {
+        toast.error("Delete failed");
+        return;
+      }
+      toast.success(type === "storage" ? t("jellybox.storageDeleted") : t("jellybox.fileDeleted"));
+      setConfirmDelete(null);
+      if (type === "storage") await loadStorages();
+      else await loadFiles(filePage, fileSearch);
+    } finally {
+      setDeleting(false);
     }
-    toast.success(type === "storage" ? t("jellybox.storageDeleted") : t("jellybox.fileDeleted"));
-    setConfirmDelete(null);
-    if (type === "storage") await loadStorages();
-    else await loadFiles(filePage, fileSearch);
   }
 
   const totalUsed = storages.reduce((s, r) => s + r.used_bytes, 0);
@@ -645,11 +657,13 @@ export default function JellyBoxPage() {
             <Button
               variant="outline"
               onClick={handleTest}
-              disabled={testing || !form.access_key_id || !form.secret_access_key}
+              disabled={testing || saving || !form.access_key_id || !form.secret_access_key}
             >
               {testing ? t("jellybox.testing") : t("jellybox.testConnection")}
             </Button>
-            <Button onClick={handleSave}>{t("common.save")}</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? t("common.saving") : t("common.save")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -657,7 +671,7 @@ export default function JellyBoxPage() {
       {/* Confirm Delete Dialog */}
       <ConfirmDialog
         open={!!confirmDelete}
-        onOpenChange={(open) => { if (!open) setConfirmDelete(null); }}
+        onOpenChange={(open) => { if (!open && !deleting) setConfirmDelete(null); }}
         title={confirmDelete?.type === "storage" ? t("jellybox.deleteStorage") : t("jellybox.deleteFile")}
         description={
           confirmDelete?.type === "storage"
@@ -665,6 +679,7 @@ export default function JellyBoxPage() {
             : t("jellybox.deleteFileConfirm", { name: confirmDelete?.name ?? "" })
         }
         onConfirm={handleDelete}
+        loading={deleting}
         variant="destructive"
       />
     </div>

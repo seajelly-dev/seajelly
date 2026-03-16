@@ -501,7 +501,7 @@ export default function McpPage() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}
         title={t("common.delete")}
         description={t("mcp.deleteConfirm", {
           name: deleteTarget?.name || "",

@@ -142,6 +142,7 @@ export default function SubscriptionsPage() {
     stripe_payment_link: "",
   });
   const [planSaving, setPlanSaving] = useState(false);
+  const [planDeleting, setPlanDeleting] = useState(false);
   const [deletePlanTarget, setDeletePlanTarget] = useState<Plan | null>(null);
 
   const [grantOpen, setGrantOpen] = useState(false);
@@ -283,6 +284,7 @@ export default function SubscriptionsPage() {
 
   const deletePlan = async () => {
     if (!deletePlanTarget) return;
+    setPlanDeleting(true);
     try {
       const res = await fetch(`/api/admin/subscriptions?id=${deletePlanTarget.id}&target=plan`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
@@ -291,6 +293,8 @@ export default function SubscriptionsPage() {
       fetchData(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setPlanDeleting(false);
     }
   };
 
@@ -912,10 +916,11 @@ export default function SubscriptionsPage() {
 
       <ConfirmDialog
         open={!!deletePlanTarget}
-        onOpenChange={(open) => !open && setDeletePlanTarget(null)}
+        onOpenChange={(open) => !open && !planDeleting && setDeletePlanTarget(null)}
         title={t("subscriptions.deletePlan")}
         description={t("subscriptions.deletePlanConfirm", { name: deletePlanTarget?.name || "" })}
         confirmText={t("common.delete")}
+        loading={planDeleting}
         onConfirm={deletePlan}
       />
     </div>

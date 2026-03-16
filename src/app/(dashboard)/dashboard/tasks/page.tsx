@@ -230,7 +230,7 @@ export default function TasksPage() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}
         title={t("tasks.deleteTask")}
         description={t("tasks.deleteTaskConfirm", {
           name: deleteTarget

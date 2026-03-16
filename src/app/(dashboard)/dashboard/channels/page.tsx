@@ -135,6 +135,8 @@ export default function ChannelsPage() {
   const [soulDialog, setSoulDialog] = useState<ChannelRow | null>(null);
   const [soulText, setSoulText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [ownerSaving, setOwnerSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ChannelRow | null>(null);
   const [ownerTarget, setOwnerTarget] = useState<ChannelRow | null>(null);
 
@@ -265,6 +267,7 @@ export default function ChannelsPage() {
 
   const confirmDeleteChannel = async () => {
     if (!deleteTarget) return;
+    setDeleting(true);
     try {
       const res = await fetch(`/api/admin/channels?id=${deleteTarget.id}`, {
         method: "DELETE",
@@ -275,11 +278,14 @@ export default function ChannelsPage() {
       fetchChannels(page, true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.delete"));
+    } finally {
+      setDeleting(false);
     }
   };
 
   const confirmToggleOwner = async () => {
     if (!ownerTarget) return;
+    setOwnerSaving(true);
     try {
       const res = await fetch("/api/admin/channels", {
         method: "PUT",
@@ -299,6 +305,8 @@ export default function ChannelsPage() {
       fetchChannels(page, true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setOwnerSaving(false);
     }
   };
 
@@ -668,7 +676,7 @@ export default function ChannelsPage() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}
         title={t("channels.deleteChannel")}
         description={t("channels.deleteChannelConfirm", {
           name:
@@ -678,11 +686,12 @@ export default function ChannelsPage() {
         })}
         confirmText={t("common.delete")}
         onConfirm={confirmDeleteChannel}
+        loading={deleting}
       />
 
       <ConfirmDialog
         open={!!ownerTarget}
-        onOpenChange={(open) => !open && setOwnerTarget(null)}
+        onOpenChange={(open) => !open && !ownerSaving && setOwnerTarget(null)}
         title={
           ownerTarget?.is_owner
             ? t("channels.revokeOwner")
@@ -704,6 +713,7 @@ export default function ChannelsPage() {
               })
         }
         variant="default"
+        loading={ownerSaving}
         onConfirm={confirmToggleOwner}
       />
     </div>
