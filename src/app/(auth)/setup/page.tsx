@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +57,7 @@ type SetupStatusResponse = {
   currentStep: number;
   hasSupabaseKeys: boolean;
   hasAdmin: boolean;
+  hasActiveAdminSession: boolean;
   hasServiceRoleEnv: boolean;
   hasLLMKey: boolean;
   hasAgent: boolean;
@@ -89,6 +91,7 @@ const SETUP_STEPS: readonly SetupStepKey[] = [
 const SETUP_BOOTSTRAP_MISSING_CODE = "setup_bootstrap_missing";
 const SETUP_BLOCKING_REASON_CODE = "missing_service_role_env";
 const SETUP_INVALID_ENV_CODE = "invalid_deployment_env";
+const SETUP_EMAIL_NOT_CONFIRMED_CODE = "setup_email_not_confirmed";
 
 const SETUP_PLATFORMS = [
   {
@@ -201,8 +204,12 @@ You have persistent memory across conversations. Use it wisely:
   const [modelsError, setModelsError] = useState("");
   const [completionDialog, setCompletionDialog] =
     useState<SetupCompletionDialogState | null>(null);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resettingSetup, setResettingSetup] = useState(false);
 
   const isSetupBlocked = Boolean(setupStatus?.blockingReason);
+  const requiresAdminLogin =
+    Boolean(setupStatus?.hasAdmin) && !Boolean(setupStatus?.hasActiveAdminSession);
   const hasBootstrapCredentials =
     Boolean(supabasePAT.trim() && projectRef.trim()) ||
     Boolean(setupStatus?.hasBootstrapCookie);
@@ -335,7 +342,61 @@ You have persistent memory across conversations. Use it wisely:
       toast.error(t("setup.errors.deploymentEnvInvalid"));
       return;
     }
+    if (data.code === SETUP_EMAIL_NOT_CONFIRMED_CODE) {
+      toast.error(t("setup.errors.emailConfirmationStillEnabled"));
+      void refreshSetupStatus();
+      return;
+    }
     toast.error(data.error || fallbackMessage);
+  };
+
+  const handleResetPartialSetup = async () => {
+    if (!hasBootstrapCredentials) {
+      toast.error(t("setup.errors.resumeExpired"));
+      setResetDialogOpen(false);
+      resetToConnect();
+      return;
+    }
+
+    setResettingSetup(true);
+    try {
+      const res = await fetch("/api/admin/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: "reset",
+          access_token: supabasePAT,
+          project_ref: projectRef,
+        }),
+      });
+      const data = (await res.json()) as { error?: string; code?: string };
+      if (!res.ok) {
+        handleSetupApiError(data, t("setup.errors.resetPartialSetupFailed"));
+        return;
+      }
+      setResetDialogOpen(false);
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
+      setSecrets({ EMBEDDING_API_KEY: "" });
+      setProviderKeys(
+        Object.fromEntries(PROVIDER_CHOICES.map((provider) => [provider.id, ""]))
+      );
+      setPlatformCreds({});
+      setAvailableModels([]);
+      setModel("");
+      setModelsError("");
+      toast.success(t("setup.success.partialSetupReset"));
+      await refreshSetupStatus();
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("setup.errors.resetPartialSetupFailed")
+      );
+    } finally {
+      setResettingSetup(false);
+    }
   };
 
   const copySecurityUrl = async (url: string) => {
@@ -356,6 +417,10 @@ You have persistent memory across conversations. Use it wisely:
         error?: string;
         models?: ModelDef[];
       };
+      if (res.status === 401 || res.status === 403) {
+        await refreshSetupStatus();
+        throw new Error(t("setup.errors.adminLoginRequired"));
+      }
       if (!res.ok) {
         throw new Error(data.error || t("setup.errors.modelsLoadFailed"));
       }
@@ -771,41 +836,70 @@ You have persistent memory across conversations. Use it wisely:
 
           {effectiveStep === 1 && (
             <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="email">{t("setup.email")}</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder={t("setup.emailPlaceholder")}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="password">{t("setup.password")}</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder={t("setup.passwordPlaceholder")}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="confirmPassword">
-                  {t("setup.confirmPassword")}
-                </Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  placeholder={t("setup.confirmPasswordPlaceholder")}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                />
-              </div>
-              <Button onClick={handleRegister} disabled={loading || resumeUnavailable}>
-                {loading ? t("common.creating") : t("setup.createAdminBtn")}
-              </Button>
+              {requiresAdminLogin ? (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                  <p className="font-medium">{t("setup.adminLoginRequiredTitle")}</p>
+                  <p className="mt-1">{t("setup.adminLoginRequiredDesc")}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => router.push("/login?next=/setup")}
+                    >
+                      {t("setup.signInToContinue")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={() => setResetDialogOpen(true)}
+                      disabled={!hasBootstrapCredentials}
+                    >
+                      {t("setup.resetPartialSetup")}
+                    </Button>
+                  </div>
+                  <p className="mt-3 text-xs text-amber-900/80">
+                    {t("setup.adminLoginRequiredHint")}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="email">{t("setup.email")}</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder={t("setup.emailPlaceholder")}
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="password">{t("setup.password")}</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder={t("setup.passwordPlaceholder")}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="confirmPassword">
+                      {t("setup.confirmPassword")}
+                    </Label>
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      placeholder={t("setup.confirmPasswordPlaceholder")}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                    />
+                  </div>
+                  <Button onClick={handleRegister} disabled={loading || resumeUnavailable}>
+                    {loading ? t("common.creating") : t("setup.createAdminBtn")}
+                  </Button>
+                </>
+              )}
             </div>
           )}
 
@@ -1102,6 +1196,16 @@ You have persistent memory across conversations. Use it wisely:
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={resetDialogOpen}
+        onOpenChange={setResetDialogOpen}
+        title={t("setup.resetPartialSetupDialogTitle")}
+        description={t("setup.resetPartialSetupDialogDesc")}
+        confirmText={t("setup.resetPartialSetup")}
+        loading={resettingSetup}
+        onConfirm={() => void handleResetPartialSetup()}
+      />
     </div>
   );
 }

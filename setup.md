@@ -83,6 +83,11 @@ Enter:
 
 This account becomes the first dashboard admin. Use a real email you control and a password you will remember.
 
+Important:
+
+- If Supabase Auth still has `Confirm email` enabled, or the Auth URL Configuration is wrong, setup will now roll back the partial admin account instead of leaving you in a half-broken state.
+- If setup detects that an admin already exists but this browser is not signed in, step 2 will offer a reset action that clears the unfinished setup data so you can start over cleanly.
+
 ## Step 3: Save Required Keys
 
 This step requires:

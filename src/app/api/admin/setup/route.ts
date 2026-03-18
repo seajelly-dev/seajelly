@@ -24,6 +24,7 @@ import {
 const MGMT_BASE = "https://api.supabase.com/v1";
 const SETUP_BLOCKING_REASON_CODE = "missing_service_role_env";
 const SETUP_INVALID_ENV_CODE = "invalid_deployment_env";
+const SETUP_EMAIL_NOT_CONFIRMED_CODE = "setup_email_not_confirmed";
 
 interface SetupRequestBody {
   step?: string;
@@ -78,6 +79,7 @@ export async function POST(request: NextRequest) {
   if (step === "register") return handleRegister(body, bootstrap);
   if (step === "secrets") return handleSecrets(body, bootstrap);
   if (step === "agent") return handleAgent(body, bootstrap);
+  if (step === "reset") return handleResetSetup(bootstrap);
 
   return NextResponse.json({ error: "Invalid step" }, { status: 400 });
 }
@@ -293,6 +295,29 @@ async function handleRegister(
     });
 
     if (signInError) {
+      if (isEmailNotConfirmedError(signInError.message)) {
+        try {
+          await rollbackPartialAdminRegistration(bootstrap, authData.user.id);
+        } catch (rollbackError) {
+          return NextResponse.json(
+            {
+              error:
+                rollbackError instanceof Error
+                  ? rollbackError.message
+                  : "Admin registration rollback failed",
+            },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json(
+          {
+            error:
+              "Supabase email confirmation is still enabled or URL Configuration is invalid. The partial admin account was rolled back. Disable Confirm email, save the setting, then try Step 2 again.",
+            code: SETUP_EMAIL_NOT_CONFIRMED_CODE,
+          },
+          { status: 400 }
+        );
+      }
       return NextResponse.json({
         success: true,
         sessionEstablished: false,
@@ -307,6 +332,25 @@ async function handleRegister(
       { status: 500 }
     );
   }
+}
+
+function isEmailNotConfirmedError(message: string) {
+  return /email not confirmed/i.test(message);
+}
+
+async function rollbackPartialAdminRegistration(
+  bootstrap: SetupBootstrapCredentials,
+  userId: string
+) {
+  const escapedUserId = userId.replace(/'/g, "''");
+  await execManagementSql(
+    bootstrap,
+    `
+      DELETE FROM public.admins WHERE auth_uid = '${escapedUserId}';
+      DELETE FROM auth.identities WHERE user_id = '${escapedUserId}';
+      DELETE FROM auth.users WHERE id = '${escapedUserId}';
+    `
+  );
 }
 
 // ─── Step 2: Save API keys ───
@@ -510,6 +554,43 @@ async function handleAgent(
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to create agent" },
+      { status: 500 }
+    );
+  }
+}
+
+async function handleResetSetup(bootstrap: SetupBootstrapCredentials) {
+  try {
+    await execManagementSql(
+      bootstrap,
+      `
+        DELETE FROM auth.identities WHERE user_id IN (SELECT auth_uid FROM public.admins);
+        DELETE FROM auth.users WHERE id IN (SELECT auth_uid FROM public.admins);
+        DELETE FROM public.admins;
+        DELETE FROM public.agent_credentials;
+        DELETE FROM public.agents;
+        DELETE FROM public.provider_api_keys;
+        DELETE FROM public.secrets;
+        INSERT INTO public.system_settings (key, value)
+        VALUES
+          ('${LOGIN_GATE_ENABLED_KEY}', 'false'),
+          ('${LOGIN_GATE_HASH_KEY}', '')
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+      `
+    );
+
+    const response = NextResponse.json({
+      success: true,
+      message: "Partial setup data cleared",
+    });
+    setSetupBootstrapCookie(response, bootstrap);
+    return response;
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error ? err.message : "Failed to reset partial setup data",
+      },
       { status: 500 }
     );
   }

@@ -4,7 +4,7 @@ import {
   getSetupEnvironmentIssues,
   type SetupEnvironmentIssue,
 } from "@/lib/setup/environment";
-import { createStrictServiceClient } from "@/lib/supabase/server";
+import { createClient, createStrictServiceClient } from "@/lib/supabase/server";
 
 export type SetupBlockingReason =
   | "missing_service_role_env"
@@ -17,6 +17,7 @@ export interface SetupStatus {
   currentStep: number;
   hasSupabaseKeys: boolean;
   hasAdmin: boolean;
+  hasActiveAdminSession: boolean;
   hasServiceRoleEnv: boolean;
   hasLLMKey: boolean;
   hasAgent: boolean;
@@ -43,6 +44,7 @@ export async function getSetupStatus(): Promise<SetupStatus> {
       currentStep: 0,
       hasSupabaseKeys: false,
       hasAdmin: false,
+      hasActiveAdminSession: false,
       hasServiceRoleEnv,
       hasLLMKey: false,
       hasAgent: false,
@@ -53,14 +55,29 @@ export async function getSetupStatus(): Promise<SetupStatus> {
   }
 
   const db = createStrictServiceClient();
-  const [admins, secrets, agents, providerKeys] = await Promise.all([
-    db.from("admins").select("*", { count: "exact", head: true }),
+  const sessionClient = await createClient();
+  const [
+    admins,
+    secrets,
+    agents,
+    providerKeys,
+    {
+      data: { user },
+    },
+  ] = await Promise.all([
+    db.from("admins").select("auth_uid"),
     db.from("secrets").select("key_name"),
     db.from("agents").select("*", { count: "exact", head: true }),
     db.from("provider_api_keys").select("*", { count: "exact", head: true }),
+    sessionClient.auth.getUser(),
   ]);
 
-  const hasAdmin = !admins.error && (admins.count ?? 0) > 0;
+  const hasAdmin = !admins.error && (admins.data?.length ?? 0) > 0;
+  const hasActiveAdminSession = Boolean(
+    user &&
+      !admins.error &&
+      (admins.data ?? []).some((admin) => admin.auth_uid === user.id)
+  );
   const secretKeys = !secrets.error ? (secrets.data ?? []).map((row) => row.key_name) : [];
   const hasSupabaseKeys =
     secretKeys.includes("SUPABASE_ACCESS_TOKEN") &&
@@ -73,8 +90,16 @@ export async function getSetupStatus(): Promise<SetupStatus> {
 
   let currentStep = 0;
   if (hasSupabaseKeys) currentStep = 1;
-  if (hasSupabaseKeys && hasAdmin) currentStep = 2;
-  if (hasSupabaseKeys && hasAdmin && hasServiceRoleEnv && hasLLMKey) currentStep = 3;
+  if (hasSupabaseKeys && hasAdmin && hasActiveAdminSession) currentStep = 2;
+  if (
+    hasSupabaseKeys &&
+    hasAdmin &&
+    hasActiveAdminSession &&
+    hasServiceRoleEnv &&
+    hasLLMKey
+  ) {
+    currentStep = 3;
+  }
   if (setupComplete) currentStep = 4;
 
   return {
@@ -83,6 +108,7 @@ export async function getSetupStatus(): Promise<SetupStatus> {
     currentStep,
     hasSupabaseKeys,
     hasAdmin,
+    hasActiveAdminSession,
     hasServiceRoleEnv,
     hasLLMKey,
     hasAgent,

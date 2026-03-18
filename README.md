@@ -114,6 +114,8 @@ If setup shows a **security login URL** dialog at the end in production, save it
 
 The setup flow now supports refresh-safe resume in the same browser via a temporary HttpOnly cookie. If that cookie is lost, `/setup` will ask you to reconnect Supabase from step 1.
 
+If Supabase email confirmation is still enabled during step 2, setup now rolls back the partial admin user instead of leaving the install stuck between steps.
+
 ## What Exists Today
 
 | Area | Current scope |
