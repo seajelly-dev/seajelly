@@ -11,7 +11,7 @@ Official domain: [seajelly.ai](https://seajelly.ai)
 
 > 中文说明: [README.zh-CN.md](./README.zh-CN.md)
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fseajelly-dev%2Fseajelly&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY,ENCRYPTION_KEY,NEXT_PUBLIC_APP_URL,CRON_SECRET&envDescription=Configure%20the%20required%20SEAJelly%20bootstrap%20environment%20variables%20before%20deploying.&envLink=https%3A%2F%2Fgithub.com%2Fseajelly-dev%2Fseajelly%2Fblob%2Fmain%2Fsetup.md)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fseajelly-dev%2Fseajelly%2Ftree%2Fstable&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY,ENCRYPTION_KEY,NEXT_PUBLIC_APP_URL,CRON_SECRET&envDescription=Configure%20the%20required%20SEAJelly%20bootstrap%20environment%20variables%20before%20deploying.&envLink=https%3A%2F%2Fgithub.com%2Fseajelly-dev%2Fseajelly%2Fblob%2Fstable%2Fsetup.md)
 
 ## Why SEAJelly
 
@@ -42,6 +42,8 @@ SEAJelly is for teams who want an agent platform that is:
 ## One-Click Deploy
 
 The Vercel button above opens Vercel's import flow and lets a user create their own deployment from this repository with minimal manual setup.
+
+It should point to the `stable` branch, not `main`, so new installs always start from the latest formal release baseline instead of unreleased development commits.
 
 For a beginner-friendly walkthrough, use:
 

@@ -20,6 +20,8 @@ Prepare these first:
 
 If you have not deployed yet, the fastest route is the Vercel button in [README.md](./README.md).
 
+That install button should point to the `stable` branch so first-time users always install the latest formal release, not an in-between development snapshot from `main`.
+
 ## Bootstrap Environment Variables
 
 Before opening `/setup`, make sure your deployment has:
