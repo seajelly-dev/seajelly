@@ -1,0 +1,15 @@
+{
+  "manifest_version": 1,
+  "release_tag": "v0.1.0",
+  "release_commit_sha": "1c3449cf98b3336d0587c0776c2e61b33f8be5f6",
+  "previous_supported_tag": "v0.1.0",
+  "requires_manual_review": false,
+  "required_env_keys": [],
+  "commit_message": "release: upgrade to v0.1.0",
+  "patches": [],
+  "db": {
+    "mode": "none",
+    "destructive": false
+  },
+  "notes_md": "## Highlights\n- First public release of SEAJelly.\n- Serverless multi-channel AI agent platform with setup wizard and admin dashboard.\n- Built-in self-evolution workflow using GitHub + Vercel.\n- Weighted multi-key LLM routing, skills, MCP, coding sandboxes, voice, sub-apps, and subscriptions.\n\n## Notes\n- This is the initial release baseline for the one-click update system.\n- Future releases should set `previous_supported_tag` to `v0.1.0` or the latest supported stable tag.\n"
+}
