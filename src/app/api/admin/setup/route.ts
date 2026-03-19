@@ -20,6 +20,7 @@ import {
   LOGIN_GATE_QUERY_PARAM,
   sha256Hex,
 } from "@/lib/security/login-gate";
+import { getRuntimeVersionInfo } from "@/lib/runtime-version";
 
 const MGMT_BASE = "https://api.supabase.com/v1";
 const SETUP_BLOCKING_REASON_CODE = "missing_service_role_env";
@@ -474,11 +475,19 @@ async function handleAgent(
     const loginGateKey = randomBytes(24).toString("hex");
     const loginGateHash = (await sha256Hex(loginGateKey)).replace(/'/g, "''");
     const gateEnabledValue = process.env.NODE_ENV === "production" ? "true" : "false";
+    const runtimeVersion = getRuntimeVersionInfo();
+    const initialReleaseTag = runtimeVersion.releaseTag.replace(/'/g, "''");
+    const initialCommitSha = runtimeVersion.commitSha.replace(/'/g, "''");
     await execManagementSql(bootstrap, `
       INSERT INTO public.system_settings (key, value)
       VALUES
         ('${LOGIN_GATE_ENABLED_KEY}', '${gateEnabledValue}'),
-        ('${LOGIN_GATE_HASH_KEY}', '${loginGateHash}')
+        ('${LOGIN_GATE_HASH_KEY}', '${loginGateHash}'),
+        ('upstream_repo', 'seajelly-dev/seajelly'),
+        ('install_mode', 'vercel_clone'),
+        ('installed_release_tag', '${initialReleaseTag}'),
+        ('installed_commit_sha', '${initialCommitSha}'),
+        ('last_update_status', 'idle')
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
     `);
 
@@ -1097,6 +1106,55 @@ INSERT INTO public.system_settings (key, value) VALUES
   ('login_gate_enabled', 'false'),
   ('login_gate_key_hash', '')
 ON CONFLICT (key) DO NOTHING;
+
+-- ============================================================
+-- 14b. update_runs (one-click updater execution history)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.update_runs (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_by_admin_id uuid REFERENCES public.admins(id) ON DELETE SET NULL,
+  from_release_tag    text NOT NULL,
+  to_release_tag      text NOT NULL,
+  from_commit_sha     text,
+  patch_commit_sha    text,
+  rollback_commit_sha text,
+  local_repo          text NOT NULL,
+  local_branch        text NOT NULL,
+  status              text NOT NULL CHECK (
+    status IN (
+      'checking',
+      'blocked',
+      'patching',
+      'deploy_pending',
+      'deploy_ready',
+      'deploy_error',
+      'db_pending',
+      'db_running',
+      'success',
+      'rollback_running',
+      'rolled_back',
+      'failed'
+    )
+  ),
+  deploy_status       text,
+  deployment_id       text,
+  deployment_url      text,
+  has_db_changes      boolean NOT NULL DEFAULT false,
+  db_mode             text NOT NULL DEFAULT 'none',
+  error_summary       text,
+  details_json        jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS update_runs_created_at_idx ON public.update_runs(created_at DESC);
+CREATE INDEX IF NOT EXISTS update_runs_status_idx ON public.update_runs(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS update_runs_created_by_admin_id_idx ON public.update_runs(created_by_admin_id);
+ALTER TABLE public.update_runs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "update_runs_admin_all" ON public.update_runs;
+DROP POLICY IF EXISTS "update_runs_service_all" ON public.update_runs;
+DROP POLICY IF EXISTS "update_runs_admin_or_service_all" ON public.update_runs;
+CREATE POLICY "update_runs_admin_or_service_all" ON public.update_runs FOR ALL
+  USING (public.is_admin() OR current_setting('role') = 'service_role');
 
 -- ============================================================
 -- 15. html_previews (public HTML preview storage for coding module)

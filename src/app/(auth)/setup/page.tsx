@@ -66,10 +66,15 @@ type SetupStatusResponse = {
   environmentIssues: SetupEnvironmentIssue[];
 };
 
-type SetupCompletionDialogState = {
+type SetupSecurityDialogState = {
   loginUrl: string;
   dashboardUrl: string;
-  redirectUrl: string;
+  updatesUrl: string;
+};
+
+type SetupFinishDialogState = {
+  dashboardUrl: string;
+  updatesUrl: string;
 };
 
 type SetupStepKey = "connect" | "register" | "secrets" | "agent";
@@ -202,8 +207,10 @@ You have persistent memory across conversations. Use it wisely:
   const [availableModels, setAvailableModels] = useState<ModelDef[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState("");
-  const [completionDialog, setCompletionDialog] =
-    useState<SetupCompletionDialogState | null>(null);
+  const [securityDialog, setSecurityDialog] =
+    useState<SetupSecurityDialogState | null>(null);
+  const [finishDialog, setFinishDialog] =
+    useState<SetupFinishDialogState | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resettingSetup, setResettingSetup] = useState(false);
 
@@ -248,6 +255,27 @@ You have persistent memory across conversations. Use it wisely:
       window.location.assign(url.toString());
     } catch {
       router.push(target);
+    }
+  };
+
+  const buildPostSetupTargets = (dashboardTarget?: string) => {
+    const resolvedDashboard = dashboardTarget || "/dashboard";
+
+    try {
+      const dashboardUrl = new URL(resolvedDashboard, window.location.origin);
+      const updatesUrl = new URL("/dashboard/updates", window.location.origin);
+      updatesUrl.search = dashboardUrl.search;
+      updatesUrl.hash = dashboardUrl.hash;
+
+      return {
+        dashboardUrl: `${dashboardUrl.pathname}${dashboardUrl.search}${dashboardUrl.hash}`,
+        updatesUrl: `${updatesUrl.pathname}${updatesUrl.search}${updatesUrl.hash}`,
+      };
+    } catch {
+      return {
+        dashboardUrl: resolvedDashboard,
+        updatesUrl: "/dashboard/updates",
+      };
     }
   };
 
@@ -690,19 +718,18 @@ You have persistent memory across conversations. Use it wisely:
         return;
       }
       toast.success(t("setup.success.agentCreated"));
-      const nextUrl =
-        (data.loginUrl as string | undefined) ||
-        (data.dashboardUrl as string | undefined) ||
-        "/dashboard";
+      const dashboardTarget =
+        (data.dashboardUrl as string | undefined) || "/dashboard";
+      const targets = buildPostSetupTargets(dashboardTarget);
       if (data.loginGateEnabled && data.loginUrl) {
-        setCompletionDialog({
+        setSecurityDialog({
           loginUrl: data.loginUrl,
-          dashboardUrl: (data.dashboardUrl as string | undefined) || "",
-          redirectUrl: nextUrl,
+          dashboardUrl: targets.dashboardUrl,
+          updatesUrl: targets.updatesUrl,
         });
         return;
       }
-      setTimeout(() => navigateAfterSetup(nextUrl), 200);
+      setFinishDialog(targets);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("setup.errors.createAgentFailed")
@@ -1120,7 +1147,7 @@ You have persistent memory across conversations. Use it wisely:
       </Card>
 
       <Dialog
-        open={Boolean(completionDialog)}
+        open={Boolean(securityDialog)}
         onOpenChange={(open) => {
           if (open) return;
         }}
@@ -1136,7 +1163,7 @@ You have persistent memory across conversations. Use it wisely:
             </DialogDescription>
           </DialogHeader>
 
-          {completionDialog && (
+          {securityDialog && (
             <div className="flex flex-col gap-4">
               <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-muted-foreground">
                 {t("setup.securityUrlSaveHint")}
@@ -1149,7 +1176,7 @@ You have persistent memory across conversations. Use it wisely:
                 <div className="flex items-center gap-2">
                   <Input
                     readOnly
-                    value={completionDialog.loginUrl}
+                    value={securityDialog.loginUrl}
                     className="font-mono text-xs"
                     onFocus={(event) => event.target.select()}
                   />
@@ -1157,7 +1184,7 @@ You have persistent memory across conversations. Use it wisely:
                     type="button"
                     variant="outline"
                     className="shrink-0"
-                    onClick={() => void copySecurityUrl(completionDialog.loginUrl)}
+                    onClick={() => void copySecurityUrl(securityDialog.loginUrl)}
                   >
                     <Copy className="mr-2 size-4" />
                     {t("common.copy")}
@@ -1165,14 +1192,14 @@ You have persistent memory across conversations. Use it wisely:
                 </div>
               </div>
 
-              {completionDialog.dashboardUrl ? (
+              {securityDialog.dashboardUrl ? (
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-xs text-muted-foreground">
                     {t("setup.securityUrlDashboardLabel")}
                   </Label>
                   <Input
                     readOnly
-                    value={completionDialog.dashboardUrl}
+                    value={securityDialog.dashboardUrl}
                     className="font-mono text-xs"
                     onFocus={(event) => event.target.select()}
                   />
@@ -1185,13 +1212,55 @@ You have persistent memory across conversations. Use it wisely:
             <Button
               type="button"
               onClick={() => {
-                if (!completionDialog) return;
-                const redirectUrl = completionDialog.redirectUrl;
-                setCompletionDialog(null);
-                navigateAfterSetup(redirectUrl);
+                if (!securityDialog) return;
+                setFinishDialog({
+                  dashboardUrl: securityDialog.dashboardUrl,
+                  updatesUrl: securityDialog.updatesUrl,
+                });
+                setSecurityDialog(null);
               }}
             >
               {t("setup.securityUrlConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(finishDialog)}
+        onOpenChange={(open) => {
+          if (open) return;
+        }}
+      >
+        <DialogContent showCloseButton={false} className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("setup.finishDialogTitle")}</DialogTitle>
+            <DialogDescription>{t("setup.finishDialogDesc")}</DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (!finishDialog) return;
+                const target = finishDialog.dashboardUrl;
+                setFinishDialog(null);
+                navigateAfterSetup(target);
+              }}
+            >
+              {t("setup.finishGoDashboard")}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (!finishDialog) return;
+                const target = finishDialog.updatesUrl;
+                setFinishDialog(null);
+                navigateAfterSetup(target);
+              }}
+            >
+              {t("setup.finishEnableUpdates")}
             </Button>
           </DialogFooter>
         </DialogContent>

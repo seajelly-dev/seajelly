@@ -152,15 +152,21 @@ Why it matters:
 - the generated login URL is the easiest way to reach the login page safely
 - if you lose it before entering the dashboard, recovery is more annoying
 
+Right after you confirm that dialog, SEAJelly now shows a second completion dialog with two choices:
+
+- `Go to Dashboard`
+- `Enable One-Click Updates`
+
 ## After Setup
 
 Once setup finishes:
 
 1. open the dashboard
-2. confirm your first agent exists
-3. test the agent on your chosen channel, or finish platform setup later
-4. add knowledge bases, skills, MCP servers, and multimodal settings
-5. explore the self-evolution workflow when you are ready
+2. or jump straight to `Dashboard -> Updates` if you want to enable guided one-click upgrades
+3. confirm your first agent exists
+4. test the agent on your chosen channel, or finish platform setup later
+5. add knowledge bases, skills, MCP servers, and multimodal settings
+6. explore the self-evolution workflow when you are ready
 
 Useful next reads:
 

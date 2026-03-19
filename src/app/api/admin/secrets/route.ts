@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/crypto/encrypt";
+import { clearSecretsCache } from "@/lib/secrets";
 
 export async function GET() {
   try { await requireAdmin(); } catch (e) {
@@ -63,6 +64,8 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  clearSecretsCache();
+
   return NextResponse.json({ success: true });
 }
 
@@ -84,6 +87,8 @@ export async function DELETE(request: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  clearSecretsCache();
 
   return NextResponse.json({ success: true });
 }

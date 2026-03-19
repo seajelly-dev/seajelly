@@ -119,6 +119,7 @@ const NAV_GROUPS: NavGroup[] = [
     titleKey: "sidebar.system",
     icon: Settings,
     items: [
+      { titleKey: "sidebar.updates", href: "/dashboard/updates" },
       { titleKey: "sidebar.secrets", href: "/dashboard/secrets" },
       { titleKey: "sidebar.settings", href: "/dashboard/settings" },
     ],

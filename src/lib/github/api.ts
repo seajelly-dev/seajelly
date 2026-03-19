@@ -18,6 +18,50 @@ function encodeRepoPath(path: string): string {
     .join("/");
 }
 
+export interface RepoInfo {
+  defaultBranch: string;
+  canPush: boolean;
+  htmlUrl: string;
+}
+
+export async function getRepoInfo(
+  token: string,
+  repo: string,
+): Promise<RepoInfo> {
+  const { owner, name } = parseRepo(repo);
+  const res = await fetch(`${API}/repos/${owner}/${name}`, {
+    headers: headers(token),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`GitHub repo info failed (${res.status}): ${body}`);
+  }
+  const data = await res.json();
+  return {
+    defaultBranch: data.default_branch ?? "main",
+    canPush: data.permissions?.push !== false,
+    htmlUrl: data.html_url ?? `https://github.com/${owner}/${name}`,
+  };
+}
+
+export async function getBranchHeadSha(
+  token: string,
+  repo: string,
+  branch = "main",
+): Promise<string> {
+  const { owner, name } = parseRepo(repo);
+  const refRes = await fetch(
+    `${API}/repos/${owner}/${name}/git/ref/heads/${branch}`,
+    { headers: headers(token) },
+  );
+  if (!refRes.ok) {
+    const body = await refRes.text();
+    throw new Error(`Failed to get branch ref (${refRes.status}): ${body}`);
+  }
+  const refData = await refRes.json();
+  return refData.object.sha as string;
+}
+
 export async function getFile(
   token: string,
   repo: string,

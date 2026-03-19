@@ -112,6 +112,8 @@ Setup now validates bootstrap deployment envs before running SQL. If something l
 
 If setup shows a **security login URL** dialog at the end in production, save it immediately before confirming.
 
+After that confirmation, setup now offers a second finish dialog with quick entry into either the dashboard or `Dashboard -> Updates`, where users can enable guided one-click upgrades.
+
 The setup flow now supports refresh-safe resume in the same browser via a temporary HttpOnly cookie. If that cookie is lost, `/setup` will ask you to reconnect Supabase from step 1.
 
 If Supabase email confirmation is still enabled during step 2, setup now rolls back the partial admin user instead of leaving the install stuck between steps.
@@ -132,6 +134,7 @@ If Supabase email confirmation is still enabled during step 2, setup now rolls b
 | Monetization | Subscription plans, channel subscriptions, approval fallback, Stripe webhook scaffolding |
 | Scheduling | Reminders, agent-invoke tasks, worker queue processing, and cron-backed automation |
 | Storage | JellyBox object storage management backed by Cloudflare R2-compatible storage |
+| Managed updates | Guided one-click upgrade flow for Vercel clone installs, with release manifest checks, deploy monitoring, and optional DB follow-up |
 | Operations | Dashboard analytics, events queue inspection, usage stats, and admin controls |
 
 ## Project Status

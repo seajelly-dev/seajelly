@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireAdmin, authErrorResponse, createAdminClient } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/crypto/encrypt";
 import { parseRepo } from "@/lib/github/config";
+import { clearSecretsCache } from "@/lib/secrets";
+import { getRepoInfo } from "@/lib/github/api";
 
 export async function GET() {
   try { await requireAdmin(); } catch (e) {
@@ -58,6 +60,7 @@ export async function POST(request: Request) {
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
+      clearSecretsCache();
     }
 
     if (repo !== undefined) {
@@ -90,10 +93,8 @@ export async function POST(request: Request) {
     const { decrypt } = await import("@/lib/crypto/encrypt");
     const ghToken = decrypt(tokenRow.data.encrypted_value);
     const repoName = repoRow.data.value;
-    let owner: string;
-    let name: string;
     try {
-      ({ owner, name } = parseRepo(repoName));
+      parseRepo(repoName);
     } catch (err) {
       return NextResponse.json(
         { error: err instanceof Error ? err.message : "Invalid repository format" },
@@ -102,30 +103,25 @@ export async function POST(request: Request) {
     }
 
     try {
-      const res = await fetch(`https://api.github.com/repos/${owner}/${name}`, {
-        headers: {
-          Authorization: `Bearer ${ghToken}`,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        return NextResponse.json(
-          { error: body.message || `GitHub returned ${res.status}` },
-          { status: 400 }
-        );
-      }
-      const body = await res.json();
-      if (body.permissions && body.permissions.push === false) {
+      const repoInfo = await getRepoInfo(ghToken, repoName);
+      if (!repoInfo.canPush) {
         return NextResponse.json(
           { error: "Token can read the repository but does not have push permission." },
           { status: 400 }
         );
       }
+      const { error: branchErr } = await supabase
+        .from("system_settings")
+        .upsert(
+          { key: "github_default_branch", value: repoInfo.defaultBranch },
+          { onConflict: "key" }
+        );
+      if (branchErr) {
+        return NextResponse.json({ error: branchErr.message }, { status: 500 });
+      }
       return NextResponse.json({
         success: true,
-        defaultBranch: body.default_branch ?? "main",
+        defaultBranch: repoInfo.defaultBranch,
       });
     } catch (err) {
       return NextResponse.json(

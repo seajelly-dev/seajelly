@@ -112,6 +112,8 @@ README 里只保留简版说明，详细 setup 步骤请看：
 
 如果你在生产环境 setup 结束时看到了**安全登录链接**确认弹窗，请先保存再确认继续。
 
+确认之后，setup 现在还会弹出第二个完成弹窗，让用户直接选择进入控制台，或者前往 `Dashboard -> 系统升级` 启用引导式一键升级。
+
 现在的 setup 支持在同一浏览器里刷新后续跑，依赖一个临时 HttpOnly cookie。若这个 cookie 丢失，`/setup` 会提示你回到第 1 步重新连接 Supabase。
 
 如果你在第 2 步时 Supabase 还开着邮箱确认，setup 现在会自动回滚这次半成功的管理员注册，不再把安装流程卡在中间状态。
@@ -132,6 +134,7 @@ README 里只保留简版说明，详细 setup 步骤请看：
 | 商业化 | 订阅套餐、用户通道订阅、审批兜底、Stripe webhook 基础链路 |
 | 调度能力 | Reminder、agent invoke 任务、worker 队列处理与 cron 自动化 |
 | 存储 | JellyBox 对象存储管理，兼容 Cloudflare R2 风格存储 |
+| 系统升级 | 面向 Vercel clone 安装的引导式一键升级能力，包含 release manifest 校验、部署状态跟踪以及可选数据库收尾步骤 |
 | 运维 | Dashboard 统计、事件队列排障、usage 数据与后台控制能力 |
 
 ## 项目状态

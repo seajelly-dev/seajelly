@@ -436,6 +436,28 @@ export interface JellyBoxFile {
   created_at: string;
 }
 
+export interface UpdateRun {
+  id: string;
+  created_by_admin_id: string | null;
+  from_release_tag: string;
+  to_release_tag: string;
+  from_commit_sha: string | null;
+  patch_commit_sha: string | null;
+  rollback_commit_sha: string | null;
+  local_repo: string;
+  local_branch: string;
+  status: string;
+  deploy_status: string | null;
+  deployment_id: string | null;
+  deployment_url: string | null;
+  has_db_changes: boolean;
+  db_mode: string;
+  error_summary: string | null;
+  details_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 export const SECRET_KEYS = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "SUPABASE_ACCESS_TOKEN",
