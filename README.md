@@ -120,6 +120,17 @@ The setup flow now supports refresh-safe resume in the same browser via a tempor
 
 If Supabase email confirmation is still enabled during step 2, setup now rolls back the partial admin user instead of leaving the install stuck between steps.
 
+If you plan to enable **self-evolution** or `Dashboard -> Updates`, configure GitHub and Vercel later in `Dashboard -> Coding` with these exact inputs:
+
+- GitHub: prefer a **fine-grained PAT**, set `Repository access` to the deployed repository, and grant `Contents: Read and write` plus `Workflows: Read and write`
+- GitHub org repos: the token may stay pending until an organization admin approves it
+- Vercel Token: avatar -> `Settings` -> `Tokens`, or [vercel.com/account/settings](https://vercel.com/account/settings)
+- Vercel Project ID: project -> `Settings` -> `General` -> `Project ID`
+
+Official GitHub permission reference:
+
+- [Permissions required for fine-grained personal access tokens](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens?apiVersion=2026-03-10)
+
 ## What Exists Today
 
 | Area | Current scope |

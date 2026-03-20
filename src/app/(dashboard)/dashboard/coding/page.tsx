@@ -64,6 +64,13 @@ interface ExecutionOutput {
 }
 
 export default function CodingPage() {
+  const GITHUB_PAT_URL = "https://github.com/settings/personal-access-tokens/new";
+  const GITHUB_PERMISSION_DOCS_URL =
+    "https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens?apiVersion=2026-03-10";
+  const VERCEL_ACCOUNT_SETTINGS_URL = "https://vercel.com/account/settings";
+  const VERCEL_TOKENS_URL = "https://vercel.com/account/settings/tokens";
+  const VERCEL_PROJECT_ID_DOCS_URL =
+    "https://vercel.com/docs/projects/project-configuration/general-settings";
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -352,6 +359,39 @@ export default function CodingPage() {
               </div>
             </CardHeader>
             <CardContent>
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
+                <div className="flex items-center gap-2 font-medium">
+                  <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
+                  {t("coding.githubPermissionTitle")}
+                </div>
+                <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm">
+                  <li>{t("coding.githubPermissionOwner")}</li>
+                  <li>{t("coding.githubPermissionRepoAccess")}</li>
+                  <li>{t("coding.githubPermissionContents")}</li>
+                  <li>{t("coding.githubPermissionWorkflows")}</li>
+                  <li>{t("coding.githubPermissionOrgApproval")}</li>
+                </ul>
+                <div className="mt-3 flex flex-wrap gap-4 text-xs">
+                  <a
+                    href={GITHUB_PAT_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-amber-800 underline underline-offset-4 hover:text-amber-900 dark:text-amber-200 dark:hover:text-amber-50"
+                  >
+                    {t("coding.githubTokenDocs")}
+                    <ExternalLink className="size-3" />
+                  </a>
+                  <a
+                    href={GITHUB_PERMISSION_DOCS_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-amber-800 underline underline-offset-4 hover:text-amber-900 dark:text-amber-200 dark:hover:text-amber-50"
+                  >
+                    {t("coding.githubPermissionDocs")}
+                    <ExternalLink className="size-3" />
+                  </a>
+                </div>
+              </div>
               {ghTokenConfigured === null ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
@@ -392,6 +432,7 @@ export default function CodingPage() {
                         value={ghTokenInput}
                         onChange={(e) => setGhTokenInput(e.target.value)}
                       />
+                      <p className="text-xs text-muted-foreground">{t("coding.githubTokenHint")}</p>
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <Label className="text-xs text-muted-foreground">{t("coding.githubRepoLabel")}</Label>
@@ -400,6 +441,7 @@ export default function CodingPage() {
                         value={ghRepoInput}
                         onChange={(e) => setGhRepoInput(e.target.value)}
                       />
+                      <p className="text-xs text-muted-foreground">{t("coding.githubRepoHint")}</p>
                     </div>
                   </div>
                   <Button
@@ -474,6 +516,47 @@ export default function CodingPage() {
               <p className="text-sm text-muted-foreground mb-4">
                 {t("coding.vercelConfigDesc")}
               </p>
+              <div className="mb-4 rounded-lg border border-border/60 bg-muted/30 p-4 text-sm">
+                <div className="space-y-2 text-muted-foreground">
+                  <p>
+                    <span className="font-medium text-foreground">{t("coding.vercelTokenLabel")}:</span>{" "}
+                    {t("coding.vercelTokenHint")}
+                  </p>
+                  <p>
+                    <span className="font-medium text-foreground">{t("coding.vercelProjectIdLabel")}:</span>{" "}
+                    {t("coding.vercelProjectIdHint")}
+                  </p>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-4 text-xs">
+                  <a
+                    href={VERCEL_TOKENS_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                  >
+                    {t("coding.vercelTokenDocs")}
+                    <ExternalLink className="size-3" />
+                  </a>
+                  <a
+                    href={VERCEL_PROJECT_ID_DOCS_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                  >
+                    {t("coding.vercelProjectIdDocs")}
+                    <ExternalLink className="size-3" />
+                  </a>
+                  <a
+                    href={VERCEL_ACCOUNT_SETTINGS_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                  >
+                    vercel.com/account/settings
+                    <ExternalLink className="size-3" />
+                  </a>
+                </div>
+              </div>
               {vercelConfigured && (
                 <Badge variant="secondary" className="gap-1 text-green-600 dark:text-green-400 mb-4">
                   <CheckCircle2 className="size-3.5" />
@@ -489,6 +572,7 @@ export default function CodingPage() {
                     value={vercelTokenInput}
                     onChange={(e) => setVercelTokenInput(e.target.value)}
                   />
+                  <p className="text-xs text-muted-foreground">{t("coding.vercelTokenHint")}</p>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-xs">{t("coding.vercelProjectIdLabel")}</Label>
@@ -497,6 +581,7 @@ export default function CodingPage() {
                     value={vercelProjectIdInput}
                     onChange={(e) => setVercelProjectIdInput(e.target.value)}
                   />
+                  <p className="text-xs text-muted-foreground">{t("coding.vercelProjectIdHint")}</p>
                 </div>
               </div>
               <Button

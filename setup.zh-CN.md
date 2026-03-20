@@ -14,6 +14,8 @@
 | Vercel 账号和部署 | 是 | 推荐的生产部署方式 |
 | 一个公网可访问的应用地址 | 是 | setup、webhook、预览、语音链接和 cron 回调都要用到 |
 | 至少一个大模型 API Key | 是 | setup 至少要保存一个 Provider Key |
+| GitHub fine-grained PAT | 可选 | 后续启用自进化和引导式一键升级时会用到 |
+| Vercel Token 与 Project ID | 可选 | 后续 GitHub 推送代码后，用来监控部署状态 |
 | IM 平台凭证 | 可选 | setup 里可以先跳过，后面再配 |
 
 如果你还没部署，最快的方式就是使用 [README.zh-CN.md](./README.zh-CN.md) 里的 Vercel 一键部署按钮。
@@ -173,6 +175,31 @@ setup 最后完成时，生产环境会弹出一个专门的**安全登录链接
 - [README.zh-CN.md](./README.zh-CN.md)
 - [skills/self-evolution-guide/SKILL.md](./skills/self-evolution-guide/SKILL.md)
 - [src/lib/agent/README.md](./src/lib/agent/README.md)
+
+## 可选：启用自进化与引导式一键升级
+
+当你准备好之后，进入 `Dashboard -> Coding`，把 GitHub 和 Vercel 这两组配置补上。
+
+### GitHub
+
+- 推荐使用 **fine-grained PAT**
+- `Resource owner`：选择当前部署仓库所属的个人账号或组织
+- `Repository access`：优先选择 `Only select repositories`，并只勾选当前部署仓库
+- `Repository permissions`：
+  - `Contents` -> `Read and write`
+  - `Workflows` -> `Read and write`
+- 如果仓库在组织名下，token 可能会先显示为 `pending`，需要组织管理员审批后才会真正可用
+
+GitHub 官方参考：
+
+- [fine-grained personal access token 权限要求](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens?apiVersion=2026-03-10)
+
+### Vercel
+
+- `Vercel Token`：头像 -> `Settings` -> `Tokens`，或直接访问 [vercel.com/account/settings](https://vercel.com/account/settings)
+- `Project ID`：打开对应项目 -> `Settings` -> `General` -> `Project ID`
+
+这两个值会让 SEAJelly 在自进化或一键升级推送 GitHub 代码之后，继续跟踪 Vercel 的构建和部署状态。
 
 ## 常见问题
 

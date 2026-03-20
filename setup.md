@@ -16,6 +16,8 @@ Prepare these first:
 | Vercel account and deployment | Yes | Recommended production host |
 | Public app URL | Yes | Needed for setup, webhooks, previews, voice links, and cron callbacks |
 | At least one LLM API key | Yes | Setup requires at least one provider key |
+| GitHub fine-grained PAT | Optional | Needed later for self-evolution and guided one-click updates |
+| Vercel token and project ID | Optional | Needed later to monitor deployments after GitHub pushes |
 | IM platform credentials | Optional | You can skip this during setup and add them later |
 
 If you have not deployed yet, the fastest route is the Vercel button in [README.md](./README.md).
@@ -175,6 +177,31 @@ Useful next reads:
 - [README.md](./README.md)
 - [skills/self-evolution-guide/SKILL.md](./skills/self-evolution-guide/SKILL.md)
 - [src/lib/agent/README.md](./src/lib/agent/README.md)
+
+## Optional: Enable Self-Evolution And Guided Updates
+
+When you are ready, open `Dashboard -> Coding` and configure GitHub plus Vercel.
+
+### GitHub
+
+- Prefer a **fine-grained PAT**
+- `Resource owner`: choose the user or organization that owns the deployed repository
+- `Repository access`: prefer `Only select repositories` and choose the deployed repository
+- `Repository permissions`:
+  - `Contents` -> `Read and write`
+  - `Workflows` -> `Read and write`
+- If the repository belongs to an organization, the token may remain `pending` until an org admin approves it
+
+Official reference:
+
+- [Permissions required for fine-grained personal access tokens](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens?apiVersion=2026-03-10)
+
+### Vercel
+
+- `Vercel Token`: avatar -> `Settings` -> `Tokens`, or [vercel.com/account/settings](https://vercel.com/account/settings)
+- `Project ID`: open the project -> `Settings` -> `General` -> `Project ID`
+
+These two values let SEAJelly monitor Vercel builds after GitHub pushes code during self-evolution or one-click updates.
 
 ## Common Problems
 

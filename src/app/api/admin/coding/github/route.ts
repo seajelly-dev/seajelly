@@ -106,7 +106,10 @@ export async function POST(request: Request) {
       const repoInfo = await getRepoInfo(ghToken, repoName);
       if (!repoInfo.canPush) {
         return NextResponse.json(
-          { error: "Token can read the repository but does not have push permission." },
+          {
+            error:
+              "Token can read the repository but does not have write access. For a fine-grained PAT, choose this repository and grant Contents: Read and write. If you want full self-evolution and upgrade support, also grant Workflows: Read and write. Organization-owned repositories may also require admin approval.",
+          },
           { status: 400 }
         );
       }
@@ -125,7 +128,12 @@ export async function POST(request: Request) {
       });
     } catch (err) {
       return NextResponse.json(
-        { error: err instanceof Error ? err.message : "Connection failed" },
+        {
+          error:
+            err instanceof Error
+              ? `${err.message} If you are using a fine-grained PAT, make sure the repository is selected for this token and, for organization repositories, that approval is no longer pending.`
+              : "Connection failed",
+        },
         { status: 500 }
       );
     }

@@ -120,6 +120,17 @@ README 里只保留简版说明，详细 setup 步骤请看：
 
 如果你在第 2 步时 Supabase 还开着邮箱确认，setup 现在会自动回滚这次半成功的管理员注册，不再把安装流程卡在中间状态。
 
+如果你后面想启用**自进化**或 `Dashboard -> 系统升级`，请在 `Dashboard -> Coding` 里按下面这套方式配置 GitHub 和 Vercel：
+
+- GitHub：推荐使用 **fine-grained PAT**，`Repository access` 只选当前部署仓库，并授予 `Contents: Read and write` 与 `Workflows: Read and write`
+- GitHub 组织仓库：token 可能需要组织管理员审批后才会真正可用
+- Vercel Token：头像 -> `Settings` -> `Tokens`，或直接访问 [vercel.com/account/settings](https://vercel.com/account/settings)
+- Vercel Project ID：项目 -> `Settings` -> `General` -> `Project ID`
+
+GitHub 官方权限说明：
+
+- [fine-grained personal access token 权限要求](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens?apiVersion=2026-03-10)
+
 ## 当前已实现能力
 
 | 领域 | 当前能力范围 |
