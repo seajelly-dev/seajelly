@@ -147,7 +147,7 @@ Official GitHub permission reference:
 | Monetization | Subscription plans, channel subscriptions, approval fallback, Stripe webhook scaffolding |
 | Scheduling | Reminders, agent-invoke tasks, worker queue processing, and cron-backed automation |
 | Storage | JellyBox object storage management backed by Cloudflare R2-compatible storage |
-| Managed updates | Guided one-click upgrade flow for Vercel clone installs, with release manifest checks, deploy monitoring, and optional DB follow-up |
+| Managed updates | Guided one-click upgrade flow for Vercel clone installs, with release-by-release path checks, deploy monitoring, optional DB follow-up, and safe multi-hop catch-up from older versions |
 | Operations | Dashboard analytics, events queue inspection, usage stats, and admin controls |
 
 ## Project Status

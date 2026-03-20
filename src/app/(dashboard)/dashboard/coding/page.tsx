@@ -71,6 +71,15 @@ type GitHubTestReport = {
   defaultBranch?: string;
 };
 
+type VercelTestReport = {
+  status: "success" | "error";
+  errorCode?: string;
+  errorMessage?: string;
+  projectName?: string;
+  projectId?: string;
+  framework?: string;
+};
+
 export default function CodingPage() {
   const GITHUB_PAT_URL = "https://github.com/settings/personal-access-tokens/new";
   const GITHUB_PERMISSION_DOCS_URL =
@@ -113,6 +122,8 @@ export default function CodingPage() {
   const [vercelProjectIdInput, setVercelProjectIdInput] = useState("");
   const [vercelConfigured, setVercelConfigured] = useState<boolean | null>(null);
   const [vercelSaving, setVercelSaving] = useState(false);
+  const [vercelTesting, setVercelTesting] = useState(false);
+  const [vercelTestReport, setVercelTestReport] = useState<VercelTestReport | null>(null);
 
   const checkConfig = useCallback(async () => {
     try {
@@ -353,28 +364,16 @@ export default function CodingPage() {
     const projectId = vercelProjectIdInput.trim();
     if (!token && !projectId) return;
     setVercelSaving(true);
+    setVercelTestReport(null);
     try {
-      const saves = [];
-      if (token) {
-        saves.push(
-          fetch("/api/admin/secrets", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ key_name: "VERCEL_TOKEN", value: token }),
-          })
-        );
-      }
-      if (projectId) {
-        saves.push(
-          fetch("/api/admin/secrets", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ key_name: "VERCEL_PROJECT_ID", value: projectId }),
-          })
-        );
-      }
-      await Promise.all(saves);
-      setVercelConfigured(true);
+      const res = await fetch("/api/admin/coding/vercel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save", token, projectId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed");
+      await checkGitHubConfig();
       setVercelTokenInput("");
       setVercelProjectIdInput("");
       toast.success(t("coding.vercelConfigSaved"));
@@ -383,6 +382,112 @@ export default function CodingPage() {
     } finally {
       setVercelSaving(false);
     }
+  };
+
+  const handleTestVercel = async () => {
+    setVercelTesting(true);
+    setVercelTestReport(null);
+    try {
+      const body: Record<string, string> = { action: "test" };
+      if (vercelTokenInput.trim()) body.token = vercelTokenInput.trim();
+      if (vercelProjectIdInput.trim()) body.projectId = vercelProjectIdInput.trim();
+      const res = await fetch("/api/admin/coding/vercel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setVercelTestReport({
+          status: "success",
+          projectId: data.projectId,
+          projectName: data.projectName,
+          framework: data.framework,
+        });
+        toast.success(t("coding.vercelTestSuccess"));
+      } else {
+        setVercelTestReport({
+          status: "error",
+          errorCode: data.errorCode,
+          errorMessage: data.error || "Unknown",
+        });
+        toast.error(t("coding.vercelTestFailed", { error: data.error || "Unknown" }));
+      }
+    } catch {
+      setVercelTestReport({
+        status: "error",
+        errorCode: "unknown",
+        errorMessage: "Network error",
+      });
+      toast.error(t("coding.vercelTestFailed", { error: "Network error" }));
+    } finally {
+      setVercelTesting(false);
+    }
+  };
+
+  const renderVercelDiagnosis = () => {
+    if (!vercelTestReport) return null;
+
+    const isSuccess = vercelTestReport.status === "success";
+    const containerClass = isSuccess
+      ? "rounded-lg border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-100"
+      : "rounded-lg border border-red-200 bg-red-50/80 p-4 text-sm text-red-950 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-100";
+    const iconClass = isSuccess
+      ? "size-4 text-emerald-600 dark:text-emerald-400"
+      : "size-4 text-red-600 dark:text-red-400";
+
+    const details = isSuccess
+      ? [
+          t("coding.vercelDiagnosisOkProject"),
+          t("coding.vercelDiagnosisOkDeployments"),
+          vercelTestReport.projectName
+            ? t("coding.vercelDiagnosisProjectName", { name: vercelTestReport.projectName })
+            : null,
+          vercelTestReport.projectId
+            ? t("coding.vercelDiagnosisProjectId", { id: vercelTestReport.projectId })
+            : null,
+        ].filter(Boolean)
+      : [
+          vercelTestReport.errorCode === "bad_token"
+            ? t("coding.vercelDiagnosisBadToken")
+            : vercelTestReport.errorCode === "project_not_found"
+              ? t("coding.vercelDiagnosisProjectNotFound")
+              : vercelTestReport.errorCode === "project_access_denied"
+                ? t("coding.vercelDiagnosisProjectAccessDenied")
+                : vercelTestReport.errorCode === "deployments_read_failed"
+                  ? t("coding.vercelDiagnosisDeploymentsReadFailed")
+                  : t("coding.vercelDiagnosisUnknown"),
+        ];
+
+    return (
+      <div className={containerClass}>
+        <div className="flex items-center gap-2 font-medium">
+          {isSuccess ? (
+            <CheckCircle2 className={iconClass} />
+          ) : (
+            <AlertTriangle className={iconClass} />
+          )}
+          {isSuccess
+            ? t("coding.vercelDiagnosisTitleSuccess")
+            : t("coding.vercelDiagnosisTitleError")}
+        </div>
+        <ul className="mt-3 list-disc space-y-1.5 pl-5">
+          {details.map((detail) => (
+            <li key={detail}>{detail}</li>
+          ))}
+        </ul>
+        {vercelTestReport.errorMessage ? (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-medium opacity-80">
+              {t("coding.vercelDiagnosisTechnical")}
+            </summary>
+            <pre className="mt-2 whitespace-pre-wrap break-words rounded border border-current/15 bg-background/60 p-3 text-xs leading-relaxed text-foreground">
+              {vercelTestReport.errorMessage}
+            </pre>
+          </details>
+        ) : null}
+      </div>
+    );
   };
 
   const handleRunCode = async () => {
@@ -649,12 +754,29 @@ export default function CodingPage() {
                   </a>
                 </div>
               </div>
-              {vercelConfigured && (
-                <Badge variant="secondary" className="gap-1 text-green-600 dark:text-green-400 mb-4">
-                  <CheckCircle2 className="size-3.5" />
-                  {t("coding.vercelConfigured")}
-                </Badge>
-              )}
+              {vercelConfigured ? (
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <Badge variant="secondary" className="gap-1 text-green-600 dark:text-green-400">
+                    <CheckCircle2 className="size-3.5" />
+                    {t("coding.vercelConfigured")}
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTestVercel}
+                    disabled={vercelTesting}
+                  >
+                    {vercelTesting ? (
+                      <>
+                        <Loader2 className="mr-1 size-3.5 animate-spin" />
+                        {t("coding.vercelTesting")}
+                      </>
+                    ) : (
+                      t("coding.vercelTestConnection")
+                    )}
+                  </Button>
+                </div>
+              ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-xs">{t("coding.vercelTokenLabel")}</Label>
@@ -683,8 +805,13 @@ export default function CodingPage() {
                 onClick={handleSaveVercel}
                 disabled={vercelSaving || (!vercelTokenInput.trim() && !vercelProjectIdInput.trim())}
               >
-                {vercelSaving ? t("common.saving") : t("coding.vercelSaveConfig")}
+                {vercelSaving
+                  ? t("common.saving")
+                  : vercelConfigured
+                    ? t("coding.vercelUpdateConfig")
+                    : t("coding.vercelSaveConfig")}
               </Button>
+              {renderVercelDiagnosis()}
             </CardContent>
           </Card>
 

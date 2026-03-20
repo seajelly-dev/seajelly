@@ -161,6 +161,8 @@ Right after you confirm that dialog, SEAJelly now shows a second completion dial
 - `Go to Dashboard`
 - `Enable One-Click Updates`
 
+If this install is several formal releases behind later on, `Dashboard -> Updates` now catches it up one official release hop at a time instead of trying to apply a risky cross-version patch in one jump.
+
 ## After Setup
 
 Once setup finishes:

@@ -18,6 +18,7 @@ import { runMigration } from "@/lib/supabase/management";
 import type {
   UpdateManifest,
   UpdateRunRecord,
+  UpgradePathStep,
   UpstreamReleaseSummary,
   UpdateRunStatus,
 } from "./types";
@@ -112,13 +113,17 @@ export interface UpdateSystemState {
   latestRun: UpdateRunRecord | null;
   latestRelease: UpstreamReleaseSummary | null;
   latestManifest: UpdateManifest | null;
+  nextRelease: UpstreamReleaseSummary | null;
+  nextManifest: UpdateManifest | null;
+  upgradePath: UpstreamReleaseSummary[];
+  upgradeBlockedReason: string | null;
   upgradeAvailable: boolean;
   missingConfig: string[];
 }
 
 export interface StartUpdateResult {
   run: UpdateRunRecord;
-  latestRelease: UpstreamReleaseSummary;
+  targetRelease: UpstreamReleaseSummary;
   manifest: UpdateManifest;
 }
 
@@ -351,12 +356,13 @@ async function fetchTextOrThrow(url: string): Promise<string> {
   return response.text();
 }
 
-export async function fetchLatestUpstreamRelease(
+export async function fetchUpstreamReleases(
   upstreamRepo = DEFAULT_UPSTREAM_REPO,
-): Promise<UpstreamReleaseSummary> {
+  limit = 20,
+): Promise<UpstreamReleaseSummary[]> {
   const { owner, name } = parseRepo(upstreamRepo);
   const response = await fetch(
-    `https://api.github.com/repos/${owner}/${name}/releases/latest`,
+    `https://api.github.com/repos/${owner}/${name}/releases?per_page=${limit}`,
     {
       headers: {
         Accept: "application/vnd.github+json",
@@ -367,16 +373,30 @@ export async function fetchLatestUpstreamRelease(
   );
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Failed to fetch latest release (${response.status}): ${text}`);
+    throw new Error(`Failed to fetch releases (${response.status}): ${text}`);
   }
-  const data = await response.json();
-  return {
-    tag: String(data.tag_name ?? ""),
-    name: String(data.name ?? data.tag_name ?? ""),
-    body: String(data.body ?? ""),
-    publishedAt: String(data.published_at ?? data.created_at ?? ""),
-    htmlUrl: String(data.html_url ?? ""),
-  };
+  const data = (await response.json()) as Array<Record<string, unknown>>;
+  return data
+    .filter((item) => !item.draft && !item.prerelease && typeof item.tag_name === "string")
+    .map((item) => ({
+      tag: String(item.tag_name ?? ""),
+      name: String(item.name ?? item.tag_name ?? ""),
+      body: String(item.body ?? ""),
+      publishedAt: String(item.published_at ?? item.created_at ?? ""),
+      htmlUrl: String(item.html_url ?? ""),
+    }))
+    .filter((item) => item.tag)
+    .sort((a, b) => sortReleasesByPublishedAtAscending(b, a));
+}
+
+export async function fetchLatestUpstreamRelease(
+  upstreamRepo = DEFAULT_UPSTREAM_REPO,
+): Promise<UpstreamReleaseSummary> {
+  const releases = await fetchUpstreamReleases(upstreamRepo, 1);
+  if (!releases[0]) {
+    throw new Error("No upstream releases found");
+  }
+  return releases[0];
 }
 
 export async function fetchUpdateManifest(
@@ -402,6 +422,95 @@ async function fetchDbSql(
   return fetchTextOrThrow(buildRawFileUrl(upstreamRepo, tag, sqlPath));
 }
 
+async function fetchReleaseManifests(
+  upstreamRepo: string,
+  releases: UpstreamReleaseSummary[],
+): Promise<Map<string, UpdateManifest>> {
+  const entries = await Promise.all(
+    releases.map(async (release) => {
+      try {
+        const manifest = await fetchUpdateManifest(upstreamRepo, release.tag);
+        return [release.tag, manifest] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  return new Map(
+    entries.filter((entry): entry is readonly [string, UpdateManifest] => Boolean(entry)),
+  );
+}
+
+function sortReleasesByPublishedAtAscending(
+  a: UpstreamReleaseSummary,
+  b: UpstreamReleaseSummary,
+) {
+  const aTime = Date.parse(a.publishedAt || "");
+  const bTime = Date.parse(b.publishedAt || "");
+  if (!Number.isNaN(aTime) && !Number.isNaN(bTime) && aTime !== bTime) {
+    return aTime - bTime;
+  }
+  return a.tag.localeCompare(b.tag);
+}
+
+function buildUpgradePath(
+  installedReleaseTag: string,
+  releases: UpstreamReleaseSummary[],
+  manifestMap: Map<string, UpdateManifest>,
+): {
+  path: UpgradePathStep[];
+  blockedReason: string | null;
+} {
+  const latestRelease = releases[0] ?? null;
+  if (!installedReleaseTag || !latestRelease || latestRelease.tag === installedReleaseTag) {
+    return { path: [], blockedReason: null };
+  }
+
+  const path: UpgradePathStep[] = [];
+  const visitedTags = new Set<string>([installedReleaseTag]);
+  let currentTag = installedReleaseTag;
+
+  while (path.length < releases.length) {
+    const candidates = releases
+      .map((release) => {
+        const manifest = manifestMap.get(release.tag);
+        return manifest ? { release, manifest } : null;
+      })
+      .filter((item): item is UpgradePathStep => item !== null)
+      .filter(
+        (item) =>
+          item.manifest.previous_supported_tag === currentTag &&
+          !visitedTags.has(item.release.tag),
+      )
+      .sort((a, b) => sortReleasesByPublishedAtAscending(a.release, b.release));
+
+    if (!candidates[0]) break;
+
+    const nextStep = candidates[0];
+    path.push(nextStep);
+    visitedTags.add(nextStep.release.tag);
+    currentTag = nextStep.release.tag;
+  }
+
+  if (path.length === 0) {
+    return {
+      path,
+      blockedReason: `No official upgrade path was found from ${installedReleaseTag} to ${latestRelease.tag}.`,
+    };
+  }
+
+  const lastStep = path[path.length - 1];
+  if (lastStep.release.tag !== latestRelease.tag) {
+    return {
+      path,
+      blockedReason: `An official upgrade path exists from ${installedReleaseTag}, but it currently stops at ${lastStep.release.tag} before reaching ${latestRelease.tag}.`,
+    };
+  }
+
+  return { path, blockedReason: null };
+}
+
 async function getGitHubRepoState(db: DbClient): Promise<{
   repo: string;
   defaultBranch: string;
@@ -411,7 +520,7 @@ async function getGitHubRepoState(db: DbClient): Promise<{
     "github_repo",
     UPDATE_SETTING_KEYS.githubDefaultBranch,
   ]);
-  const token = await getSecret("GITHUB_TOKEN");
+  const token = await getSecret("GITHUB_TOKEN", { bypassCache: true });
   const repo = settings.github_repo?.trim() ?? "";
   let defaultBranch = settings[UPDATE_SETTING_KEYS.githubDefaultBranch]?.trim() ?? "";
 
@@ -437,8 +546,8 @@ async function getVercelConfig(): Promise<{
   token: string;
   projectId: string;
 }> {
-  const token = await getSecret("VERCEL_TOKEN");
-  const projectId = await getSecret("VERCEL_PROJECT_ID");
+  const token = await getSecret("VERCEL_TOKEN", { bypassCache: true });
+  const projectId = await getSecret("VERCEL_PROJECT_ID", { bypassCache: true });
   if (!token || !projectId) {
     throw new Error("VERCEL_TOKEN or VERCEL_PROJECT_ID is not configured");
   }
@@ -524,20 +633,37 @@ export async function getUpdateSystemState(
   const { latestRun, activeRun } = await getLatestRuns(db);
   const upstreamRepo =
     settings[UPDATE_SETTING_KEYS.upstreamRepo]?.trim() || DEFAULT_UPSTREAM_REPO;
+  const installedReleaseTag =
+    settings[UPDATE_SETTING_KEYS.installedReleaseTag]?.trim() ?? "";
 
   let latestRelease: UpstreamReleaseSummary | null = null;
   let latestManifest: UpdateManifest | null = null;
+  let nextRelease: UpstreamReleaseSummary | null = null;
+  let nextManifest: UpdateManifest | null = null;
+  let upgradePath: UpstreamReleaseSummary[] = [];
+  let upgradeBlockedReason: string | null = null;
   try {
-    latestRelease = await fetchLatestUpstreamRelease(upstreamRepo);
-    latestManifest = await fetchUpdateManifest(upstreamRepo, latestRelease.tag);
+    const releases = await fetchUpstreamReleases(upstreamRepo);
+    latestRelease = releases[0] ?? null;
+    const manifestMap = await fetchReleaseManifests(upstreamRepo, releases);
+    latestManifest = latestRelease ? (manifestMap.get(latestRelease.tag) ?? null) : null;
+    const pathResult = buildUpgradePath(installedReleaseTag, releases, manifestMap);
+    upgradePath = pathResult.path.map((step) => step.release);
+    upgradeBlockedReason = pathResult.blockedReason;
+    nextRelease = pathResult.path[0]?.release ?? null;
+    nextManifest = pathResult.path[0]?.manifest ?? null;
     await upsertSystemSettings(db, {
       [UPDATE_SETTING_KEYS.upstreamRepo]: upstreamRepo,
-      [UPDATE_SETTING_KEYS.lastCheckedReleaseTag]: latestRelease.tag,
+      [UPDATE_SETTING_KEYS.lastCheckedReleaseTag]: latestRelease?.tag ?? "",
       [UPDATE_SETTING_KEYS.lastCheckedAt]: new Date().toISOString(),
     });
   } catch {
     latestRelease = null;
     latestManifest = null;
+    nextRelease = null;
+    nextManifest = null;
+    upgradePath = [];
+    upgradeBlockedReason = null;
   }
 
   const githubConfigured =
@@ -547,14 +673,11 @@ export async function getUpdateSystemState(
     configuredSecretKeys.has("VERCEL_TOKEN") &&
     configuredSecretKeys.has("VERCEL_PROJECT_ID");
 
-  const installedReleaseTag =
-    settings[UPDATE_SETTING_KEYS.installedReleaseTag]?.trim() ?? "";
   const upgradeAvailable = Boolean(
-    latestRelease &&
-      latestManifest &&
+    nextRelease &&
+      nextManifest &&
       installedReleaseTag &&
-      latestRelease.tag !== installedReleaseTag &&
-      latestManifest.previous_supported_tag === installedReleaseTag,
+      nextRelease.tag !== installedReleaseTag,
   );
 
   const missingConfig: string[] = [];
@@ -587,6 +710,10 @@ export async function getUpdateSystemState(
     latestRun,
     latestRelease,
     latestManifest,
+    nextRelease,
+    nextManifest,
+    upgradePath,
+    upgradeBlockedReason,
     upgradeAvailable,
     missingConfig,
   };
@@ -639,12 +766,14 @@ export async function startUpdate(
   if (!state.githubConfigured || !state.vercelConfigured) {
     throw new Error("GitHub or Vercel configuration is incomplete");
   }
-  if (!state.latestRelease || !state.latestManifest) {
-    throw new Error("Latest release manifest is not available yet");
+  if (!state.nextRelease || !state.nextManifest) {
+    throw new Error(
+      state.upgradeBlockedReason || "A supported next-hop release is not available yet",
+    );
   }
 
-  const manifest = state.latestManifest;
-  const latestRelease = state.latestRelease;
+  const manifest = state.nextManifest;
+  const targetRelease = state.nextRelease;
   if (manifest.requires_manual_review) {
     throw new Error("This release requires manual review and is blocked from one-click upgrades");
   }
@@ -675,7 +804,7 @@ export async function startUpdate(
   let run = await createUpdateRun(db, {
     created_by_admin_id: adminRecordId,
     from_release_tag: state.installedReleaseTag,
-    to_release_tag: latestRelease.tag,
+    to_release_tag: targetRelease.tag,
     from_commit_sha: branchHead,
     local_repo: repo,
     local_branch: defaultBranch,
@@ -683,13 +812,15 @@ export async function startUpdate(
     has_db_changes: manifest.db.mode !== "none",
     db_mode: manifest.db.mode,
     details_json: {
-      latest_release_name: latestRelease.name,
-      latest_release_url: latestRelease.htmlUrl,
-      latest_release_published_at: latestRelease.publishedAt,
+      latest_release_name: targetRelease.name,
+      latest_release_url: targetRelease.htmlUrl,
+      latest_release_published_at: targetRelease.publishedAt,
       required_env_keys: manifest.required_env_keys ?? [],
-      notes_md: manifest.notes_md ?? latestRelease.body,
+      notes_md: manifest.notes_md ?? targetRelease.body,
       blocked_files: blockedFiles,
       db_summary: manifest.db.summary ?? "",
+      remaining_upgrade_tags: state.upgradePath.map((release) => release.tag),
+      remaining_upgrade_count: state.upgradePath.length,
     },
     error_summary:
       blockedFiles.length > 0
@@ -701,7 +832,7 @@ export async function startUpdate(
     await upsertSystemSettings(db, {
       [UPDATE_SETTING_KEYS.lastUpdateStatus]: "blocked",
     });
-    return { run, latestRelease, manifest };
+    return { run, targetRelease, manifest };
   }
 
   await upsertSystemSettings(db, {
@@ -730,7 +861,7 @@ export async function startUpdate(
         commit_url: result.commitUrl,
       },
     });
-    return { run, latestRelease, manifest };
+    return { run, targetRelease, manifest };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to apply update patches";
     run = await updateRun(db, run.id, {

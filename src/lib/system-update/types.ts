@@ -60,6 +60,11 @@ export interface UpstreamReleaseSummary {
   htmlUrl: string;
 }
 
+export interface UpgradePathStep {
+  release: UpstreamReleaseSummary;
+  manifest: UpdateManifest;
+}
+
 export interface UpdateRunRecord {
   id: string;
   created_by_admin_id: string | null;

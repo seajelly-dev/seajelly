@@ -147,7 +147,7 @@ GitHub 官方权限说明：
 | 商业化 | 订阅套餐、用户通道订阅、审批兜底、Stripe webhook 基础链路 |
 | 调度能力 | Reminder、agent invoke 任务、worker 队列处理与 cron 自动化 |
 | 存储 | JellyBox 对象存储管理，兼容 Cloudflare R2 风格存储 |
-| 系统升级 | 面向 Vercel clone 安装的引导式一键升级能力，包含 release manifest 校验、部署状态跟踪以及可选数据库收尾步骤 |
+| 系统升级 | 面向 Vercel clone 安装的引导式一键升级能力，包含 release 链路校验、部署状态跟踪、可选数据库收尾步骤，以及对老版本安装的安全逐跳追版本能力 |
 | 运维 | Dashboard 统计、事件队列排障、usage 数据与后台控制能力 |
 
 ## 项目状态

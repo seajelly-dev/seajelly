@@ -24,6 +24,70 @@ export interface RepoInfo {
   htmlUrl: string;
 }
 
+type VercelErrorPayload = {
+  error?: {
+    code?: string;
+    message?: string;
+    invalidToken?: boolean;
+  };
+};
+
+export class VercelApiError extends Error {
+  status: number;
+  code: string | null;
+  invalidToken: boolean;
+  rawBody: string;
+  apiMessage: string | null;
+
+  constructor(status: number, rawBody: string) {
+    const parsed = parseVercelApiErrorBody(rawBody);
+    const apiMessage = parsed.message ?? null;
+    super(
+      apiMessage
+        ? `Vercel API error (${status}): ${apiMessage}`
+        : `Vercel API error (${status}): ${rawBody}`,
+    );
+    this.name = "VercelApiError";
+    this.status = status;
+    this.code = parsed.code ?? null;
+    this.invalidToken = parsed.invalidToken ?? false;
+    this.rawBody = rawBody;
+    this.apiMessage = apiMessage;
+  }
+}
+
+function parseVercelApiErrorBody(rawBody: string): {
+  code?: string;
+  message?: string;
+  invalidToken?: boolean;
+} {
+  try {
+    const parsed = JSON.parse(rawBody) as VercelErrorPayload;
+    return {
+      code: parsed.error?.code,
+      message: parsed.error?.message,
+      invalidToken: parsed.error?.invalidToken,
+    };
+  } catch {
+    return {};
+  }
+}
+
+async function fetchVercelJson<T>(url: string, vercelToken: string): Promise<T> {
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${vercelToken}`,
+    },
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new VercelApiError(res.status, body);
+  }
+
+  return (await res.json()) as T;
+}
+
 export async function getRepoInfo(
   token: string,
   repo: string,
@@ -451,6 +515,26 @@ export async function getVercelBuildLogs(
   return errorLines.slice(-maxLines).join("\n");
 }
 
+export async function getVercelProject(
+  vercelToken: string,
+  projectId: string,
+): Promise<{
+  id: string;
+  name: string;
+  framework?: string;
+}> {
+  const data = await fetchVercelJson<Record<string, unknown>>(
+    `https://api.vercel.com/v9/projects/${encodeURIComponent(projectId)}`,
+    vercelToken,
+  );
+
+  return {
+    id: typeof data.id === "string" ? data.id : projectId,
+    name: typeof data.name === "string" ? data.name : projectId,
+    framework: typeof data.framework === "string" ? data.framework : undefined,
+  };
+}
+
 export async function checkVercelDeployment(
   vercelToken: string,
   projectId: string,
@@ -464,19 +548,10 @@ export async function checkVercelDeployment(
   errorMessage?: string;
   buildLogs?: string;
 }> {
-  const res = await fetch(
+  const data = await fetchVercelJson<{ deployments?: Array<Record<string, unknown>> }>(
     `https://api.vercel.com/v6/deployments?projectId=${projectId}&limit=10`,
-    {
-      headers: {
-        Authorization: `Bearer ${vercelToken}`,
-      },
-    }
+    vercelToken,
   );
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Vercel API error (${res.status}): ${body}`);
-  }
-  const data = await res.json();
   const deployments = data.deployments ?? [];
 
   const sha = commitSha.trim().toLowerCase();
@@ -505,7 +580,13 @@ export async function checkVercelDeployment(
     INITIALIZING: "QUEUED",
   };
 
-  const state = (stateMap[match.state ?? match.readyState] ?? "BUILDING") as
+  const rawState =
+    typeof match.state === "string"
+      ? match.state
+      : typeof match.readyState === "string"
+        ? match.readyState
+        : "";
+  const state = (stateMap[rawState] ?? "BUILDING") as
     "BUILDING" | "READY" | "ERROR" | "QUEUED" | "CANCELED";
   const deploymentId = match.uid as string | undefined;
   const meta = (match.meta as Record<string, unknown> | undefined) ?? {};
@@ -527,9 +608,17 @@ export async function checkVercelDeployment(
     state,
     commitSha: resolvedCommitSha || undefined,
     deploymentId,
-    url: match.url ? `https://${match.url}` : undefined,
-    createdAt: match.createdAt ? new Date(match.createdAt).toISOString() : undefined,
-    errorMessage: state === "ERROR" ? ((match.errorMessage as string) ?? "Build failed") : undefined,
+    url: typeof match.url === "string" && match.url ? `https://${match.url}` : undefined,
+    createdAt:
+      typeof match.createdAt === "string" || typeof match.createdAt === "number"
+        ? new Date(match.createdAt).toISOString()
+        : undefined,
+    errorMessage:
+      state === "ERROR" && typeof match.errorMessage === "string"
+        ? match.errorMessage
+        : state === "ERROR"
+          ? "Build failed"
+          : undefined,
   };
 
   if (state === "ERROR" && deploymentId) {

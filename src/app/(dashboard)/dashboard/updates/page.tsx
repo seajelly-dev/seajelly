@@ -77,6 +77,22 @@ type UpdateStateResponse = {
     htmlUrl: string;
   } | null;
   latestManifest: UpdateManifest | null;
+  nextRelease: {
+    tag: string;
+    name: string;
+    body: string;
+    publishedAt: string;
+    htmlUrl: string;
+  } | null;
+  nextManifest: UpdateManifest | null;
+  upgradePath: Array<{
+    tag: string;
+    name: string;
+    body: string;
+    publishedAt: string;
+    htmlUrl: string;
+  }>;
+  upgradeBlockedReason: string | null;
   upgradeAvailable: boolean;
   missingConfig: string[];
 };
@@ -148,25 +164,17 @@ export default function UpdatesPage() {
           throw new Error(data.error || t("updates.pollFailed"));
         }
         const run = data.run as UpdateRunRecord;
+        if (isTerminalStatus(run.status)) {
+          await Promise.all([loadState(), loadRuns()]);
+          return;
+        }
         setState((current) =>
           current
             ? {
                 ...current,
-                activeRun: isTerminalStatus(run.status) ? null : run,
+                activeRun: run,
                 latestRun: run,
                 lastUpdateStatus: run.status,
-                installedReleaseTag:
-                  run.status === "success"
-                    ? run.to_release_tag
-                    : run.status === "rolled_back"
-                      ? run.from_release_tag
-                      : current.installedReleaseTag,
-                installedCommitSha:
-                  run.status === "success"
-                    ? run.patch_commit_sha || current.installedCommitSha
-                    : run.status === "rolled_back"
-                      ? run.from_commit_sha || current.installedCommitSha
-                      : current.installedCommitSha,
               }
             : current,
         );
@@ -181,7 +189,7 @@ export default function UpdatesPage() {
       void poll();
     }, RUN_POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [state?.activeRun?.id, t]);
+  }, [loadRuns, loadState, state?.activeRun?.id, t]);
 
   const handleCheck = async () => {
     setChecking(true);
@@ -285,12 +293,35 @@ export default function UpdatesPage() {
   };
 
   const activeRun = state?.activeRun ?? null;
-  const latestManifest = state?.latestManifest ?? null;
+  const nextManifest = state?.nextManifest ?? null;
+  const nextRelease = state?.nextRelease ?? null;
+  const pathPreview = (state?.upgradePath ?? []).map((release) => release.tag).join(" -> ");
+  const localizedPathBlockedMessage = useMemo(() => {
+    if (!state?.upgradeBlockedReason || !state.latestRelease) return null;
+    const lastPathTag = state.upgradePath[state.upgradePath.length - 1]?.tag;
+    if (lastPathTag && lastPathTag !== state.latestRelease.tag) {
+      return t("updates.pathPartial", {
+        from: state.installedReleaseTag || t("updates.unknownVersion"),
+        last: lastPathTag,
+        to: state.latestRelease.tag,
+      });
+    }
+    return t("updates.pathUnavailable", {
+      from: state.installedReleaseTag || t("updates.unknownVersion"),
+      to: state.latestRelease.tag,
+    });
+  }, [
+    state?.installedReleaseTag,
+    state?.latestRelease,
+    state?.upgradeBlockedReason,
+    state?.upgradePath,
+    t,
+  ]);
 
   const releaseNotes = useMemo(() => {
-    const raw = latestManifest?.notes_md || state?.latestRelease?.body || "";
+    const raw = nextManifest?.notes_md || nextRelease?.body || "";
     return raw.trim();
-  }, [latestManifest?.notes_md, state?.latestRelease?.body]);
+  }, [nextManifest?.notes_md, nextRelease?.body]);
 
   if (loading || !state) {
     return (
@@ -314,7 +345,7 @@ export default function UpdatesPage() {
     !state.needsBaseline &&
     state.upgradeAvailable &&
     !activeRun &&
-    Boolean(state.latestManifest);
+    Boolean(state.nextManifest);
 
   return (
     <div className="flex flex-col gap-6">
@@ -422,14 +453,24 @@ export default function UpdatesPage() {
             </Badge>
             <Badge variant="outline">
               {t("updates.toVersion", {
-                version: state.latestRelease?.tag || t("updates.notCheckedYet"),
+                version: nextRelease?.tag || t("updates.notCheckedYet"),
               })}
             </Badge>
-            {latestManifest?.db.mode === "manual_apply" ? (
+            {state.latestRelease && nextRelease && state.latestRelease.tag !== nextRelease.tag ? (
+              <Badge variant="secondary">
+                {t("updates.latestTarget", { version: state.latestRelease.tag })}
+              </Badge>
+            ) : null}
+            {nextManifest?.db.mode === "manual_apply" ? (
               <Badge>{t("updates.dbChange")}</Badge>
             ) : null}
-            {(latestManifest?.required_env_keys?.length ?? 0) > 0 ? (
+            {(nextManifest?.required_env_keys?.length ?? 0) > 0 ? (
               <Badge variant="secondary">{t("updates.envChange")}</Badge>
+            ) : null}
+            {state.upgradePath.length > 1 ? (
+              <Badge variant="outline">
+                {t("updates.remainingHops", { count: state.upgradePath.length })}
+              </Badge>
             ) : null}
           </div>
 
@@ -441,13 +482,28 @@ export default function UpdatesPage() {
             <p className="text-sm text-muted-foreground">{t("updates.noReleaseNotes")}</p>
           )}
 
+          {state.upgradePath.length > 1 ? (
+            <div className="rounded-lg border border-sky-300 bg-sky-50/70 p-3 text-sm text-sky-950">
+              <p className="font-medium">{t("updates.pathHint")}</p>
+              <p className="mt-1 break-all text-sky-900/80">{pathPreview}</p>
+            </div>
+          ) : null}
+
+          {localizedPathBlockedMessage ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50/70 p-3 text-sm text-amber-950">
+              {t("updates.pathBlocked", {
+                reason: localizedPathBlockedMessage,
+              })}
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => setStartDialogOpen(true)} disabled={!canStart}>
               {activeRun ? t("updates.runInProgress") : t("updates.startUpgrade")}
             </Button>
-            {state.latestRelease?.htmlUrl ? (
+            {nextRelease?.htmlUrl ? (
               <a
-                href={state.latestRelease.htmlUrl}
+                href={nextRelease.htmlUrl}
                 target="_blank"
                 rel="noreferrer"
                 className={buttonVariants({ variant: "outline" })}
@@ -458,7 +514,7 @@ export default function UpdatesPage() {
             ) : null}
           </div>
 
-          {!state.upgradeAvailable && !state.needsBaseline && configReady ? (
+          {!state.upgradeAvailable && !state.needsBaseline && configReady && !localizedPathBlockedMessage ? (
             <p className="text-sm text-muted-foreground">{t("updates.upToDateHint")}</p>
           ) : null}
         </CardContent>
@@ -560,13 +616,16 @@ export default function UpdatesPage() {
           <div className="flex flex-col gap-4 text-sm">
             <div className="grid gap-3 md:grid-cols-2">
               <InfoBlock label={t("updates.currentInstalled")} value={state.installedReleaseTag || t("updates.unknownVersion")} />
-              <InfoBlock label={t("updates.latestUpstream")} value={state.latestRelease?.tag || t("updates.notCheckedYet")} />
+              <InfoBlock label={t("updates.nextSupported")} value={nextRelease?.tag || t("updates.notCheckedYet")} />
             </div>
-            {(latestManifest?.required_env_keys?.length ?? 0) > 0 ? (
+            {state.latestRelease && nextRelease && state.latestRelease.tag !== nextRelease.tag ? (
+              <InfoBlock label={t("updates.latestUpstream")} value={state.latestRelease.tag} />
+            ) : null}
+            {(nextManifest?.required_env_keys?.length ?? 0) > 0 ? (
               <div className="flex flex-col gap-2">
                 <p className="font-medium">{t("updates.requiredEnv")}</p>
                 <div className="flex flex-wrap gap-2">
-                  {latestManifest?.required_env_keys?.map((key) => (
+                  {nextManifest?.required_env_keys?.map((key) => (
                     <Badge key={key} variant="secondary">{key}</Badge>
                   ))}
                 </div>
@@ -574,16 +633,27 @@ export default function UpdatesPage() {
             ) : null}
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline">
-                {latestManifest?.db.mode === "manual_apply"
+                {nextManifest?.db.mode === "manual_apply"
                   ? t("updates.dbChange")
                   : t("updates.noDbChange")}
               </Badge>
               <Badge variant="outline">
-                {latestManifest?.patches?.length
-                  ? t("updates.patchCount", { count: latestManifest.patches.length })
+                {nextManifest?.patches?.length
+                  ? t("updates.patchCount", { count: nextManifest.patches.length })
                   : t("updates.patchCount", { count: 0 })}
               </Badge>
+              {state.upgradePath.length > 1 ? (
+                <Badge variant="secondary">
+                  {t("updates.remainingHops", { count: state.upgradePath.length })}
+                </Badge>
+              ) : null}
             </div>
+            {state.upgradePath.length > 1 ? (
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <p className="font-medium">{t("updates.pathHint")}</p>
+                <p className="mt-1 break-all text-muted-foreground">{pathPreview}</p>
+              </div>
+            ) : null}
             {releaseNotes ? (
               <div className="max-h-56 overflow-auto rounded-lg border bg-muted/30 p-3 whitespace-pre-wrap">
                 {releaseNotes}
@@ -740,11 +810,13 @@ function renderRunDetails(run: UpdateRunRecord, t: Translator) {
       : typeof details.rollback_build_logs === "string"
         ? details.rollback_build_logs
         : "";
+  const vercelCheckError =
+    typeof details.vercel_check_error === "string" ? details.vercel_check_error : "";
   const blockedFiles = Array.isArray(details.blocked_files)
     ? (details.blocked_files as string[])
     : [];
 
-  if (!buildLogs && blockedFiles.length === 0) return null;
+  if (!buildLogs && !vercelCheckError && blockedFiles.length === 0) return null;
 
   return (
     <div className="rounded-lg border bg-muted/20 p-3 text-sm">
@@ -752,6 +824,14 @@ function renderRunDetails(run: UpdateRunRecord, t: Translator) {
         <div className="mb-3">
           <p className="font-medium">{t("updates.blockedFiles")}</p>
           <p className="mt-1 text-muted-foreground">{blockedFiles.join(", ")}</p>
+        </div>
+      ) : null}
+      {vercelCheckError ? (
+        <div className="mb-3">
+          <p className="font-medium">{t("updates.logs")}</p>
+          <pre className="mt-2 max-h-56 overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
+            {vercelCheckError}
+          </pre>
         </div>
       ) : null}
       {buildLogs ? (

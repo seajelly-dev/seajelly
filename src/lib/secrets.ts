@@ -8,8 +8,11 @@ function getSupabaseForSecrets() {
   return createStrictServiceClient();
 }
 
-export async function getSecret(keyName: SecretKeyName): Promise<string | null> {
-  if (_cache?.has(keyName)) {
+export async function getSecret(
+  keyName: SecretKeyName,
+  options?: { bypassCache?: boolean },
+): Promise<string | null> {
+  if (!options?.bypassCache && _cache?.has(keyName)) {
     return _cache.get(keyName)!;
   }
 

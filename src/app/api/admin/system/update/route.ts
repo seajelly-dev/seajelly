@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           success: true,
           run: result.run,
-          latestRelease: result.latestRelease,
+          targetRelease: result.targetRelease,
           manifest: result.manifest,
         });
       }
