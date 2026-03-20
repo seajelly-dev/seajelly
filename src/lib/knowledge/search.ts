@@ -40,6 +40,18 @@ interface SearchOptions {
   kbIds?: string[] | null;
 }
 
+async function getKnowledgeEmbedModel(defaultValue = "gemini-embedding-001"): Promise<string> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("system_settings")
+    .select("value")
+    .eq("key", "knowledge_embed_model")
+    .maybeSingle();
+
+  if (error || !data?.value) return defaultValue;
+  return data.value;
+}
+
 export async function searchKnowledge(
   options: SearchOptions
 ): Promise<{ success: boolean; results: KnowledgeSearchResult[]; error?: string }> {
@@ -53,9 +65,10 @@ export async function searchKnowledge(
     };
   }
 
-  const queryEmbedding = await embedText(query, "gemini-embedding-001", "RETRIEVAL_QUERY");
+  const embedModel = await getKnowledgeEmbedModel();
+  const queryEmbedding = await embedText(query, embedModel, "RETRIEVAL_QUERY");
   if (!queryEmbedding) {
-    return { success: false, results: [], error: "Failed to embed query text" };
+    return { success: false, results: [], error: `Failed to embed query text with model ${embedModel}` };
   }
 
   const supabase = getSupabase();
