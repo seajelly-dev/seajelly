@@ -207,6 +207,8 @@ export default function AgentsPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
+  const [settingWebhook, setSettingWebhook] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -275,7 +277,6 @@ export default function AgentsPage() {
       // fallback empty
     }
   }, []);
-
   const fetchBoundResources = useCallback(async (agentId: string) => {
     setBoundMcpNames([]);
     setBoundSkillNames([]);
@@ -368,38 +369,43 @@ export default function AgentsPage() {
   };
 
   const openEdit = async (agent: Agent) => {
-    setEditingAgent(agent);
-    const tc = (agent.tools_config ?? {}) as Record<string, boolean>;
-    setShowToolkitOverrides({});
-    let trialCount = 3;
-    let fallback: "require_approval" | "require_payment" = "require_approval";
-    if (agent.access_mode === "subscription") {
-      try {
-        const ruleRes = await fetch(`/api/admin/subscriptions?view=rules&agent_id=${agent.id}`);
-        const ruleData = await ruleRes.json();
-        const rule = (ruleData.rules ?? [])[0];
-        if (rule) {
-          trialCount = rule.trial_count ?? 3;
-          fallback = rule.fallback_action || "require_approval";
-        }
-      } catch { /* fallback defaults */ }
+    setLoadingEditId(agent.id);
+    try {
+      setEditingAgent(agent);
+      const tc = (agent.tools_config ?? {}) as Record<string, boolean>;
+      setShowToolkitOverrides({});
+      let trialCount = 3;
+      let fallback: "require_approval" | "require_payment" = "require_approval";
+      if (agent.access_mode === "subscription") {
+        try {
+          const ruleRes = await fetch(`/api/admin/subscriptions?view=rules&agent_id=${agent.id}`);
+          const ruleData = await ruleRes.json();
+          const rule = (ruleData.rules ?? [])[0];
+          if (rule) {
+            trialCount = rule.trial_count ?? 3;
+            fallback = rule.fallback_action || "require_approval";
+          }
+        } catch { /* fallback defaults */ }
+      }
+      setForm({
+        name: agent.name,
+        system_prompt: agent.system_prompt,
+        provider_id: agent.provider_id || "",
+        model: agent.model,
+        access_mode: agent.access_mode || "open",
+        bot_locale: (agent as Agent & { bot_locale?: string }).bot_locale === "zh" ? "zh" : "en",
+        ai_soul: agent.ai_soul || "",
+        telegram_bot_token: "",
+        tools_config: tc,
+        platform_credentials: {},
+        subscription_trial_count: trialCount,
+        subscription_fallback: fallback,
+      });
+      await fetchBoundResources(agent.id);
+      setDialogOpen(true);
+    } finally {
+      setLoadingEditId(null);
     }
-    setForm({
-      name: agent.name,
-      system_prompt: agent.system_prompt,
-      provider_id: agent.provider_id || "",
-      model: agent.model,
-      access_mode: agent.access_mode || "open",
-      bot_locale: (agent as Agent & { bot_locale?: string }).bot_locale === "zh" ? "zh" : "en",
-      ai_soul: agent.ai_soul || "",
-      telegram_bot_token: "",
-      tools_config: tc,
-      platform_credentials: {},
-      subscription_trial_count: trialCount,
-      subscription_fallback: fallback,
-    });
-    fetchBoundResources(agent.id);
-    setDialogOpen(true);
   };
 
   const handleSave = async () => {
@@ -534,6 +540,7 @@ export default function AgentsPage() {
   const handleSetWebhook = async (agentId: string) => {
     const baseUrl = origin || window.location.origin;
     if (!baseUrl) { toast.error("Cannot determine app URL"); return; }
+    setSettingWebhook(true);
     try {
       const res = await fetch("/api/admin/platform", {
         method: "POST",
@@ -551,6 +558,8 @@ export default function AgentsPage() {
       toast.success(t("agents.webhookSet"));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("agents.webhookSetFailed"));
+    } finally {
+      setSettingWebhook(false);
     }
   };
 
@@ -658,10 +667,14 @@ export default function AgentsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => handleSetWebhook(editingAgent.id)}
-                        disabled={!isConnected}
+                        disabled={!isConnected || settingWebhook}
                       >
-                        <Zap className="mr-1.5 size-3.5" />
-                        {t("agents.setWebhook")}
+                        {settingWebhook ? (
+                          <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                        ) : (
+                          <Zap className="mr-1.5 size-3.5" />
+                        )}
+                        {settingWebhook ? t("common.saving") : t("agents.setWebhook")}
                       </Button>
                       <Button
                         variant="outline"
@@ -1371,8 +1384,18 @@ export default function AgentsPage() {
                     </CardDescription>
                   </div>
                   <div className="flex gap-1 opacity-60 transition-opacity hover:opacity-100 focus-within:opacity-100">
-                    <Button variant="ghost" size="icon-sm" onClick={() => openEdit(agent)} className="h-7 w-7">
-                      <Pencil className="size-3.5" />
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => openEdit(agent)}
+                      className="h-7 w-7"
+                      disabled={loadingEditId === agent.id}
+                    >
+                      {loadingEditId === agent.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Pencil className="size-3.5" />
+                      )}
                     </Button>
                     <Button
                       variant="ghost"
