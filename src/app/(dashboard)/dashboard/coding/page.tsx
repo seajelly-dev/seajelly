@@ -63,6 +63,14 @@ interface ExecutionOutput {
   executionTimeMs: number;
 }
 
+type GitHubTestReport = {
+  status: "success" | "error";
+  errorCode?: string;
+  errorMessage?: string;
+  warningCode?: string;
+  defaultBranch?: string;
+};
+
 export default function CodingPage() {
   const GITHUB_PAT_URL = "https://github.com/settings/personal-access-tokens/new";
   const GITHUB_PERMISSION_DOCS_URL =
@@ -100,6 +108,7 @@ export default function CodingPage() {
   const [ghRepoInput, setGhRepoInput] = useState("");
   const [ghSaving, setGhSaving] = useState(false);
   const [ghTesting, setGhTesting] = useState(false);
+  const [ghTestReport, setGhTestReport] = useState<GitHubTestReport | null>(null);
   const [vercelTokenInput, setVercelTokenInput] = useState("");
   const [vercelProjectIdInput, setVercelProjectIdInput] = useState("");
   const [vercelConfigured, setVercelConfigured] = useState<boolean | null>(null);
@@ -213,6 +222,7 @@ export default function CodingPage() {
 
   const handleSaveGitHub = async () => {
     setGhSaving(true);
+    setGhTestReport(null);
     try {
       const body: Record<string, string> = {
         action: "save",
@@ -238,6 +248,7 @@ export default function CodingPage() {
 
   const handleTestGitHub = async () => {
     setGhTesting(true);
+    setGhTestReport(null);
     try {
       const res = await fetch("/api/admin/coding/github", {
         method: "POST",
@@ -246,15 +257,95 @@ export default function CodingPage() {
       });
       const data = await res.json();
       if (res.ok) {
+        setGhTestReport({
+          status: "success",
+          defaultBranch: data.defaultBranch,
+          warningCode: data.warningCode,
+        });
         toast.success(t("coding.githubTestSuccess"));
       } else {
+        setGhTestReport({
+          status: "error",
+          errorCode: data.errorCode,
+          errorMessage: data.error || "Unknown",
+        });
         toast.error(t("coding.githubTestFailed", { error: data.error || "Unknown" }));
       }
     } catch {
+      setGhTestReport({
+        status: "error",
+        errorCode: "unknown",
+        errorMessage: "Network error",
+      });
       toast.error(t("coding.githubTestFailed", { error: "Network error" }));
     } finally {
       setGhTesting(false);
     }
+  };
+
+  const renderGitHubDiagnosis = () => {
+    if (!ghTestReport) return null;
+
+    const isSuccess = ghTestReport.status === "success";
+    const containerClass = isSuccess
+      ? "rounded-lg border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-100"
+      : "rounded-lg border border-red-200 bg-red-50/80 p-4 text-sm text-red-950 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-100";
+    const iconClass = isSuccess
+      ? "size-4 text-emerald-600 dark:text-emerald-400"
+      : "size-4 text-red-600 dark:text-red-400";
+
+    const details = isSuccess
+      ? [
+          t("coding.githubDiagnosisOkMeta"),
+          t("coding.githubDiagnosisOkPush"),
+          t("coding.githubDiagnosisOkWorkflow"),
+          ghTestReport.defaultBranch
+            ? t("coding.githubDiagnosisDefaultBranch", { branch: ghTestReport.defaultBranch })
+            : null,
+        ].filter(Boolean)
+      : [
+          ghTestReport.errorCode === "bad_credentials"
+            ? t("coding.githubDiagnosisBadCredentials")
+            : ghTestReport.errorCode === "repo_not_found_or_not_selected"
+              ? t("coding.githubDiagnosisRepoSelection")
+              : ghTestReport.errorCode === "repo_pending_approval_or_denied"
+                ? t("coding.githubDiagnosisApproval")
+                : ghTestReport.errorCode === "contents_read_missing"
+                  ? t("coding.githubDiagnosisContentsRead")
+                  : ghTestReport.errorCode === "contents_write_missing"
+                    ? t("coding.githubDiagnosisContentsWrite")
+                    : t("coding.githubDiagnosisUnknown"),
+        ];
+
+    return (
+      <div className={containerClass}>
+        <div className="flex items-center gap-2 font-medium">
+          {isSuccess ? (
+            <CheckCircle2 className={iconClass} />
+          ) : (
+            <AlertTriangle className={iconClass} />
+          )}
+          {isSuccess
+            ? t("coding.githubDiagnosisTitleSuccess")
+            : t("coding.githubDiagnosisTitleError")}
+        </div>
+        <ul className="mt-3 list-disc space-y-1.5 pl-5">
+          {details.map((detail) => (
+            <li key={detail}>{detail}</li>
+          ))}
+        </ul>
+        {ghTestReport.errorMessage && (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-medium opacity-80">
+              {t("coding.githubDiagnosisTechnical")}
+            </summary>
+            <pre className="mt-2 whitespace-pre-wrap break-words rounded border border-current/15 bg-background/60 p-3 text-xs leading-relaxed text-foreground">
+              {ghTestReport.errorMessage}
+            </pre>
+          </details>
+        )}
+      </div>
+    );
   };
 
   const handleSaveVercel = async () => {
@@ -453,6 +544,7 @@ export default function CodingPage() {
                   >
                     {ghSaving ? t("common.saving") : t("coding.githubUpdateConfig")}
                   </Button>
+                  {renderGitHubDiagnosis()}
                 </div>
               ) : (
                 <div className="flex flex-col gap-4">
