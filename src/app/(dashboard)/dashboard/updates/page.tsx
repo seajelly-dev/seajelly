@@ -386,7 +386,7 @@ export default function UpdatesPage() {
               ))}
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link href="/dashboard/coding" className={buttonVariants()}>
+              <Link href="/dashboard/coding?tab=github" className={buttonVariants()}>
                 {t("updates.goToCoding")}
               </Link>
             </div>

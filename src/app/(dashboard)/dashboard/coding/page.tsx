@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import NextImage from "next/image";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   Code2,
@@ -63,10 +64,15 @@ interface ExecutionOutput {
 }
 
 export default function CodingPage() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { locale } = useI18n();
   const t = useT();
   const useCaseCategories = getUseCaseCategories(locale);
-  const [activeTab, setActiveTab] = useState<"e2b" | "github">("e2b");
+  const tabParam = searchParams.get("tab");
+  const initialTab = tabParam === "github" ? "github" : "e2b";
+  const [activeTab, setActiveTab] = useState<"e2b" | "github">(initialTab);
 
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [testing, setTesting] = useState(false);
@@ -127,6 +133,26 @@ export default function CodingPage() {
     checkConfig();
     checkGitHubConfig();
   }, [checkConfig, checkGitHubConfig]);
+
+  useEffect(() => {
+    if (tabParam === "github" || tabParam === "e2b") {
+      setActiveTab(tabParam);
+      return;
+    }
+    setActiveTab("e2b");
+  }, [tabParam]);
+
+  const handleTabChange = (tab: "e2b" | "github") => {
+    setActiveTab(tab);
+    const params = new URLSearchParams(searchParams.toString());
+    if (tab === "github") {
+      params.set("tab", "github");
+    } else {
+      params.delete("tab");
+    }
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  };
 
   const handleLanguageChange = (lang: Language) => {
     setLanguage(lang);
@@ -294,7 +320,7 @@ export default function CodingPage() {
       {/* Tab switcher */}
       <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
         <button
-          onClick={() => setActiveTab("e2b")}
+          onClick={() => handleTabChange("e2b")}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             activeTab === "e2b"
               ? "bg-background text-foreground shadow-sm"
@@ -305,7 +331,7 @@ export default function CodingPage() {
           {t("coding.tabs.e2b")}
         </button>
         <button
-          onClick={() => setActiveTab("github")}
+          onClick={() => handleTabChange("github")}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             activeTab === "github"
               ? "bg-background text-foreground shadow-sm"
