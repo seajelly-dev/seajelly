@@ -1,6 +1,41 @@
 import { GATEWAY_CAPABILITIES } from "@/lib/gateway/capabilities";
-import { getGatewayConnection, postGatewayRoute } from "@/lib/gateway/client";
+import {
+  getGatewayConnection,
+  findGatewayCapability,
+  buildGatewayRouteUrl,
+  type GatewayConnection,
+} from "@/lib/gateway/client";
 import type { PlatformSender, SendOptions, ButtonRow } from "../types";
+
+async function postBridgeSubpath(
+  connection: GatewayConnection,
+  bridgePath: string,
+  subpath: string,
+  body: unknown,
+): Promise<Response> {
+  const url = buildGatewayRouteUrl(connection.url, `${bridgePath}/${subpath}`);
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Gateway-Secret": connection.secret,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  });
+}
+
+async function resolveBridge() {
+  const connection = await getGatewayConnection();
+  if (!connection) {
+    throw new Error("Edge Gateway not configured — required for WeChat iLink channel");
+  }
+  const route = findGatewayCapability(connection.manifest, GATEWAY_CAPABILITIES.weixinBridge);
+  if (!route) {
+    throw new Error("WeChat iLink bridge not configured in Edge Gateway");
+  }
+  return { connection, bridgePath: route.path };
+}
 
 export class WeixinAdapter implements PlatformSender {
   readonly platform = "weixin";
@@ -11,16 +46,11 @@ export class WeixinAdapter implements PlatformSender {
   }
 
   async sendText(chatId: string, text: string, _options?: SendOptions): Promise<void> {
-    const gateway = await getGatewayConnection();
-    if (!gateway) {
-      throw new Error("Edge Gateway not configured — required for WeChat iLink channel");
-    }
-
-    const resp = await postGatewayRoute(
-      GATEWAY_CAPABILITIES.weixinReply,
-      { user_id: chatId, text },
-      { connection: gateway },
-    );
+    const { connection, bridgePath } = await resolveBridge();
+    const resp = await postBridgeSubpath(connection, bridgePath, "reply", {
+      user_id: chatId,
+      text,
+    });
 
     if (!resp.ok) {
       const body = await resp.text().catch(() => "");
@@ -38,14 +68,15 @@ export class WeixinAdapter implements PlatformSender {
   }
 
   async sendTyping(chatId: string): Promise<void> {
-    const gateway = await getGatewayConnection();
-    if (!gateway) return;
-
-    await postGatewayRoute(
-      GATEWAY_CAPABILITIES.weixinTyping,
-      { user_id: chatId, status: 1 },
-      { connection: gateway },
-    ).catch(() => {});
+    try {
+      const { connection, bridgePath } = await resolveBridge();
+      await postBridgeSubpath(connection, bridgePath, "typing", {
+        user_id: chatId,
+        status: 1,
+      });
+    } catch {
+      // typing is best-effort
+    }
   }
 
   async sendVoice(chatId: string, _audio: Buffer, _filename?: string): Promise<void> {
