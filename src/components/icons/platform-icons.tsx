@@ -91,6 +91,21 @@ export function WhatsAppIcon(props: IconProps) {
   );
 }
 
+export function WeixinIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" {...props}>
+      <path
+        d="M9.5 4C5.91 4 3 6.46 3 9.5c0 1.72.89 3.26 2.28 4.27l-.57 1.7 2.1-.84c.87.32 1.82.5 2.82.5.2 0 .39-.01.58-.03A4.8 4.8 0 0 1 10 13.5C10 11.01 12.24 9 15 9c.34 0 .67.03 1 .08C15.56 6.15 12.82 4 9.5 4Zm-2 3.75a.88.88 0 1 1 0-1.75.88.88 0 0 1 0 1.75Zm4 0a.88.88 0 1 1 0-1.75.88.88 0 0 1 0 1.75Z"
+        fill="#07C160"
+      />
+      <path
+        d="M21 13.5c0-2.49-2.46-4.5-5.5-4.5S10 11.01 10 13.5s2.46 4.5 5.5 4.5c.65 0 1.27-.09 1.85-.25l1.78.71-.4-1.42C20.28 16.16 21 14.9 21 13.5Zm-7.25-.5a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Zm3.5 0a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z"
+        fill="#07C160"
+      />
+    </svg>
+  );
+}
+
 export function SlackIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" {...props}>

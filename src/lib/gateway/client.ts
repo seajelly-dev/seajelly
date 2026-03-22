@@ -1,6 +1,6 @@
 import { createStrictServiceClient } from "@/lib/supabase/server";
 
-export type GatewayRouteKind = "http_forward" | "multipart_upload" | "ws_relay";
+export type GatewayRouteKind = "http_forward" | "multipart_upload" | "ws_relay" | "longpoll_bridge";
 export type GatewayCapability = string;
 
 export interface GatewayRoute {
@@ -38,7 +38,7 @@ function normalizeGatewayBaseUrl(url: string) {
 }
 
 function mapGatewayRouteKind(kind: unknown): GatewayRouteKind {
-  if (kind === "http_forward" || kind === "multipart_upload" || kind === "ws_relay") {
+  if (kind === "http_forward" || kind === "multipart_upload" || kind === "ws_relay" || kind === "longpoll_bridge") {
     return kind;
   }
   throw new Error(`Invalid gateway route kind: ${String(kind)}`);

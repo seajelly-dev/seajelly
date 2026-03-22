@@ -337,7 +337,7 @@ CREATE POLICY "cron_jobs_admin_all" ON public.cron_jobs FOR ALL USING (public.is
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.events (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source            text NOT NULL CHECK (source IN ('telegram','wecom','feishu','slack','qqbot','whatsapp','dingtalk','discord','cron','webhook','manual')),
+  source            text NOT NULL CHECK (source IN ('telegram','wecom','feishu','slack','qqbot','whatsapp','weixin','dingtalk','discord','cron','webhook','manual')),
   agent_id          uuid REFERENCES public.agents(id) ON DELETE SET NULL,
   platform_chat_id  text,
   dedup_key         text UNIQUE,

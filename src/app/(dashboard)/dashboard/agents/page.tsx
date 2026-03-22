@@ -50,6 +50,7 @@ import {
   TelegramIcon,
   FeishuIcon,
   WeComIcon,
+  WeixinIcon,
   SlackIcon,
   QQBotIcon,
   WhatsAppIcon,
@@ -73,7 +74,7 @@ const PRIVILEGED_TOOLS = BUILTIN_TOOL_CATALOG.filter((tool) => !TOOLKIT_MEMBER_K
 const PRIVILEGED_TOOLKITS = BUILTIN_TOOLKIT_CATALOG;
 const SELF_EVOLUTION_MEMBER_TOOLS = BUILTIN_TOOL_CATALOG.filter((tool) => TOOLKIT_MEMBER_KEY_SET.has(tool.key));
 
-type PlatformKey = "telegram" | "feishu" | "wecom" | "slack" | "qqbot" | "whatsapp";
+type PlatformKey = "telegram" | "feishu" | "wecom" | "weixin" | "slack" | "qqbot" | "whatsapp";
 
 interface PlatformDef {
   key: PlatformKey;
@@ -113,6 +114,12 @@ const PLATFORMS: PlatformDef[] = [
     ],
   },
   {
+    key: "weixin",
+    label: "WeChat / 微信",
+    icon: WeixinIcon,
+    fields: [],
+  },
+  {
     key: "slack",
     label: "Slack",
     icon: SlackIcon,
@@ -147,6 +154,7 @@ const PLATFORM_HINT_KEYS: Record<PlatformKey, string> = {
   telegram: "hintTelegram",
   feishu: "hintFeishu",
   wecom: "hintWecom",
+  weixin: "hintWeixin",
   slack: "hintSlack",
   qqbot: "hintQqbot",
   whatsapp: "hintWhatsapp",
