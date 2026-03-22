@@ -139,6 +139,33 @@ Routes:
     - `source + key`
     - `env`
     - `generated: "uuid"`
+- `longpoll_bridge`
+  - 维持一个长轮询循环，从上游 API 拉取消息并转发到 webhook URL
+  - 专为只提供拉取模式的平台设计（如微信 iLink Bot API / ClawBot 插件）
+  - 在内存中自动管理 `context_token` 状态，下游应用只需用 `user_id` 即可回复
+  - 自动暴露三个子端点：`/reply`（发送消息）、`/typing`（输入状态）、`/status`（桥接健康检查）
+  - 凭证通过与其他路由相同的 `source` / `env` / `value` 模板系统解析
+
+### longpoll_bridge 配置示例
+
+```json
+{
+  "id": "weixin-ilink",
+  "capability": "platform.weixin.ilink-bridge",
+  "kind": "longpoll_bridge",
+  "path": "/routes/weixin/ilink",
+  "longpoll_bridge": {
+    "api_base": "https://ilinkai.weixin.qq.com",
+    "webhook_target": "https://your-app.vercel.app/api/webhook/weixin/YOUR_AGENT_ID",
+    "credentials": {
+      "bot_token": { "source": "weixin-settings", "key": "bot_token" }
+    },
+    "reply_path": "/routes/weixin/ilink/reply",
+    "typing_path": "/routes/weixin/ilink/typing",
+    "status_path": "/routes/weixin/ilink/status"
+  }
+}
+```
 
 ## 对外接口
 
@@ -150,6 +177,10 @@ Routes:
   - 只返回公开元数据：版本、配置版本、公网 IP、routes、capabilities
 - `gateway.json` 中声明的 route path
   - 例如 `/routes/wecom/http`、`/routes/wecom/upload`、`/routes/voice/doubao-asr`
+- `longpoll_bridge` 子端点（从 route path 自动生成）：
+  - `POST {path}/reply` — 发送回复消息：`{ "user_id": "...", "text": "..." }`
+  - `POST {path}/typing` — 发送输入状态：`{ "user_id": "...", "status": 1 }`（1=开始，2=停止）
+  - `GET {path}/status` — 桥接健康检查：返回状态、最后错误、活跃上下文数量
 
 ## 安装脚本
 

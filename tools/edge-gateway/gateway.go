@@ -8,13 +8,14 @@ import (
 )
 
 type Gateway struct {
-	version    string
-	configPath string
-	secret     string
-	publicIP   string
-	config     *Config
-	sources    *SourceRegistry
-	manifest   GatewayManifest
+	version      string
+	configPath   string
+	secret       string
+	publicIP     string
+	config       *Config
+	sources      *SourceRegistry
+	manifest     GatewayManifest
+	bridgeStates map[string]*longpollBridgeState
 }
 
 type GatewayManifest struct {
@@ -57,13 +58,14 @@ func NewGateway(version, configPath, secret, publicIP string, config *Config) (*
 	sort.Strings(manifest.Capabilities)
 
 	return &Gateway{
-		version:    version,
-		configPath: configPath,
-		secret:     secret,
-		publicIP:   publicIP,
-		config:     config,
-		sources:    sources,
-		manifest:   manifest,
+		version:      version,
+		configPath:   configPath,
+		secret:       secret,
+		publicIP:     publicIP,
+		config:       config,
+		sources:      sources,
+		manifest:     manifest,
+		bridgeStates: make(map[string]*longpollBridgeState),
 	}, nil
 }
 
@@ -81,6 +83,23 @@ func (g *Gateway) Handler() http.Handler {
 			mux.HandleFunc(route.Path, g.handleMultipartUpload(route))
 		case routeKindWSRelay:
 			mux.HandleFunc(route.Path, g.handleWSRelay(route))
+		case routeKindLongpollBridge:
+			replyPath := route.LongpollBridge.ReplyPath
+			if replyPath == "" {
+				replyPath = route.Path + "/reply"
+			}
+			typingPath := route.LongpollBridge.TypingPath
+			if typingPath == "" {
+				typingPath = route.Path + "/typing"
+			}
+			statusPath := route.LongpollBridge.StatusPath
+			if statusPath == "" {
+				statusPath = route.Path + "/status"
+			}
+			mux.HandleFunc(replyPath, g.handleLongpollReply(route))
+			mux.HandleFunc(typingPath, g.handleLongpollTyping(route))
+			mux.HandleFunc(statusPath, g.handleLongpollStatus(route))
+			g.startLongpollBridge(route)
 		default:
 			panic(fmt.Sprintf("unsupported route kind %q", route.Kind))
 		}

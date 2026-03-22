@@ -99,6 +99,16 @@ if [ ! -f "$CONFIG_PATH" ]; then
       "key_column": "key",
       "value_column": "value",
       "cache_ttl_ms": 30000
+    },
+    {
+      "id": "weixin-settings",
+      "kind": "supabase_rest_kv",
+      "url_env": "SUPABASE_URL",
+      "service_key_env": "SUPABASE_SERVICE_ROLE_KEY",
+      "table": "system_settings",
+      "key_column": "key",
+      "value_column": "value",
+      "cache_ttl_ms": 60000
     }
   ],
   "routes": [
@@ -116,6 +126,19 @@ if [ ! -f "$CONFIG_PATH" ]; then
       "path": "/routes/wecom/upload",
       "allowed_hosts": ["qyapi.weixin.qq.com"],
       "form_field_name": "media"
+    },
+    {
+      "id": "weixin-ilink",
+      "capability": "platform.weixin.ilink-bridge",
+      "kind": "longpoll_bridge",
+      "path": "/routes/weixin/ilink",
+      "longpoll_bridge": {
+        "api_base": "https://ilinkai.weixin.qq.com",
+        "webhook_target": "https://your-app.vercel.app/api/webhook/weixin/YOUR_AGENT_ID",
+        "credentials": {
+          "bot_token": { "source": "weixin-settings", "key": "weixin_bot_token" }
+        }
+      }
     },
     {
       "id": "doubao-asr-ws",

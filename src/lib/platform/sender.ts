@@ -11,6 +11,8 @@ import { SlackAdapter } from "./adapters/slack";
 import { QQBotAdapter } from "./adapters/qqbot";
 import { WhatsAppAdapter } from "./adapters/whatsapp";
 import { WhatsAppFileDownloader } from "./adapters/whatsapp-file";
+import { WeixinAdapter } from "./adapters/weixin";
+import { WeixinFileDownloader } from "./adapters/weixin-file";
 
 export async function getSenderForAgent(
   agentId: string,
@@ -29,6 +31,8 @@ export async function getSenderForAgent(
       return new QQBotAdapter(agentId);
     case "whatsapp":
       return new WhatsAppAdapter(agentId);
+    case "weixin":
+      return new WeixinAdapter(agentId);
     default:
       throw new Error(`Unsupported platform: ${platform}`);
   }
@@ -46,6 +50,8 @@ export function getFileDownloader(platform: string): PlatformFileDownloader {
       return new WeComFileDownloader();
     case "whatsapp":
       return new WhatsAppFileDownloader();
+    case "weixin":
+      return new WeixinFileDownloader();
     default:
       return new NullFileDownloader();
   }

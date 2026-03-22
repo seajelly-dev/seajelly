@@ -139,6 +139,33 @@ Use [`config.example.json`](./config.example.json) as the baseline.
     - `source` + `key`
     - `env`
     - `generated: "uuid"`
+- `longpoll_bridge`
+  - Maintains a long-poll loop against an upstream API and forwards inbound messages to a webhook URL
+  - Designed for platforms that only offer pull-based message retrieval (e.g. WeChat iLink Bot API)
+  - Automatically manages `context_token` state in memory so the downstream app can reply using only `user_id`
+  - Exposes three sub-endpoints: `/reply` (send message), `/typing` (typing indicator), `/status` (bridge health)
+  - Credentials are resolved through the same `source` / `env` / `value` template system
+
+### longpoll_bridge Configuration Example
+
+```json
+{
+  "id": "weixin-ilink",
+  "capability": "platform.weixin.ilink-bridge",
+  "kind": "longpoll_bridge",
+  "path": "/routes/weixin/ilink",
+  "longpoll_bridge": {
+    "api_base": "https://ilinkai.weixin.qq.com",
+    "webhook_target": "https://your-app.vercel.app/api/webhook/weixin/YOUR_AGENT_ID",
+    "credentials": {
+      "bot_token": { "source": "weixin-settings", "key": "bot_token" }
+    },
+    "reply_path": "/routes/weixin/ilink/reply",
+    "typing_path": "/routes/weixin/ilink/typing",
+    "status_path": "/routes/weixin/ilink/status"
+  }
+}
+```
 
 ## Public Endpoints
 
@@ -150,6 +177,10 @@ All endpoints require `X-Gateway-Secret` or `?secret=`:
   - Returns public route metadata only: version, config version, public IP, routes, capabilities
 - Route paths declared in `gateway.json`
   - Example: `/routes/wecom/http`, `/routes/wecom/upload`, `/routes/voice/doubao-asr`
+- `longpoll_bridge` sub-endpoints (auto-generated from route path):
+  - `POST {path}/reply` — Send a reply message: `{ "user_id": "...", "text": "..." }`
+  - `POST {path}/typing` — Send typing indicator: `{ "user_id": "...", "status": 1 }` (1=start, 2=stop)
+  - `GET {path}/status` — Bridge health: returns status, last error, active context count
 
 ## Install Script
 

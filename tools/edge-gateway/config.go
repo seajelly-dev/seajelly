@@ -11,12 +11,13 @@ import (
 )
 
 const (
-	configVersionV1      = "v1"
-	sourceKindSupabaseKV = "supabase_rest_kv"
-	sourceKindEnv        = "env"
-	routeKindHTTPForward = "http_forward"
-	routeKindUpload      = "multipart_upload"
-	routeKindWSRelay     = "ws_relay"
+	configVersionV1        = "v1"
+	sourceKindSupabaseKV   = "supabase_rest_kv"
+	sourceKindEnv          = "env"
+	routeKindHTTPForward   = "http_forward"
+	routeKindUpload        = "multipart_upload"
+	routeKindWSRelay       = "ws_relay"
+	routeKindLongpollBridge = "longpoll_bridge"
 )
 
 var supportedGeneratedValues = []string{"uuid"}
@@ -41,13 +42,23 @@ type SourceConfig struct {
 }
 
 type RouteConfig struct {
-	ID            string                 `json:"id"`
-	Capability    string                 `json:"capability"`
-	Kind          string                 `json:"kind"`
-	Path          string                 `json:"path"`
-	AllowedHosts  []string               `json:"allowed_hosts,omitempty"`
-	FormFieldName string                 `json:"form_field_name,omitempty"`
-	Upstream      *WSRelayUpstreamConfig `json:"upstream,omitempty"`
+	ID              string                    `json:"id"`
+	Capability      string                    `json:"capability"`
+	Kind            string                    `json:"kind"`
+	Path            string                    `json:"path"`
+	AllowedHosts    []string                  `json:"allowed_hosts,omitempty"`
+	FormFieldName   string                    `json:"form_field_name,omitempty"`
+	Upstream        *WSRelayUpstreamConfig    `json:"upstream,omitempty"`
+	LongpollBridge  *LongpollBridgeConfig     `json:"longpoll_bridge,omitempty"`
+}
+
+type LongpollBridgeConfig struct {
+	APIBase        string                   `json:"api_base"`
+	WebhookTarget  string                   `json:"webhook_target"`
+	Credentials    map[string]TemplateValue `json:"credentials,omitempty"`
+	ReplyPath      string                   `json:"reply_path,omitempty"`
+	TypingPath     string                   `json:"typing_path,omitempty"`
+	StatusPath     string                   `json:"status_path,omitempty"`
 }
 
 type WSRelayUpstreamConfig struct {
@@ -170,6 +181,25 @@ func (c *Config) Validate() error {
 				}
 				if err := value.Validate(sourceIDs); err != nil {
 					return fmt.Errorf("route %q header %q: %w", route.ID, headerName, err)
+				}
+			}
+		case routeKindLongpollBridge:
+			if route.LongpollBridge == nil {
+				return fmt.Errorf("route %q requires longpoll_bridge config", route.ID)
+			}
+			if route.LongpollBridge.WebhookTarget == "" {
+				return fmt.Errorf("route %q requires longpoll_bridge.webhook_target", route.ID)
+			}
+			webhookURL, err := url.Parse(route.LongpollBridge.WebhookTarget)
+			if err != nil {
+				return fmt.Errorf("route %q has invalid webhook_target: %w", route.ID, err)
+			}
+			if webhookURL.Scheme != "http" && webhookURL.Scheme != "https" {
+				return fmt.Errorf("route %q webhook_target must use http or https", route.ID)
+			}
+			for credName, value := range route.LongpollBridge.Credentials {
+				if err := value.Validate(sourceIDs); err != nil {
+					return fmt.Errorf("route %q credential %q: %w", route.ID, credName, err)
 				}
 			}
 		default:
