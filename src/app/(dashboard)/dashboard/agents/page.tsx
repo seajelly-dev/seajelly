@@ -165,6 +165,8 @@ const GENERATED_PLATFORM_FIELDS: Partial<Record<PlatformKey, string[]>> = {
   whatsapp: ["verify_token"],
 };
 
+const GATEWAY_MANAGED_PLATFORMS: Set<PlatformKey> = new Set(["weixin"]);
+
 function useOrigin() {
   const [origin] = useState(() => (typeof window === "undefined" ? "" : window.location.origin));
   return origin;
@@ -339,6 +341,7 @@ export default function AgentsPage() {
     const p = (editingAgent as AgentExt)?.platforms || {};
     for (const plat of PLATFORMS) {
       if (plat.key === "telegram") continue;
+      if (GATEWAY_MANAGED_PLATFORMS.has(plat.key)) continue;
       const hasNewCreds = plat.fields.every((f) => pc[plat.key]?.[f.name]?.trim());
       const hadSavedCreds = p[plat.key];
       if (hasNewCreds || hadSavedCreds) count++;
@@ -699,6 +702,36 @@ export default function AgentsPage() {
                   </div>
                 )}
               </div>
+            ) : GATEWAY_MANAGED_PLATFORMS.has(channelExpanded) ? (
+              <div className="flex flex-col gap-3">
+                {PLATFORM_HINT_KEYS[channelExpanded as PlatformKey] && (
+                  <p className="text-xs text-muted-foreground rounded-md bg-muted/50 px-3 py-2">
+                    {t(`agents.${PLATFORM_HINT_KEYS[channelExpanded as PlatformKey]}` as never)}
+                  </p>
+                )}
+                <div className="flex items-center gap-2 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 px-3 py-2.5">
+                  <Zap className="size-4 text-blue-500 shrink-0" />
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    {t("agents.gatewayManagedHint")}
+                  </p>
+                </div>
+                {editingAgent && (
+                  <div className="flex flex-col gap-1.5 rounded-md border p-3">
+                    <Label className="text-xs text-muted-foreground">{t("agents.webhookUrlLabel")}</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        readOnly
+                        value={`${origin}/api/webhook/${channelExpanded}/${editingAgent.id}`}
+                        className="h-8 text-xs font-mono"
+                        onFocus={(e) => e.target.select()}
+                      />
+                      <Button variant="ghost" size="icon-sm" className="shrink-0" onClick={() => copyWebhookUrl(channelExpanded, editingAgent.id)}>
+                        <Copy className="size-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="flex flex-col gap-3">
                 {PLATFORM_HINT_KEYS[channelExpanded as PlatformKey] && (
@@ -813,6 +846,7 @@ export default function AgentsPage() {
         </DialogHeader>
         <div className="flex flex-col gap-2 py-2">
           {PLATFORMS.map((plat) => {
+            const isGatewayManaged = GATEWAY_MANAGED_PLATFORMS.has(plat.key);
             const isConnected = plat.key === "telegram"
               ? !!form.telegram_bot_token || !!(editingAgent as AgentExt)?.has_bot_token
               : !!(editingAgent as AgentExt)?.platforms?.[plat.key];
@@ -832,13 +866,20 @@ export default function AgentsPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{plat.label}</p>
                   <p className="text-xs text-muted-foreground">
-                    {isConnected || hasNewInput
-                      ? t("agents.platformConnected")
-                      : t("agents.platformClickToConfigure")}
+                    {isGatewayManaged
+                      ? t("agents.platformGatewayManaged")
+                      : isConnected || hasNewInput
+                        ? t("agents.platformConnected")
+                        : t("agents.platformClickToConfigure")}
                   </p>
                 </div>
                 <div className="shrink-0">
-                  {isConnected || hasNewInput ? (
+                  {isGatewayManaged ? (
+                    <Badge variant="secondary" className="gap-1 text-xs">
+                      <Zap className="size-3 text-blue-500" />
+                      Edge Gateway
+                    </Badge>
+                  ) : isConnected || hasNewInput ? (
                     <Badge variant="secondary" className="gap-1 text-xs">
                       <CheckCircle2 className="size-3 text-green-600 dark:text-green-400" />
                       {hasNewInput ? "New" : t("agents.platformConnected")}

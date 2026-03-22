@@ -752,7 +752,7 @@ CREATE POLICY "agent_credentials_service_select" ON public.agent_credentials FOR
 CREATE TABLE IF NOT EXISTS public.channels (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id      uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
-  platform      text NOT NULL CHECK (platform IN ('telegram','wecom','feishu','slack','qqbot','whatsapp','dingtalk','discord','web')),
+  platform      text NOT NULL CHECK (platform IN ('telegram','wecom','feishu','slack','qqbot','whatsapp','dingtalk','discord','web','weixin')),
   platform_uid  text NOT NULL,
   display_name  text,
   user_soul     text NOT NULL DEFAULT '',
