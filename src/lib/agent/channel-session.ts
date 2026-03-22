@@ -98,7 +98,12 @@ export async function enforceChannelAccess(
   params: EnforceChannelAccessParams,
 ): Promise<ChannelAccessResult> {
   const { supabase, agent, channel, sender, platformChatId } = params;
-  if (!channel) return { allowed: true };
+  if (!channel) {
+    if (agent.access_mode === "approval" || agent.access_mode === "subscription") {
+      return { allowed: false, reply: "[no_channel_created]" };
+    }
+    return { allowed: true };
+  }
 
   if (!channel.is_allowed) {
     const locale = getBotLocaleOrDefault(agent.bot_locale);

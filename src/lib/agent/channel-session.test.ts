@@ -57,6 +57,33 @@ function makeSender() {
   return { sender, sent };
 }
 
+test("enforceChannelAccess blocks null channel when agent requires approval", async () => {
+  const { sender } = makeSender();
+  const result = await enforceChannelAccess({
+    supabase: {} as SupabaseClient,
+    agent: makeAgent({ access_mode: "approval" }),
+    channel: null,
+    sender,
+    platformChatId: "chat_1",
+  });
+
+  assert.equal(result.allowed, false);
+  assert.equal(result.reply, "[no_channel_created]");
+});
+
+test("enforceChannelAccess allows null channel when agent is open", async () => {
+  const { sender } = makeSender();
+  const result = await enforceChannelAccess({
+    supabase: {} as SupabaseClient,
+    agent: makeAgent({ access_mode: "open" }),
+    channel: null,
+    sender,
+    platformChatId: "chat_1",
+  });
+
+  assert.equal(result.allowed, true);
+});
+
 test("enforceChannelAccess returns pending approval reply for disallowed channels", async () => {
   const { sender, sent } = makeSender();
   const result = await enforceChannelAccess({
