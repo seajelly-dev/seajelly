@@ -3,8 +3,11 @@
   "withdrawn_releases": [
     {
       "tag": "v0.1.4",
-      "reason": "The manual database-update action was hidden in the Updates UI for database-backed releases.",
-      "replacement_tag": "v0.1.6"
+      "reason": "This release line is no longer supported for one-click upgrades. Redeploy from the current stable release if you are still on this path."
+    },
+    {
+      "tag": "v0.1.6",
+      "reason": "This temporary bridge release has been retired. Official long-term one-click upgrade support now starts from v0.1.7."
     }
   ]
 }

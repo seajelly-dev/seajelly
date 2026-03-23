@@ -60,6 +60,12 @@ Typical flow:
 
 If your users are mainly in mainland China, bind a custom domain instead of relying on `*.vercel.app`.
 
+Current upgrade support policy:
+
+- `v0.1.7` is the long-term one-click upgrade baseline going forward
+- older experimental bridge lines such as `v0.1.4` and `v0.1.6` are considered withdrawn
+- if someone is still installed on a withdrawn line, the recommended recovery path is a fresh redeploy from the current `stable` branch
+
 ## Local Development
 
 ```bash
@@ -148,6 +154,8 @@ Official GitHub permission reference:
 | Scheduling | Reminders, agent-invoke tasks, worker queue processing, and cron-backed automation |
 | Storage | JellyBox object storage management backed by Cloudflare R2-compatible storage |
 | Managed updates | Guided one-click upgrade flow for Vercel clone installs, with release-by-release path checks, deploy monitoring, optional DB follow-up, and safe multi-hop catch-up from older versions |
+
+At this stage, treat `v0.1.7` as the supported long-term baseline for future managed updates. Earlier bridge releases were useful for recovery, but they are not the foundation for ongoing upgrade compatibility.
 | Operations | Dashboard analytics, events queue inspection, usage stats, and admin controls |
 
 ## Project Status

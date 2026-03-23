@@ -24,6 +24,8 @@ If you have not deployed yet, the fastest route is the Vercel button in [README.
 
 That install button should point to the `stable` branch so first-time users always install the latest formal release, not an in-between development snapshot from `main`.
 
+For ongoing upgrades, treat `v0.1.7` as the long-term supported baseline. If you are still on an older withdrawn bridge line, the recommended recovery path is a fresh redeploy from `stable` instead of trying to keep chaining one-click upgrades forever.
+
 ## Bootstrap Environment Variables
 
 Before opening `/setup`, make sure your deployment has:
@@ -162,6 +164,8 @@ Right after you confirm that dialog, SEAJelly now shows a second completion dial
 - `Enable One-Click Updates`
 
 If this install is several formal releases behind later on, `Dashboard -> Updates` now catches it up one official release hop at a time instead of trying to apply a risky cross-version patch in one jump.
+
+Today, SEAJelly's long-term managed-update baseline starts at `v0.1.7`. Earlier withdrawn bridge releases may show a warning in `Dashboard -> Updates` and are better handled by redeploying the latest `stable` build.
 
 ## After Setup
 

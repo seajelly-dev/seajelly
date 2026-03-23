@@ -598,6 +598,7 @@ function buildUpgradePath(
   }
 
   if (path.length === 0) {
+    const currentReleaseRule = withdrawnByTag.get(installedReleaseTag) ?? null;
     const withdrawnCandidate = getWithdrawnCandidateForSource({
       currentTag: installedReleaseTag,
       releases: allReleases,
@@ -606,9 +607,11 @@ function buildUpgradePath(
     });
     return {
       path,
-      blockedReason: withdrawnCandidate
-        ? formatWithdrawnReleaseMessage(withdrawnCandidate)
-        : `No official upgrade path was found from ${installedReleaseTag} to ${latestRelease.tag}.`,
+      blockedReason: currentReleaseRule
+        ? formatWithdrawnReleaseMessage(currentReleaseRule)
+        : withdrawnCandidate
+          ? formatWithdrawnReleaseMessage(withdrawnCandidate)
+          : `No official upgrade path was found from ${installedReleaseTag} to ${latestRelease.tag}.`,
     };
   }
 

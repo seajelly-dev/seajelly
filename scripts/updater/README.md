@@ -149,6 +149,12 @@ That means:
 
 If you later want one release to support multiple source versions, make sure the expected file bases really line up for every listed source tag. `previous_supported_tags` only controls path selection; it does not magically make one patch set fit incompatible source trees.
 
+Current project policy:
+
+- `v0.1.7` is the long-term supported baseline for future one-click upgrades
+- older bridge releases such as `v0.1.4` and `v0.1.6` are treated as withdrawn recovery lines
+- do not keep extending multiple historical bridge branches unless user volume justifies the complexity
+
 ## Required environment variables
 
 If the release needs new runtime env keys:
