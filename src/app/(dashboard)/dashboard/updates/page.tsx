@@ -114,6 +114,8 @@ export default function UpdatesPage() {
   const [baselineDialogOpen, setBaselineDialogOpen] = useState(false);
   const [dbDialogRun, setDbDialogRun] = useState<UpdateRunRecord | null>(null);
   const [rollbackDialogRun, setRollbackDialogRun] = useState<UpdateRunRecord | null>(null);
+  const activeRunId = state?.activeRun?.id;
+  const activeRunStatus = state?.activeRun?.status;
 
   const loadRuns = useCallback(async () => {
     const res = await fetch("/api/admin/system/update/runs?limit=10", {
@@ -151,8 +153,7 @@ export default function UpdatesPage() {
   }, [loadAll]);
 
   useEffect(() => {
-    const activeRunId = state?.activeRun?.id;
-    if (!activeRunId) return;
+    if (!activeRunId || activeRunStatus === "db_pending") return;
 
     const poll = async () => {
       try {
@@ -189,7 +190,7 @@ export default function UpdatesPage() {
       void poll();
     }, RUN_POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [loadRuns, loadState, state?.activeRun?.id, t]);
+  }, [activeRunId, activeRunStatus, loadRuns, loadState, t]);
 
   const handleCheck = async () => {
     setChecking(true);
@@ -528,6 +529,13 @@ export default function UpdatesPage() {
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <UpdateTimeline run={activeRun} t={t} />
+            {activeRun.status === "db_pending" ? (
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => setDbDialogRun(activeRun)}>
+                  {t("updates.applyDb")}
+                </Button>
+              </div>
+            ) : null}
             {activeRun.error_summary ? (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
                 {activeRun.error_summary}
@@ -562,7 +570,8 @@ export default function UpdatesPage() {
                   const canRollback =
                     !activeRun &&
                     (run.status === "success" || run.status === "deploy_error");
-                  const canApplyDb = !activeRun && run.status === "db_pending";
+                  const canApplyDb =
+                    run.status === "db_pending" && (!activeRun || activeRun.id === run.id);
                   return (
                     <TableRow key={run.id}>
                       <TableCell className="font-mono text-sm">
