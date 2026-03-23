@@ -43,6 +43,7 @@ This writes:
 Check:
 
 - `previous_supported_tag` is correct
+- `previous_supported_tags` only includes source releases that still match this manifest's expected file bases
 - `patches` only include files you want to manage through one-click upgrades
 - `required_env_keys` is set if the new release needs extra env vars
 - `db.mode` is correct
@@ -115,6 +116,38 @@ pnpm tsx scripts/updater/generate-upgrade-manifest.ts \
   --db-sql-path .seajelly/migrations/v0.1.1.sql \
   --db-summary "Create update_runs table"
 ```
+
+## Bridge releases and withdrawn releases
+
+If you need to skip over a bad official release:
+
+1. update `.seajelly/release-policy.json` on `main`
+2. add the bad tag to `withdrawn_releases`
+3. publish a new bridge release whose manifest points back to the last good source release
+
+Example:
+
+- `v0.1.4` is bad
+- last good public release is `v0.1.3`
+- fixed bridge release will be `v0.1.6`
+
+Generate the manifest like this:
+
+```bash
+pnpm tsx scripts/updater/generate-upgrade-manifest.ts \
+  --from v0.1.3 \
+  --release-tag v0.1.6 \
+  --db-mode manual_apply \
+  --db-sql-path .seajelly/migrations/v0.1.6.sql \
+  --db-summary "Carry forward the v0.1.4 channel constraint update"
+```
+
+That means:
+
+- older updaters that only understand `previous_supported_tag` can still move from `v0.1.3`
+- the withdrawn `v0.1.4` release can stay in git history without staying on the public upgrade path
+
+If you later want one release to support multiple source versions, make sure the expected file bases really line up for every listed source tag. `previous_supported_tags` only controls path selection; it does not magically make one patch set fit incompatible source trees.
 
 ## Required environment variables
 

@@ -44,12 +44,24 @@ export interface UpdateManifest {
   release_tag: string;
   release_commit_sha: string;
   previous_supported_tag: string;
+  previous_supported_tags?: string[];
   requires_manual_review?: boolean;
   required_env_keys?: string[];
   commit_message: string;
   patches: UpdateManifestPatch[];
   db: UpdateManifestDbConfig;
   notes_md?: string;
+}
+
+export interface WithdrawnReleaseEntry {
+  tag: string;
+  reason?: string;
+  replacement_tag?: string;
+}
+
+export interface ReleasePolicy {
+  policy_version: 1;
+  withdrawn_releases: WithdrawnReleaseEntry[];
 }
 
 export interface UpstreamReleaseSummary {

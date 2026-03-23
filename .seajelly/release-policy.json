@@ -1,0 +1,10 @@
+{
+  "policy_version": 1,
+  "withdrawn_releases": [
+    {
+      "tag": "v0.1.4",
+      "reason": "The manual database-update action was hidden in the Updates UI for database-backed releases.",
+      "replacement_tag": "v0.1.6"
+    }
+  ]
+}

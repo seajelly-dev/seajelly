@@ -19,6 +19,7 @@ type UpdateManifest = {
   release_tag: string;
   release_commit_sha: string;
   previous_supported_tag: string;
+  previous_supported_tags?: string[];
   requires_manual_review?: boolean;
   required_env_keys?: string[];
   commit_message: string;
@@ -38,6 +39,7 @@ type ParsedArgs = {
   output: string;
   releaseTag?: string;
   previousSupportedTag?: string;
+  previousSupportedTags: string[];
   releaseCommitSha?: string;
   commitMessage?: string;
   dbMode?: DbMode;
@@ -67,6 +69,8 @@ Options:
   --to <ref>                     Target ref. Defaults to HEAD
   --release-tag <tag>            Release tag to write. Defaults to v + package.json version
   --previous-supported-tag <tag> Explicit previous supported release tag
+  --previous-supported-tags <a,b,c>
+                                 Extra supported source release tags for bridge releases
   --release-commit-sha <sha>     Override release_commit_sha in output
   --commit-message <message>     Override manifest commit message
   --db-mode <none|manual_apply>  Database mode. Defaults to none, or manual_apply when --db-sql-path is set
@@ -87,6 +91,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   const parsed: ParsedArgs = {
     to: "HEAD",
     output: DEFAULT_OUTPUT,
+    previousSupportedTags: [],
     requiredEnvKeys: [],
     manualReview: false,
     destructiveDb: false,
@@ -120,6 +125,13 @@ function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "--previous-supported-tag":
         parsed.previousSupportedTag = next;
+        i += 1;
+        break;
+      case "--previous-supported-tags":
+        parsed.previousSupportedTags = next
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean);
         i += 1;
         break;
       case "--release-commit-sha":
@@ -193,6 +205,17 @@ function getRepoRoot(cwd: string): string {
 
 function normalizeReleaseTag(input: string): string {
   return input.startsWith("v") ? input : `v${input}`;
+}
+
+function normalizeReleaseTags(inputs: string[]): string[] {
+  return Array.from(
+    new Set(
+      inputs
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => normalizeReleaseTag(item)),
+    ),
+  );
 }
 
 function getPackageVersion(repoRoot: string): string {
@@ -409,13 +432,12 @@ function main() {
   const releaseTag = normalizeReleaseTag(args.releaseTag || packageVersion);
   const releaseCommitSha =
     args.releaseCommitSha?.trim() || git(repoRoot, ["rev-parse", args.to]).trim();
-  const previousSupportedTag =
-    args.previousSupportedTag?.trim() ||
-    (args.initialRelease
-      ? releaseTag
-      : args.from?.startsWith("v")
-        ? args.from
-        : "");
+  const previousTagCandidates = normalizeReleaseTags([
+    args.previousSupportedTag || "",
+    ...args.previousSupportedTags,
+    args.initialRelease ? releaseTag : args.from?.startsWith("v") ? args.from : "",
+  ]);
+  const previousSupportedTag = previousTagCandidates[0] || "";
 
   if (!args.initialRelease && !args.from) {
     throw new Error("--from is required unless --initial-release is used");
@@ -455,6 +477,7 @@ function main() {
     release_tag: releaseTag,
     release_commit_sha: releaseCommitSha,
     previous_supported_tag: previousSupportedTag,
+    previous_supported_tags: previousTagCandidates,
     requires_manual_review: args.manualReview || undefined,
     required_env_keys:
       args.requiredEnvKeys.length > 0 ? args.requiredEnvKeys : undefined,

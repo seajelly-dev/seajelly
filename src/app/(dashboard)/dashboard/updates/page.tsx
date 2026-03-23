@@ -299,6 +299,9 @@ export default function UpdatesPage() {
   const pathPreview = (state?.upgradePath ?? []).map((release) => release.tag).join(" -> ");
   const localizedPathBlockedMessage = useMemo(() => {
     if (!state?.upgradeBlockedReason || !state.latestRelease) return null;
+    if (state.upgradeBlockedReason.startsWith("Official release ")) {
+      return state.upgradeBlockedReason;
+    }
     const lastPathTag = state.upgradePath[state.upgradePath.length - 1]?.tag;
     if (lastPathTag && lastPathTag !== state.latestRelease.tag) {
       return t("updates.pathPartial", {

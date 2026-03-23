@@ -16,15 +16,19 @@ import {
 import { parseRepo } from "@/lib/github/config";
 import { runMigration } from "@/lib/supabase/management";
 import type {
+  ReleasePolicy,
   UpdateManifest,
   UpdateRunRecord,
   UpgradePathStep,
   UpstreamReleaseSummary,
   UpdateRunStatus,
+  WithdrawnReleaseEntry,
 } from "./types";
 
 const MANIFEST_PATH = ".seajelly/upgrade-manifest.json";
+const RELEASE_POLICY_PATH = ".seajelly/release-policy.json";
 export const DEFAULT_UPSTREAM_REPO = "seajelly-dev/seajelly";
+const UPSTREAM_POLICY_REF = "main";
 
 export const UPDATE_SETTING_KEYS = {
   upstreamRepo: "upstream_repo",
@@ -72,6 +76,7 @@ const updateManifestSchema = z.object({
   release_tag: z.string().min(1),
   release_commit_sha: z.string().min(1),
   previous_supported_tag: z.string().min(1),
+  previous_supported_tags: z.array(z.string().min(1)).optional(),
   requires_manual_review: z.boolean().optional(),
   required_env_keys: z.array(z.string().min(1)).optional(),
   commit_message: z.string().min(1),
@@ -91,6 +96,17 @@ const updateManifestSchema = z.object({
     }
   }),
   notes_md: z.string().optional(),
+});
+
+const withdrawnReleaseEntrySchema = z.object({
+  tag: z.string().min(1),
+  reason: z.string().optional(),
+  replacement_tag: z.string().min(1).optional(),
+});
+
+const releasePolicySchema = z.object({
+  policy_version: z.literal(1),
+  withdrawn_releases: z.array(withdrawnReleaseEntrySchema).default([]),
 });
 
 type DbClient = SupabaseClient;
@@ -129,6 +145,41 @@ export interface StartUpdateResult {
 
 function isUpdateRunTerminal(status: string | null | undefined): boolean {
   return status ? TERMINAL_UPDATE_STATUSES.has(status as UpdateRunStatus) : false;
+}
+
+function emptyReleasePolicy(): ReleasePolicy {
+  return {
+    policy_version: 1,
+    withdrawn_releases: [],
+  };
+}
+
+function getSupportedPreviousTags(manifest: UpdateManifest): string[] {
+  return Array.from(
+    new Set(
+      [
+        manifest.previous_supported_tag,
+        ...(manifest.previous_supported_tags ?? []),
+      ]
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function isMissingUpstreamPolicy(err: unknown): boolean {
+  return err instanceof Error && err.message.includes("Upstream fetch failed (404)");
+}
+
+function formatWithdrawnReleaseMessage(rule: WithdrawnReleaseEntry): string {
+  const parts = [`Official release ${rule.tag} has been withdrawn.`];
+  if (rule.reason) {
+    parts.push(rule.reason);
+  }
+  if (rule.replacement_tag) {
+    parts.push(`Use ${rule.replacement_tag} instead.`);
+  }
+  return parts.join(" ");
 }
 
 async function readSystemSettings(
@@ -414,6 +465,22 @@ export async function fetchUpdateManifest(
   return manifest;
 }
 
+export async function fetchReleasePolicy(
+  upstreamRepo: string,
+  ref = UPSTREAM_POLICY_REF,
+): Promise<ReleasePolicy> {
+  try {
+    const text = await fetchTextOrThrow(buildRawFileUrl(upstreamRepo, ref, RELEASE_POLICY_PATH));
+    const parsed = JSON.parse(text) as unknown;
+    return releasePolicySchema.parse(parsed);
+  } catch (err) {
+    if (isMissingUpstreamPolicy(err)) {
+      return emptyReleasePolicy();
+    }
+    throw err;
+  }
+}
+
 async function fetchDbSql(
   upstreamRepo: string,
   tag: string,
@@ -454,10 +521,47 @@ function sortReleasesByPublishedAtAscending(
   return a.tag.localeCompare(b.tag);
 }
 
+function getWithdrawnCandidateForSource(opts: {
+  currentTag: string;
+  releases: UpstreamReleaseSummary[];
+  manifestMap: Map<string, UpdateManifest>;
+  withdrawnByTag: Map<string, WithdrawnReleaseEntry>;
+}): WithdrawnReleaseEntry | null {
+  const candidate = opts.releases
+    .filter((release) => opts.withdrawnByTag.has(release.tag))
+    .map((release) => {
+      const manifest = opts.manifestMap.get(release.tag);
+      const rule = opts.withdrawnByTag.get(release.tag) ?? null;
+      if (!manifest || !rule) return null;
+      return {
+        release,
+        manifest,
+        rule,
+      };
+    })
+    .filter(
+      (
+        item,
+      ): item is {
+        release: UpstreamReleaseSummary;
+        manifest: UpdateManifest;
+        rule: WithdrawnReleaseEntry;
+      } => Boolean(item),
+    )
+    .filter(
+      (item) => getSupportedPreviousTags(item.manifest).includes(opts.currentTag),
+    )
+    .sort((a, b) => sortReleasesByPublishedAtAscending(a.release, b.release))[0];
+
+  return candidate?.rule ?? null;
+}
+
 function buildUpgradePath(
   installedReleaseTag: string,
   releases: UpstreamReleaseSummary[],
   manifestMap: Map<string, UpdateManifest>,
+  withdrawnByTag: Map<string, WithdrawnReleaseEntry>,
+  allReleases: UpstreamReleaseSummary[],
 ): {
   path: UpgradePathStep[];
   blockedReason: string | null;
@@ -480,7 +584,7 @@ function buildUpgradePath(
       .filter((item): item is UpgradePathStep => item !== null)
       .filter(
         (item) =>
-          item.manifest.previous_supported_tag === currentTag &&
+          getSupportedPreviousTags(item.manifest).includes(currentTag) &&
           !visitedTags.has(item.release.tag),
       )
       .sort((a, b) => sortReleasesByPublishedAtAscending(a.release, b.release));
@@ -494,9 +598,17 @@ function buildUpgradePath(
   }
 
   if (path.length === 0) {
+    const withdrawnCandidate = getWithdrawnCandidateForSource({
+      currentTag: installedReleaseTag,
+      releases: allReleases,
+      manifestMap,
+      withdrawnByTag,
+    });
     return {
       path,
-      blockedReason: `No official upgrade path was found from ${installedReleaseTag} to ${latestRelease.tag}.`,
+      blockedReason: withdrawnCandidate
+        ? formatWithdrawnReleaseMessage(withdrawnCandidate)
+        : `No official upgrade path was found from ${installedReleaseTag} to ${latestRelease.tag}.`,
     };
   }
 
@@ -644,10 +756,21 @@ export async function getUpdateSystemState(
   let upgradeBlockedReason: string | null = null;
   try {
     const releases = await fetchUpstreamReleases(upstreamRepo);
-    latestRelease = releases[0] ?? null;
     const manifestMap = await fetchReleaseManifests(upstreamRepo, releases);
+    const releasePolicy = await fetchReleasePolicy(upstreamRepo);
+    const withdrawnByTag = new Map(
+      releasePolicy.withdrawn_releases.map((item) => [item.tag, item] as const),
+    );
+    const activeReleases = releases.filter((release) => !withdrawnByTag.has(release.tag));
+    latestRelease = activeReleases[0] ?? null;
     latestManifest = latestRelease ? (manifestMap.get(latestRelease.tag) ?? null) : null;
-    const pathResult = buildUpgradePath(installedReleaseTag, releases, manifestMap);
+    const pathResult = buildUpgradePath(
+      installedReleaseTag,
+      activeReleases,
+      manifestMap,
+      withdrawnByTag,
+      releases,
+    );
     upgradePath = pathResult.path.map((step) => step.release);
     upgradeBlockedReason = pathResult.blockedReason;
     nextRelease = pathResult.path[0]?.release ?? null;
@@ -780,9 +903,9 @@ export async function startUpdate(
   if (manifest.db.destructive) {
     throw new Error("This release includes destructive database changes and is blocked from one-click upgrades");
   }
-  if (state.installedReleaseTag !== manifest.previous_supported_tag) {
+  if (!getSupportedPreviousTags(manifest).includes(state.installedReleaseTag)) {
     throw new Error(
-      `This install is on ${state.installedReleaseTag}, but the release only supports upgrading from ${manifest.previous_supported_tag}`,
+      `This install is on ${state.installedReleaseTag}, but the release only supports upgrading from ${getSupportedPreviousTags(manifest).join(", ")}`,
     );
   }
 
