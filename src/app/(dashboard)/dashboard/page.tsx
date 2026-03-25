@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Bot, MessageSquare, Radio, Zap, ArrowUpRight, ArrowDownRight, Clock, Webhook, Hand, RefreshCw } from "lucide-react";
+import { Bot, MessageSquare, Radio, Zap, ArrowUpRight, ArrowDownRight, Clock, Webhook, Hand } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   TelegramIcon,
@@ -108,7 +108,6 @@ const TOKEN_OUTPUT_COLORS = [
 export default function DashboardPage() {
   const t = useT();
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({ agents: 0, sessions: 0, events: 0 });
   const [usage, setUsage] = useState({ total_calls: 0, total_input_tokens: 0, total_output_tokens: 0 });
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
@@ -144,16 +143,6 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchData(true).catch(console.error);
   }, [fetchData]);
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await fetchData();
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
   const modelNames = useMemo(
     () => [...new Set(hourlyData.map((r) => r.model_id))].sort(),
     [hourlyData],
@@ -244,16 +233,6 @@ export default function DashboardPage() {
             {t("overview.subtitle")}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="gap-2"
-        >
-          <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
-          {t("common.refresh")}
-        </Button>
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
