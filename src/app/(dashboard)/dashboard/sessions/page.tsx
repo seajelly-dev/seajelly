@@ -582,6 +582,8 @@ function FilePartRenderer({ part }: { part: Extract<MessageContentPart, { type: 
   if (mime.startsWith("image/")) {
     return (
       <a href={part.url} target="_blank" rel="noopener noreferrer" className="block my-1">
+        {/* These URLs are dynamic user/media links, so we intentionally bypass next/image optimization. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={part.url}
           alt={part.name}

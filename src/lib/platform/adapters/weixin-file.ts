@@ -11,11 +11,15 @@ import type { PlatformFile, PlatformFileDownloader } from "../types";
  */
 export class WeixinFileDownloader implements PlatformFileDownloader {
   async download(
-    _agentId: string,
-    _fileRef: string,
-    _hintMime?: string | null,
-    _hintName?: string | null,
+    agentId: string,
+    fileRef: string,
+    hintMime?: string | null,
+    hintName?: string | null,
   ): Promise<PlatformFile | null> {
+    void agentId;
+    void fileRef;
+    void hintMime;
+    void hintName;
     return null;
   }
 }

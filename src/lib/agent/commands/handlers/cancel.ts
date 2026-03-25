@@ -1,5 +1,5 @@
-import type { CommandContext, LoopResult } from "../types";
+import type { LoopResult } from "../types";
 
-export async function handleCancel(ctx: CommandContext): Promise<LoopResult | null> {
+export async function handleCancel(): Promise<LoopResult | null> {
   return null;
 }

@@ -36,6 +36,10 @@ import { LanguageSwitcher } from "@/components/language-switcher";
 import { useT } from "@/lib/i18n";
 import type { ModelDef } from "@/lib/models";
 import {
+  resolveSafeClientNavigationTarget,
+  resolveSafeSameOriginPath,
+} from "@/lib/security/navigation";
+import {
   TelegramIcon,
   FeishuIcon,
   WeComIcon,
@@ -246,16 +250,18 @@ You have persistent memory across conversations. Use it wisely:
   };
 
   const navigateAfterSetup = (target: string) => {
-    try {
-      const url = new URL(target, window.location.origin);
-      if (url.origin === window.location.origin) {
-        router.push(`${url.pathname}${url.search}${url.hash}`);
-        return;
-      }
-      window.location.assign(url.toString());
-    } catch {
-      router.push(target);
+    const navigation = resolveSafeClientNavigationTarget(
+      target,
+      window.location.origin,
+      "/dashboard"
+    );
+
+    if (navigation.type === "internal") {
+      router.push(navigation.href);
+      return;
     }
+
+    window.location.assign(navigation.href);
   };
 
   const buildPostSetupTargets = (dashboardTarget?: string) => {
@@ -602,7 +608,13 @@ You have persistent memory across conversations. Use it wisely:
       }
       if (data.sessionEstablished === false && data.loginUrl) {
         toast.success(t("setup.success.adminCreatedLogin"));
-        router.push(data.loginUrl);
+        router.push(
+          resolveSafeSameOriginPath(
+            data.loginUrl,
+            window.location.origin,
+            "/login"
+          )
+        );
         return;
       }
       toast.success(t("setup.success.adminCreated"));

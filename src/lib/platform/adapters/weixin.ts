@@ -45,7 +45,8 @@ export class WeixinAdapter implements PlatformSender {
     this.agentId = agentId;
   }
 
-  async sendText(chatId: string, text: string, _options?: SendOptions): Promise<void> {
+  async sendText(chatId: string, text: string, options?: SendOptions): Promise<void> {
+    void options;
     const { connection, bridgePath } = await resolveBridge();
     const resp = await postBridgeSubpath(connection, bridgePath, "reply", {
       user_id: chatId,
@@ -79,7 +80,9 @@ export class WeixinAdapter implements PlatformSender {
     }
   }
 
-  async sendVoice(chatId: string, _audio: Buffer, _filename?: string): Promise<void> {
+  async sendVoice(chatId: string, audio: Buffer, filename?: string): Promise<void> {
+    void audio;
+    void filename;
     await this.sendText(chatId, "[Voice message — not yet supported on WeChat iLink]");
   }
 
@@ -91,8 +94,9 @@ export class WeixinAdapter implements PlatformSender {
     chatId: string,
     text: string,
     buttons: ButtonRow[][],
-    _options?: SendOptions,
+    options?: SendOptions,
   ): Promise<void> {
+    void options;
     const btnText = buttons
       .flat()
       .map((btn) => `[${btn.label}]`)

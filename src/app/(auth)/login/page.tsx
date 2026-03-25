@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { SeajellyLogo } from "@/components/seajelly-logo";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useT } from "@/lib/i18n";
+import { resolveSafeSameOriginPath } from "@/lib/security/navigation";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,7 +31,11 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const gateKey = searchParams.get("k") ?? "";
-      const nextUrl = searchParams.get("next") || "/dashboard";
+      const nextUrl = resolveSafeSameOriginPath(
+        searchParams.get("next"),
+        window.location.origin,
+        "/dashboard"
+      );
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
