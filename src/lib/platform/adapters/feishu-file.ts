@@ -3,7 +3,8 @@ import { guessMime, detectImageMimeFromBuffer } from "../file-utils";
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto/encrypt";
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024;
+// Feishu's message resource API supports files up to 100 MB.
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
@@ -81,10 +82,16 @@ export class FeishuFileDownloader implements PlatformFileDownloader {
       }
 
       const contentLength = res.headers.get("content-length");
-      if (contentLength && parseInt(contentLength) > MAX_FILE_SIZE) return null;
+      if (contentLength && parseInt(contentLength) > MAX_FILE_SIZE) {
+        console.warn(`[feishu-file] file too large: ${contentLength} bytes`);
+        return null;
+      }
 
       const buffer = Buffer.from(await res.arrayBuffer());
-      if (buffer.length > MAX_FILE_SIZE) return null;
+      if (buffer.length > MAX_FILE_SIZE) {
+        console.warn(`[feishu-file] buffer too large: ${buffer.length} bytes`);
+        return null;
+      }
 
       const resolvedHeaderMime = contentType.split(";")[0].trim() || null;
       const resolvedHintMime = hintMime?.split(";")[0].trim() || null;

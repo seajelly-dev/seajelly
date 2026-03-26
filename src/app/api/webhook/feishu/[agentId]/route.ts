@@ -6,6 +6,7 @@ import { handleInboundMessage } from "@/lib/platform/webhook-handler";
 import { processChannelApproval, getAgentLocale } from "@/lib/platform/approval-core";
 import { getSenderForAgent } from "@/lib/platform/sender";
 import { getFeishuUserName } from "@/lib/platform/adapters/feishu";
+import { extractFeishuInboundMessage } from "@/lib/platform/feishu-inbound";
 import { botT, getBotLocaleOrDefault, buildWelcomeText } from "@/lib/i18n/bot";
 import { createStrictServiceClient } from "@/lib/supabase/server";
 
@@ -281,73 +282,18 @@ export async function POST(
       senderName = await getFeishuUserName(agentId, senderId, chatId);
     }
 
-    let text = "";
-    let fileRef: string | null = null;
-    let fileMime: string | null = null;
+    const extracted = extractFeishuInboundMessage({
+      messageType: msgType,
+      content: msg.content,
+      messageId,
+    });
+    if (!extracted) {
+      return NextResponse.json({ ok: true });
+    }
 
-    if (msgType === "text") {
-      try {
-        const parsed = JSON.parse(msg.content || "{}");
-        text = parsed.text || "";
-      } catch {
-        text = msg.content || "";
-      }
-    } else if (msgType === "post") {
-      try {
-        const parsed = JSON.parse(msg.content || "{}");
-        // Received post: direct { content: [[...]] } or nested { zh_cn: { content: [[...]] } }
-        let rows: Array<Array<Record<string, string>>> | undefined;
-        if (Array.isArray(parsed.content)) {
-          rows = parsed.content;
-        } else {
-          const lang = parsed.zh_cn || parsed.en_us;
-          if (lang && Array.isArray(lang.content)) {
-            rows = lang.content;
-          }
-        }
-        if (rows) {
-          const texts: string[] = [];
-          let firstImageKey: string | null = null;
-          for (const row of rows) {
-            for (const el of row) {
-              if (el.tag === "text") texts.push(el.text || "");
-              else if (el.tag === "a") texts.push(el.text || el.href || "");
-              else if (el.tag === "img" && !firstImageKey) firstImageKey = el.image_key;
-            }
-          }
-          text = texts.join("").trim();
-          if (firstImageKey) {
-            fileRef = `${messageId}|${firstImageKey}|image`;
-            fileMime = "image/jpeg";
-          }
-        }
-      } catch {
-        /* skip */
-      }
-    } else if (msgType === "audio" || msgType === "file" || msgType === "image") {
-      try {
-        const parsed = JSON.parse(msg.content || "{}");
-        const key = parsed.file_key || parsed.image_key || null;
-        if (key) {
-          const resType = msgType === "image" ? "image" : "file";
-          fileRef = `${messageId}|${key}|${resType}`;
-        }
-        if (msgType === "file" && parsed.file_name) {
-          const fn = (parsed.file_name as string).toLowerCase();
-          if (fn.endsWith(".pdf")) fileMime = "application/pdf";
-          else if (fn.endsWith(".doc") || fn.endsWith(".docx")) fileMime = "application/msword";
-          else if (fn.endsWith(".xls") || fn.endsWith(".xlsx")) fileMime = "application/vnd.ms-excel";
-          else if (fn.endsWith(".png")) fileMime = "image/png";
-          else if (fn.endsWith(".jpg") || fn.endsWith(".jpeg")) fileMime = "image/jpeg";
-        }
-      } catch {
-        /* skip */
-      }
-      if (!fileMime) {
-        if (msgType === "audio") fileMime = "audio/opus";
-        else if (msgType === "image") fileMime = "image/jpeg";
-      }
-    } else {
+    const { text, fileRef, fileMime, fileName } = extracted;
+    if (!text && !fileRef) {
+      console.log(`[feishu-webhook:${agentId}] skip: empty ${msgType} message ${messageId}`);
       return NextResponse.json({ ok: true });
     }
 
@@ -360,6 +306,7 @@ export async function POST(
       text,
       fileRef,
       fileMime,
+      fileName,
       rawPayload: {
         update_id: messageId,
         message_extra: {
