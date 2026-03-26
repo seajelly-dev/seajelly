@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { AgentBindingDialog } from "@/components/agent-binding-dialog";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, RefreshCw, ChevronDown, Link2 } from "lucide-react";
 import { useT } from "@/lib/i18n";
@@ -59,10 +60,9 @@ export default function SkillsPage() {
   } | null>(null);
 
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
   const [bindDialogOpen, setBindDialogOpen] = useState(false);
   const [bindTarget, setBindTarget] = useState<Skill | null>(null);
-  const [boundAgentIds, setBoundAgentIds] = useState<string[]>([]);
-  const [bindSaving, setBindSaving] = useState(false);
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -80,12 +80,15 @@ export default function SkillsPage() {
   }, [t]);
 
   const fetchAgents = useCallback(async () => {
+    setAgentsLoading(true);
     try {
       const res = await fetch("/api/admin/agents");
       const data = await res.json();
       if (res.ok) setAgents(data.agents ?? []);
     } catch {
       /* non-critical */
+    } finally {
+      setAgentsLoading(false);
     }
   }, []);
 
@@ -191,51 +194,47 @@ export default function SkillsPage() {
   };
 
   // ── Bind Agents ──
-  const openBind = async (skill: Skill) => {
+  const openBind = (skill: Skill) => {
     setBindTarget(skill);
-    setBoundAgentIds([]);
     setBindDialogOpen(true);
-    try {
-      const res = await fetch(
-        `/api/admin/agents/skills?skill_id=${skill.id}`
-      );
-      const data = await res.json();
-      if (res.ok) setBoundAgentIds(data.agent_ids ?? []);
-    } catch {
-      /* non-critical */
-    }
   };
 
-  const toggleAgent = (agentId: string) => {
-    setBoundAgentIds((prev) =>
-      prev.includes(agentId)
-        ? prev.filter((id) => id !== agentId)
-        : [...prev, agentId]
-    );
+  const handleBindDialogOpenChange = (open: boolean) => {
+    setBindDialogOpen(open);
+    if (!open) setBindTarget(null);
   };
 
-  const handleBindSave = async () => {
-    if (!bindTarget) return;
-    setBindSaving(true);
-    try {
-      const res = await fetch("/api/admin/agents/skills", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          skill_id: bindTarget.id,
-          agent_ids: boundAgentIds,
-        }),
-      });
+  const loadBoundAgentIds = useCallback(
+    async (skillId: string) => {
+      const res = await fetch(`/api/admin/agents/skills?skill_id=${skillId}`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      toast.success(t("skills.bindUpdated"));
-      setBindDialogOpen(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("common.saving"));
-    } finally {
-      setBindSaving(false);
-    }
-  };
+      if (!res.ok) throw new Error(data.error || t("skills.loadFailed"));
+      return data.agent_ids ?? [];
+    },
+    [t]
+  );
+
+  const handleBindSave = useCallback(
+    async (skillId: string, agentIds: string[]) => {
+      try {
+        const res = await fetch("/api/admin/agents/skills", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            skill_id: skillId,
+            agent_ids: agentIds,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        toast.success(t("skills.bindUpdated"));
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t("common.saving"));
+        throw err;
+      }
+    },
+    [t]
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -525,54 +524,19 @@ export default function SkillsPage() {
         </CardContent>
       </Card>
 
-      {/* Bind Agents Dialog */}
-      <Dialog open={bindDialogOpen} onOpenChange={setBindDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {t("skills.bindAgents")} — {bindTarget?.name}
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-xs text-muted-foreground">
-            {t("skills.bindAgentsDesc")}
-          </p>
-          <div className="flex flex-col gap-2 py-4">
-            {agents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {t("skills.noAgentsAvailable")}
-              </p>
-            ) : (
-              agents.map((a) => {
-                const selected = boundAgentIds.includes(a.id);
-                return (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => toggleAgent(a.id)}
-                    className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors ${selected
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:bg-muted"
-                      }`}
-                  >
-                    <span className="font-medium">{a.name}</span>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {a.model}
-                    </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setBindDialogOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button onClick={handleBindSave} disabled={bindSaving}>
-              {bindSaving ? t("common.saving") : t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AgentBindingDialog
+        open={bindDialogOpen}
+        onOpenChange={handleBindDialogOpenChange}
+        targetId={bindTarget?.id ?? null}
+        targetName={bindTarget?.name}
+        title={t("skills.bindAgents")}
+        description={t("skills.bindAgentsDesc")}
+        noAgentsText={t("skills.noAgentsAvailable")}
+        agents={agents}
+        agentsLoading={agentsLoading}
+        loadSelectedAgentIds={loadBoundAgentIds}
+        onSave={handleBindSave}
+      />
 
       <ConfirmDialog
         open={!!deleteTarget}

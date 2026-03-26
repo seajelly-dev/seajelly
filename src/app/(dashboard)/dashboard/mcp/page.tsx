@@ -36,6 +36,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { AgentBindingDialog } from "@/components/agent-binding-dialog";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Zap, RefreshCw, Link2 } from "lucide-react";
 import { useT } from "@/lib/i18n";
@@ -65,10 +66,9 @@ export default function McpPage() {
   } | null>(null);
 
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
   const [bindDialogOpen, setBindDialogOpen] = useState(false);
   const [bindTarget, setBindTarget] = useState<McpServer | null>(null);
-  const [boundAgentIds, setBoundAgentIds] = useState<string[]>([]);
-  const [bindSaving, setBindSaving] = useState(false);
 
   const fetchServers = useCallback(async () => {
     try {
@@ -84,12 +84,15 @@ export default function McpPage() {
   }, [t]);
 
   const fetchAgents = useCallback(async () => {
+    setAgentsLoading(true);
     try {
       const res = await fetch("/api/admin/agents");
       const data = await res.json();
       if (res.ok) setAgents(data.agents ?? []);
     } catch {
       /* non-critical */
+    } finally {
+      setAgentsLoading(false);
     }
   }, []);
 
@@ -213,51 +216,47 @@ export default function McpPage() {
   };
 
   // ── Bind Agents ──
-  const openBind = async (server: McpServer) => {
+  const openBind = (server: McpServer) => {
     setBindTarget(server);
-    setBoundAgentIds([]);
     setBindDialogOpen(true);
-    try {
-      const res = await fetch(
-        `/api/admin/agents/mcps?mcp_server_id=${server.id}`
-      );
-      const data = await res.json();
-      if (res.ok) setBoundAgentIds(data.agent_ids ?? []);
-    } catch {
-      /* non-critical */
-    }
   };
 
-  const toggleAgent = (agentId: string) => {
-    setBoundAgentIds((prev) =>
-      prev.includes(agentId)
-        ? prev.filter((id) => id !== agentId)
-        : [...prev, agentId]
-    );
+  const handleBindDialogOpenChange = (open: boolean) => {
+    setBindDialogOpen(open);
+    if (!open) setBindTarget(null);
   };
 
-  const handleBindSave = async () => {
-    if (!bindTarget) return;
-    setBindSaving(true);
-    try {
-      const res = await fetch("/api/admin/agents/mcps", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mcp_server_id: bindTarget.id,
-          agent_ids: boundAgentIds,
-        }),
-      });
+  const loadBoundAgentIds = useCallback(
+    async (serverId: string) => {
+      const res = await fetch(`/api/admin/agents/mcps?mcp_server_id=${serverId}`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      toast.success(t("mcp.bindUpdated"));
-      setBindDialogOpen(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("common.saving"));
-    } finally {
-      setBindSaving(false);
-    }
-  };
+      if (!res.ok) throw new Error(data.error || t("mcp.loadFailed"));
+      return data.agent_ids ?? [];
+    },
+    [t]
+  );
+
+  const handleBindSave = useCallback(
+    async (serverId: string, agentIds: string[]) => {
+      try {
+        const res = await fetch("/api/admin/agents/mcps", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mcp_server_id: serverId,
+            agent_ids: agentIds,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        toast.success(t("mcp.bindUpdated"));
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t("common.saving"));
+        throw err;
+      }
+    },
+    [t]
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -450,54 +449,19 @@ export default function McpPage() {
         </CardContent>
       </Card>
 
-      {/* Bind Agents Dialog */}
-      <Dialog open={bindDialogOpen} onOpenChange={setBindDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {t("mcp.bindAgents")} — {bindTarget?.name}
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-xs text-muted-foreground">
-            {t("mcp.bindAgentsDesc")}
-          </p>
-          <div className="flex flex-col gap-2 py-4">
-            {agents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {t("mcp.noAgentsAvailable")}
-              </p>
-            ) : (
-              agents.map((a) => {
-                const selected = boundAgentIds.includes(a.id);
-                return (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => toggleAgent(a.id)}
-                    className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors ${selected
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:bg-muted"
-                      }`}
-                  >
-                    <span className="font-medium">{a.name}</span>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {a.model}
-                    </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setBindDialogOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button onClick={handleBindSave} disabled={bindSaving}>
-              {bindSaving ? t("common.saving") : t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AgentBindingDialog
+        open={bindDialogOpen}
+        onOpenChange={handleBindDialogOpenChange}
+        targetId={bindTarget?.id ?? null}
+        targetName={bindTarget?.name}
+        title={t("mcp.bindAgents")}
+        description={t("mcp.bindAgentsDesc")}
+        noAgentsText={t("mcp.noAgentsAvailable")}
+        agents={agents}
+        agentsLoading={agentsLoading}
+        loadSelectedAgentIds={loadBoundAgentIds}
+        onSave={handleBindSave}
+      />
 
       <ConfirmDialog
         open={!!deleteTarget}

@@ -11,6 +11,7 @@ const zh: TranslationKeys = {
     creating: "创建中...",
     processing: "处理中...",
     refresh: "刷新",
+    retry: "重试",
     actions: "操作",
     copy: "复制",
     name: "名称",
@@ -27,6 +28,15 @@ const zh: TranslationKeys = {
     prev: "上一页",
     next: "下一页",
     pageInfo: "第 {page} / {total} 页",
+  },
+
+  bindingDialog: {
+    loadingBindings: "正在载入当前绑定关系...",
+    loadingBindingsHint: "在确认哪些 Agent 已经绑定之前，列表会暂时保持只读。",
+    loadFailed: "当前绑定关系加载失败。为避免误保存，已暂时禁用编辑。",
+    selectionHint: "只有标记为“已绑定”的 Agent，保存后才会使用当前项。",
+    bound: "已绑定",
+    notBound: "未绑定",
   },
 
   setup: {

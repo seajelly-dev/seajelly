@@ -9,6 +9,7 @@ const en = {
     creating: "Creating...",
     processing: "Processing...",
     refresh: "Refresh",
+    retry: "Retry",
     actions: "Actions",
     copy: "Copy",
     name: "Name",
@@ -25,6 +26,18 @@ const en = {
     prev: "Previous",
     next: "Next",
     pageInfo: "Page {page} of {total}",
+  },
+
+  bindingDialog: {
+    loadingBindings: "Loading current bindings...",
+    loadingBindingsHint:
+      "The list stays read-only until we confirm which agents are already bound.",
+    loadFailed:
+      "Failed to load current bindings. Editing is temporarily disabled to avoid accidental overwrites.",
+    selectionHint:
+      "Only agents marked as “Bound” will use this item after you save.",
+    bound: "Bound",
+    notBound: "Not bound",
   },
 
   setup: {

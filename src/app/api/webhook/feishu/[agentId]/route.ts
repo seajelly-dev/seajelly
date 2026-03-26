@@ -17,22 +17,11 @@ interface FeishuWebhookBody {
   challenge?: string;
   encrypt?: string;
   token?: string;
-  open_id?: string;
-  schema?: string;
   header?: {
     token?: string;
     event_type?: string;
   };
-  action?: {
-    value?: Record<string, string>;
-  };
   event?: {
-    action?: {
-      value?: Record<string, string>;
-    };
-    operator?: {
-      open_id?: string;
-    };
     sender?: {
       sender_id?: {
         open_id?: string;
@@ -106,42 +95,6 @@ function buildFeishuActionCard(text: string) {
   };
 }
 
-function buildFeishuActionResponse(
-  text: string,
-  options?: {
-    legacy?: boolean;
-    toastType?: "success" | "info" | "warning" | "error";
-  },
-) {
-  const card = buildFeishuActionCard(text);
-  if (options?.legacy) {
-    return card;
-  }
-
-  return {
-    toast: {
-      type: options?.toastType ?? "info",
-      content: text,
-    },
-    card: {
-      type: "raw",
-      data: card,
-    },
-  };
-}
-
-function buildFeishuSdkRequestData(
-  request: Request,
-  payload: Record<string, unknown>,
-) {
-  return Object.assign(
-    Object.create({
-      headers: Object.fromEntries(request.headers.entries()),
-    }),
-    payload,
-  );
-}
-
 async function processFeishuApprovalAction(params: {
   agentId: string;
   actionStr: string;
@@ -167,7 +120,6 @@ async function processFeishuApprovalAction(params: {
   if (!result) {
     return {
       responseText: botT(locale, "alreadyProcessedDot"),
-      toastType: "info" as const,
     };
   }
 
@@ -195,7 +147,6 @@ async function processFeishuApprovalAction(params: {
     responseText: act === "approve"
       ? botT(locale, "approved", { name: result.name })
       : botT(locale, "rejected", { name: result.name }),
-    toastType: act === "approve" ? "success" as const : "warning" as const,
   };
 }
 
@@ -234,7 +185,6 @@ export async function POST(
       body && typeof body === "object" && typeof (body as { encrypt?: unknown }).encrypt === "string"
         ? (body as { encrypt: string }).encrypt
         : null;
-    const hasEncryptEnvelope = !!encryptedPayload;
 
     if (encryptedPayload) {
       if (!encryptKey) {
@@ -261,11 +211,6 @@ export async function POST(
     }
 
     if (isLegacyCardCallback) {
-      console.info("Feishu legacy card callback received", {
-        agentId,
-        hasEncryptEnvelope,
-        eventType: callbackEventType,
-      });
       const handler = new CardActionHandler(
         {
           encryptKey: encryptKey ?? undefined,
@@ -296,10 +241,9 @@ export async function POST(
         },
       );
 
-      const response = await handler.invoke(buildFeishuSdkRequestData(request, rawEnvelope));
-      console.info("Feishu legacy card callback response", {
-        agentId,
-        hasResponse: !!response,
+      const response = await handler.invoke({
+        ...rawEnvelope,
+        headers: Object.fromEntries(request.headers.entries()),
       });
       return NextResponse.json(response ?? {});
     }
@@ -308,52 +252,10 @@ export async function POST(
     if (!incomingToken.token || !safeSecretEquals(incomingToken.token, expectedToken)) {
       console.warn("Feishu webhook rejected: verification token mismatch", {
         agentId,
-        hasEncryptEnvelope,
         eventType: callbackEventType,
-        schema: body.schema ?? null,
         tokenSource: incomingToken.source,
-        hasBodyToken: typeof body.token === "string",
-        hasHeaderToken: typeof body.header?.token === "string",
       });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    // Card action callback (approval buttons)
-    const isModernCardCallback = callbackEventType === "card.action.trigger";
-    if (isModernCardCallback) {
-      console.info("Feishu modern card callback received", {
-        agentId,
-        hasEncryptEnvelope,
-        eventType: callbackEventType,
-      });
-      const modernBody = body as {
-        action?: { value?: Record<string, string> };
-        event?: {
-          action?: { value?: Record<string, string> };
-          operator?: { open_id?: string };
-        };
-        open_id?: string;
-      };
-      const action = modernBody.action || modernBody.event?.action;
-      const value = action?.value as Record<string, string> | undefined;
-      const outcome = await processFeishuApprovalAction({
-        agentId,
-        actionStr: value?.action || "",
-        callerUid: modernBody.open_id || modernBody.event?.operator?.open_id || "",
-      });
-
-      if (outcome) {
-        console.info("Feishu modern card callback response", {
-          agentId,
-          toastType: outcome.toastType,
-        });
-        return NextResponse.json(
-          buildFeishuActionResponse(outcome.responseText, {
-            toastType: outcome.toastType,
-          }),
-        );
-      }
-      return NextResponse.json({});
     }
 
     const header = body.header;
