@@ -12,6 +12,42 @@ import { createStrictServiceClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+interface FeishuWebhookBody {
+  type?: string;
+  challenge?: string;
+  encrypt?: string;
+  token?: string;
+  open_id?: string;
+  schema?: string;
+  header?: {
+    token?: string;
+    event_type?: string;
+  };
+  action?: {
+    value?: Record<string, string>;
+  };
+  event?: {
+    action?: {
+      value?: Record<string, string>;
+    };
+    operator?: {
+      open_id?: string;
+    };
+    sender?: {
+      sender_id?: {
+        open_id?: string;
+      };
+    };
+    message?: {
+      chat_id?: string;
+      message_type?: string;
+      message_id?: string;
+      content?: string;
+      chat_type?: string;
+    };
+  };
+}
+
 function getSupabase() {
   return createStrictServiceClient();
 }
@@ -191,7 +227,7 @@ export async function POST(
     const { agentId } = await params;
     const rawBody = await request.text();
     const rawEnvelope = rawBody ? JSON.parse(rawBody) as Record<string, unknown> : {};
-    let body = rawEnvelope;
+    let body: FeishuWebhookBody = rawEnvelope as FeishuWebhookBody;
     const { encryptKey, verificationToken } = await getFeishuCredentials(agentId);
     const expectedToken = normalizeSecret(verificationToken);
     const encryptedPayload =
@@ -204,7 +240,7 @@ export async function POST(
       if (!encryptKey) {
         return NextResponse.json({ error: "No encrypt key configured" }, { status: 500 });
       }
-      body = JSON.parse(decryptFeishuEvent(encryptedPayload, encryptKey));
+      body = JSON.parse(decryptFeishuEvent(encryptedPayload, encryptKey)) as FeishuWebhookBody;
     }
 
     if (!expectedToken) {
@@ -217,13 +253,8 @@ export async function POST(
       );
     }
 
-    const callbackEventType =
-      body && typeof body === "object" && typeof (body as { header?: { event_type?: unknown } }).header?.event_type === "string"
-        ? (body as { header: { event_type: string } }).header.event_type
-        : null;
-    const isLegacyCardCallback =
-      (body && typeof body === "object" && (body as { type?: unknown }).type === "interactive")
-      || callbackEventType === "card.action.trigger_v1";
+    const callbackEventType = body.header?.event_type ?? null;
+    const isLegacyCardCallback = body.type === "interactive" || callbackEventType === "card.action.trigger_v1";
 
     if (body.challenge) {
       return NextResponse.json({ challenge: body.challenge });
@@ -241,15 +272,15 @@ export async function POST(
           verificationToken: expectedToken,
         },
         async (data: Record<string, unknown>) => {
-          const openId =
-            typeof data.open_id === "string"
-              ? data.open_id
-              : typeof (data.operator as { open_id?: unknown } | undefined)?.open_id === "string"
-                ? ((data.operator as { open_id: string }).open_id)
-                : "";
+          const legacyData = data as {
+            open_id?: string;
+            operator?: { open_id?: string };
+            action?: { value?: Record<string, unknown> };
+          };
+          const openId = legacyData.open_id || legacyData.operator?.open_id || "";
           const actionStr =
-            typeof (data.action as { value?: Record<string, unknown> } | undefined)?.value?.action === "string"
-              ? String((data.action as { value: Record<string, unknown> }).value.action)
+            typeof legacyData.action?.value?.action === "string"
+              ? String(legacyData.action.value.action)
               : "";
           const outcome = await processFeishuApprovalAction({
             agentId,
@@ -279,17 +310,10 @@ export async function POST(
         agentId,
         hasEncryptEnvelope,
         eventType: callbackEventType,
-        schema:
-          body && typeof body === "object" && typeof (body as { schema?: unknown }).schema === "string"
-            ? (body as { schema: string }).schema
-            : null,
+        schema: body.schema ?? null,
         tokenSource: incomingToken.source,
-        hasBodyToken:
-          !!body && typeof body === "object" && typeof (body as { token?: unknown }).token === "string",
-        hasHeaderToken:
-          !!body
-          && typeof body === "object"
-          && typeof (body as { header?: { token?: unknown } }).header?.token === "string",
+        hasBodyToken: typeof body.token === "string",
+        hasHeaderToken: typeof body.header?.token === "string",
       });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -302,12 +326,20 @@ export async function POST(
         hasEncryptEnvelope,
         eventType: callbackEventType,
       });
-      const action = body.action || body.event?.action;
+      const modernBody = body as {
+        action?: { value?: Record<string, string> };
+        event?: {
+          action?: { value?: Record<string, string> };
+          operator?: { open_id?: string };
+        };
+        open_id?: string;
+      };
+      const action = modernBody.action || modernBody.event?.action;
       const value = action?.value as Record<string, string> | undefined;
       const outcome = await processFeishuApprovalAction({
         agentId,
         actionStr: value?.action || "",
-        callerUid: body.open_id || body.event?.operator?.open_id || "",
+        callerUid: modernBody.open_id || modernBody.event?.operator?.open_id || "",
       });
 
       if (outcome) {
@@ -336,12 +368,16 @@ export async function POST(
     const chatId = msg.chat_id;
     const senderId = event.sender?.sender_id?.open_id || null;
     const msgType = msg.message_type;
+    const messageId = msg.message_id;
+
+    if (!chatId || !msgType || !messageId) {
+      return NextResponse.json({ ok: true });
+    }
 
     let senderName: string | null = null;
     if (senderId) {
       senderName = await getFeishuUserName(agentId, senderId, chatId);
     }
-    const messageId = msg.message_id;
 
     let text = "";
     let fileRef: string | null = null;
@@ -349,14 +385,14 @@ export async function POST(
 
     if (msgType === "text") {
       try {
-        const parsed = JSON.parse(msg.content);
+        const parsed = JSON.parse(msg.content || "{}");
         text = parsed.text || "";
       } catch {
         text = msg.content || "";
       }
     } else if (msgType === "post") {
       try {
-        const parsed = JSON.parse(msg.content);
+        const parsed = JSON.parse(msg.content || "{}");
         // Received post: direct { content: [[...]] } or nested { zh_cn: { content: [[...]] } }
         let rows: Array<Array<Record<string, string>>> | undefined;
         if (Array.isArray(parsed.content)) {
@@ -388,7 +424,7 @@ export async function POST(
       }
     } else if (msgType === "audio" || msgType === "file" || msgType === "image") {
       try {
-        const parsed = JSON.parse(msg.content);
+        const parsed = JSON.parse(msg.content || "{}");
         const key = parsed.file_key || parsed.image_key || null;
         if (key) {
           const resType = msgType === "image" ? "image" : "file";
