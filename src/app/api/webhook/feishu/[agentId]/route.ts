@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
+import { CardActionHandler } from "@larksuiteoapi/node-sdk";
 import { decrypt } from "@/lib/crypto/encrypt";
 import { handleInboundMessage } from "@/lib/platform/webhook-handler";
 import { processChannelApproval, getAgentLocale } from "@/lib/platform/approval-core";
@@ -62,26 +63,6 @@ function extractFeishuVerificationToken(payload: unknown) {
   return { source: null, token: null };
 }
 
-function verifyLegacyCardSignature(params: {
-  rawBody: string;
-  signature: string | null;
-  timestamp: string | null;
-  nonce: string | null;
-  verificationToken: string;
-}) {
-  const { rawBody, signature, timestamp, nonce, verificationToken } = params;
-  if (!signature || !timestamp || !nonce) {
-    return false;
-  }
-
-  const expected = crypto
-    .createHash("sha1")
-    .update(`${timestamp}${nonce}${verificationToken}${rawBody}`)
-    .digest("hex");
-
-  return safeSecretEquals(signature, expected);
-}
-
 function buildFeishuActionCard(text: string) {
   return {
     config: { wide_screen_mode: true },
@@ -113,6 +94,75 @@ function buildFeishuActionResponse(
   };
 }
 
+function buildFeishuSdkRequestData(
+  request: Request,
+  payload: Record<string, unknown>,
+) {
+  return Object.assign(
+    Object.create({
+      headers: Object.fromEntries(request.headers.entries()),
+    }),
+    payload,
+  );
+}
+
+async function processFeishuApprovalAction(params: {
+  agentId: string;
+  actionStr: string;
+  callerUid: string;
+}) {
+  const { agentId, actionStr, callerUid } = params;
+  const match = actionStr.match(/^(approve|reject):(.+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, act, channelId] = match;
+  const result = await processChannelApproval({
+    action: act as "approve" | "reject",
+    channelId,
+    callerUid,
+    fallbackAgentId: agentId,
+  });
+
+  const rawLocale = await getAgentLocale(agentId);
+  const locale = getBotLocaleOrDefault(rawLocale);
+
+  if (!result) {
+    return {
+      responseText: botT(locale, "alreadyProcessedDot"),
+      toastType: "info" as const,
+    };
+  }
+
+  if (result.targetUid) {
+    try {
+      const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
+      await targetSender.sendText(
+        result.targetUid,
+        act === "approve"
+          ? botT(locale, "accessApproved")
+          : botT(locale, "accessRejected"),
+      );
+      if (act === "approve") {
+        const { data: aRow } = await getSupabase().from("agents").select("name").eq("id", result.agentId).single();
+        const agentName = (aRow as { name?: string } | null)?.name || "Agent";
+        const welcomeText = buildWelcomeText(locale, agentName, result.targetPlatform);
+        await targetSender.sendMarkdown(result.targetUid, welcomeText);
+      }
+    } catch {
+      /* target unreachable */
+    }
+  }
+
+  return {
+    responseText: act === "approve"
+      ? botT(locale, "approved", { name: result.name })
+      : botT(locale, "rejected", { name: result.name }),
+    toastType: act === "approve" ? "success" as const : "warning" as const,
+  };
+}
+
 async function getFeishuCredentials(agentId: string) {
   const supabase = getSupabase();
   const { data } = await supabase
@@ -140,7 +190,8 @@ export async function POST(
   try {
     const { agentId } = await params;
     const rawBody = await request.text();
-    let body = rawBody ? JSON.parse(rawBody) : {};
+    const rawEnvelope = rawBody ? JSON.parse(rawBody) as Record<string, unknown> : {};
+    let body = rawEnvelope;
     const { encryptKey, verificationToken } = await getFeishuCredentials(agentId);
     const expectedToken = normalizeSecret(verificationToken);
     const encryptedPayload =
@@ -166,7 +217,6 @@ export async function POST(
       );
     }
 
-    const incomingToken = extractFeishuVerificationToken(body);
     const callbackEventType =
       body && typeof body === "object" && typeof (body as { header?: { event_type?: unknown } }).header?.event_type === "string"
         ? (body as { header: { event_type: string } }).header.event_type
@@ -174,18 +224,57 @@ export async function POST(
     const isLegacyCardCallback =
       (body && typeof body === "object" && (body as { type?: unknown }).type === "interactive")
       || callbackEventType === "card.action.trigger_v1";
-    const legacySignatureValid =
-      isLegacyCardCallback
-      && !incomingToken.token
-      && verifyLegacyCardSignature({
-        rawBody,
-        signature: request.headers.get("x-lark-signature"),
-        timestamp: request.headers.get("x-lark-request-timestamp"),
-        nonce: request.headers.get("x-lark-request-nonce"),
-        verificationToken: expectedToken,
-      });
 
-    if ((!incomingToken.token || !safeSecretEquals(incomingToken.token, expectedToken)) && !legacySignatureValid) {
+    if (body.challenge) {
+      return NextResponse.json({ challenge: body.challenge });
+    }
+
+    if (isLegacyCardCallback) {
+      console.info("Feishu legacy card callback received", {
+        agentId,
+        hasEncryptEnvelope,
+        eventType: callbackEventType,
+      });
+      const handler = new CardActionHandler(
+        {
+          encryptKey: encryptKey ?? undefined,
+          verificationToken: expectedToken,
+        },
+        async (data: Record<string, unknown>) => {
+          const openId =
+            typeof data.open_id === "string"
+              ? data.open_id
+              : typeof (data.operator as { open_id?: unknown } | undefined)?.open_id === "string"
+                ? ((data.operator as { open_id: string }).open_id)
+                : "";
+          const actionStr =
+            typeof (data.action as { value?: Record<string, unknown> } | undefined)?.value?.action === "string"
+              ? String((data.action as { value: Record<string, unknown> }).value.action)
+              : "";
+          const outcome = await processFeishuApprovalAction({
+            agentId,
+            actionStr,
+            callerUid: openId,
+          });
+
+          if (!outcome) {
+            return {};
+          }
+
+          return buildFeishuActionCard(outcome.responseText);
+        },
+      );
+
+      const response = await handler.invoke(buildFeishuSdkRequestData(request, rawEnvelope));
+      console.info("Feishu legacy card callback response", {
+        agentId,
+        hasResponse: !!response,
+      });
+      return NextResponse.json(response ?? {});
+    }
+
+    const incomingToken = extractFeishuVerificationToken(body);
+    if (!incomingToken.token || !safeSecretEquals(incomingToken.token, expectedToken)) {
       console.warn("Feishu webhook rejected: verification token mismatch", {
         agentId,
         hasEncryptEnvelope,
@@ -201,71 +290,34 @@ export async function POST(
           !!body
           && typeof body === "object"
           && typeof (body as { header?: { token?: unknown } }).header?.token === "string",
-        legacySignaturePresent: !!request.headers.get("x-lark-signature"),
-        legacySignatureValid,
       });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    if (body.challenge) {
-      return NextResponse.json({ challenge: body.challenge });
-    }
-
     // Card action callback (approval buttons)
     const isModernCardCallback = callbackEventType === "card.action.trigger";
-    if (isLegacyCardCallback || isModernCardCallback) {
+    if (isModernCardCallback) {
+      console.info("Feishu modern card callback received", {
+        agentId,
+        hasEncryptEnvelope,
+        eventType: callbackEventType,
+      });
       const action = body.action || body.event?.action;
       const value = action?.value as Record<string, string> | undefined;
-      const actionStr = value?.action || "";
-      const match = actionStr.match(/^(approve|reject):(.+)$/);
+      const outcome = await processFeishuApprovalAction({
+        agentId,
+        actionStr: value?.action || "",
+        callerUid: body.open_id || body.event?.operator?.open_id || "",
+      });
 
-      if (match) {
-        const [, act, channelId] = match;
-        const openId = body.open_id || body.event?.operator?.open_id || "";
-        const result = await processChannelApproval({
-          action: act as "approve" | "reject",
-          channelId,
-          callerUid: openId,
-          fallbackAgentId: agentId,
+      if (outcome) {
+        console.info("Feishu modern card callback response", {
+          agentId,
+          toastType: outcome.toastType,
         });
-
-        const rawLocale = await getAgentLocale(agentId);
-        const locale = getBotLocaleOrDefault(rawLocale);
-
-        if (!result) {
-          return NextResponse.json(
-            buildFeishuActionResponse(botT(locale, "alreadyProcessedDot"), {
-              legacy: isLegacyCardCallback,
-              toastType: "info",
-            }),
-          );
-        }
-
-        if (result.targetUid) {
-          try {
-            const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
-            await targetSender.sendText(
-              result.targetUid,
-              act === "approve"
-                ? botT(locale, "accessApproved")
-                : botT(locale, "accessRejected"),
-            );
-            if (act === "approve") {
-              const { data: aRow } = await getSupabase().from("agents").select("name").eq("id", result.agentId).single();
-              const agentName = (aRow as { name?: string } | null)?.name || "Agent";
-              const welcomeText = buildWelcomeText(locale, agentName, result.targetPlatform);
-              await targetSender.sendMarkdown(result.targetUid, welcomeText);
-            }
-          } catch { /* target unreachable */ }
-        }
-
-        const label = act === "approve"
-          ? botT(locale, "approved", { name: result.name })
-          : botT(locale, "rejected", { name: result.name });
         return NextResponse.json(
-          buildFeishuActionResponse(label, {
-            legacy: isLegacyCardCallback,
-            toastType: act === "approve" ? "success" : "warning",
+          buildFeishuActionResponse(outcome.responseText, {
+            toastType: outcome.toastType,
           }),
         );
       }
