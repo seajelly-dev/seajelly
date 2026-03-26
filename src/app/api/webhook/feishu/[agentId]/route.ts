@@ -62,6 +62,57 @@ function extractFeishuVerificationToken(payload: unknown) {
   return { source: null, token: null };
 }
 
+function verifyLegacyCardSignature(params: {
+  rawBody: string;
+  signature: string | null;
+  timestamp: string | null;
+  nonce: string | null;
+  verificationToken: string;
+}) {
+  const { rawBody, signature, timestamp, nonce, verificationToken } = params;
+  if (!signature || !timestamp || !nonce) {
+    return false;
+  }
+
+  const expected = crypto
+    .createHash("sha1")
+    .update(`${timestamp}${nonce}${verificationToken}${rawBody}`)
+    .digest("hex");
+
+  return safeSecretEquals(signature, expected);
+}
+
+function buildFeishuActionCard(text: string) {
+  return {
+    config: { wide_screen_mode: true },
+    elements: [{ tag: "div", text: { tag: "plain_text", content: text } }],
+  };
+}
+
+function buildFeishuActionResponse(
+  text: string,
+  options?: {
+    legacy?: boolean;
+    toastType?: "success" | "info" | "warning" | "error";
+  },
+) {
+  const card = buildFeishuActionCard(text);
+  if (options?.legacy) {
+    return card;
+  }
+
+  return {
+    toast: {
+      type: options?.toastType ?? "info",
+      content: text,
+    },
+    card: {
+      type: "raw",
+      data: card,
+    },
+  };
+}
+
 async function getFeishuCredentials(agentId: string) {
   const supabase = getSupabase();
   const { data } = await supabase
@@ -88,7 +139,8 @@ export async function POST(
 ) {
   try {
     const { agentId } = await params;
-    let body = await request.json();
+    const rawBody = await request.text();
+    let body = rawBody ? JSON.parse(rawBody) : {};
     const { encryptKey, verificationToken } = await getFeishuCredentials(agentId);
     const expectedToken = normalizeSecret(verificationToken);
     const encryptedPayload =
@@ -115,10 +167,29 @@ export async function POST(
     }
 
     const incomingToken = extractFeishuVerificationToken(body);
-    if (!incomingToken.token || !safeSecretEquals(incomingToken.token, expectedToken)) {
+    const callbackEventType =
+      body && typeof body === "object" && typeof (body as { header?: { event_type?: unknown } }).header?.event_type === "string"
+        ? (body as { header: { event_type: string } }).header.event_type
+        : null;
+    const isLegacyCardCallback =
+      (body && typeof body === "object" && (body as { type?: unknown }).type === "interactive")
+      || callbackEventType === "card.action.trigger_v1";
+    const legacySignatureValid =
+      isLegacyCardCallback
+      && !incomingToken.token
+      && verifyLegacyCardSignature({
+        rawBody,
+        signature: request.headers.get("x-lark-signature"),
+        timestamp: request.headers.get("x-lark-request-timestamp"),
+        nonce: request.headers.get("x-lark-request-nonce"),
+        verificationToken: expectedToken,
+      });
+
+    if ((!incomingToken.token || !safeSecretEquals(incomingToken.token, expectedToken)) && !legacySignatureValid) {
       console.warn("Feishu webhook rejected: verification token mismatch", {
         agentId,
         hasEncryptEnvelope,
+        eventType: callbackEventType,
         schema:
           body && typeof body === "object" && typeof (body as { schema?: unknown }).schema === "string"
             ? (body as { schema: string }).schema
@@ -130,6 +201,8 @@ export async function POST(
           !!body
           && typeof body === "object"
           && typeof (body as { header?: { token?: unknown } }).header?.token === "string",
+        legacySignaturePresent: !!request.headers.get("x-lark-signature"),
+        legacySignatureValid,
       });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -139,7 +212,8 @@ export async function POST(
     }
 
     // Card action callback (approval buttons)
-    if (body.type === "interactive" || body.header?.event_type === "card.action.trigger") {
+    const isModernCardCallback = callbackEventType === "card.action.trigger";
+    if (isLegacyCardCallback || isModernCardCallback) {
       const action = body.action || body.event?.action;
       const value = action?.value as Record<string, string> | undefined;
       const actionStr = value?.action || "";
@@ -159,10 +233,12 @@ export async function POST(
         const locale = getBotLocaleOrDefault(rawLocale);
 
         if (!result) {
-          return NextResponse.json({
-            config: { wide_screen_mode: true },
-            elements: [{ tag: "div", text: { tag: "plain_text", content: botT(locale, "alreadyProcessedDot") } }],
-          });
+          return NextResponse.json(
+            buildFeishuActionResponse(botT(locale, "alreadyProcessedDot"), {
+              legacy: isLegacyCardCallback,
+              toastType: "info",
+            }),
+          );
         }
 
         if (result.targetUid) {
@@ -186,10 +262,12 @@ export async function POST(
         const label = act === "approve"
           ? botT(locale, "approved", { name: result.name })
           : botT(locale, "rejected", { name: result.name });
-        return NextResponse.json({
-          config: { wide_screen_mode: true },
-          elements: [{ tag: "div", text: { tag: "plain_text", content: label } }],
-        });
+        return NextResponse.json(
+          buildFeishuActionResponse(label, {
+            legacy: isLegacyCardCallback,
+            toastType: act === "approve" ? "success" : "warning",
+          }),
+        );
       }
       return NextResponse.json({});
     }
