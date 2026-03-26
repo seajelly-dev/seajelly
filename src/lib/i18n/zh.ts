@@ -423,6 +423,8 @@ const zh: TranslationKeys = {
     credentialKeepHint: "留空则保持现有值",
     generateToken: "一键生成",
     generatedCredential: "已生成新的 Token",
+    generatedCredentialCopied: "已生成新的 Token，并复制到剪贴板",
+    generatedCredentialCopyFailed: "已生成新的 Token，但复制到剪贴板失败",
     channelsTitle: "渠道管理",
     channelsDesc: "为此 Agent 接入 IM 平台。",
     toolsTitle: "工具配置",

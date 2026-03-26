@@ -421,6 +421,8 @@ const en = {
     credentialKeepHint: "Leave empty to keep current",
     generateToken: "Generate",
     generatedCredential: "Generated a new token",
+    generatedCredentialCopied: "Generated a new token and copied it to the clipboard",
+    generatedCredentialCopyFailed: "Generated a new token, but copying it to the clipboard failed",
     channelsTitle: "Channels",
     channelsDesc: "Connect IM platforms to this agent.",
     toolsTitle: "Tools",

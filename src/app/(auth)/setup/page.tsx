@@ -291,12 +291,18 @@ You have persistent memory across conversations. Use it wisely:
     return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
   };
 
-  const fillGeneratedCredential = (fieldName: string) => {
+  const fillGeneratedCredential = async (fieldName: string) => {
+    const generated = generateOpaqueToken();
     setPlatformCreds((current) => ({
       ...current,
-      [fieldName]: generateOpaqueToken(),
+      [fieldName]: generated,
     }));
-    toast.success(t("agents.generatedCredential"));
+    try {
+      await navigator.clipboard.writeText(generated);
+      toast.success(t("agents.generatedCredentialCopied"));
+    } catch {
+      toast.info(t("agents.generatedCredentialCopyFailed"));
+    }
   };
 
   const getPlatformFieldGuide = (platform: SetupPlatform, fieldName: string) => {
@@ -1071,7 +1077,7 @@ You have persistent memory across conversations. Use it wisely:
                               variant="outline"
                               size="sm"
                               className="shrink-0"
-                              onClick={() => fillGeneratedCredential(field.name)}
+                              onClick={() => void fillGeneratedCredential(field.name)}
                             >
                               {t("agents.generateToken")}
                             </Button>

@@ -586,7 +586,7 @@ export default function AgentsPage() {
     return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
   };
 
-  const fillGeneratedCredential = (platform: PlatformKey, fieldName: string) => {
+  const fillGeneratedCredential = async (platform: PlatformKey, fieldName: string) => {
     const generated = generateOpaqueToken();
     setForm((current) => ({
       ...current,
@@ -598,7 +598,12 @@ export default function AgentsPage() {
         },
       },
     }));
-    toast.success(t("agents.generatedCredential"));
+    try {
+      await navigator.clipboard.writeText(generated);
+      toast.success(t("agents.generatedCredentialCopied"));
+    } catch {
+      toast.info(t("agents.generatedCredentialCopyFailed"));
+    }
   };
 
   const getFieldGuideKey = (platform: PlatformKey, fieldName: string) => {
@@ -773,7 +778,7 @@ export default function AgentsPage() {
                           variant="outline"
                           size="sm"
                           className="shrink-0"
-                          onClick={() => fillGeneratedCredential(channelExpanded, field.name)}
+                          onClick={() => void fillGeneratedCredential(channelExpanded, field.name)}
                         >
                           {t("agents.generateToken")}
                         </Button>
