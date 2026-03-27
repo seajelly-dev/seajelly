@@ -125,6 +125,20 @@ function isLegacyFeishuCardCallback(body: FeishuWebhookBody) {
   return !body.schema && typeof body.token === "string" && hasActionPayload;
 }
 
+function buildFeishuSdkRequestData(
+  request: Request,
+  payload: Record<string, unknown>,
+) {
+  // The Feishu SDK signs JSON.stringify(data), and its adapters keep headers on the prototype
+  // so they don't get serialized into the signed payload.
+  return Object.assign(
+    Object.create({
+      headers: Object.fromEntries(request.headers.entries()),
+    }),
+    payload,
+  );
+}
+
 function buildFeishuActionCard(text: string) {
   return {
     config: { wide_screen_mode: true },
@@ -278,10 +292,7 @@ export async function POST(
         },
       );
 
-      const response = await handler.invoke({
-        ...rawEnvelope,
-        headers: Object.fromEntries(request.headers.entries()),
-      });
+      const response = await handler.invoke(buildFeishuSdkRequestData(request, rawEnvelope));
       return NextResponse.json(response ?? {});
     }
 
