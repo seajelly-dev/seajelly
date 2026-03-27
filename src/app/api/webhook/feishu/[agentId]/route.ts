@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import crypto from "crypto";
 import { CardActionHandler } from "@larksuiteoapi/node-sdk";
 import { decrypt } from "@/lib/crypto/encrypt";
@@ -175,23 +175,25 @@ async function processFeishuApprovalAction(params: {
   }
 
   if (result.targetUid) {
-    try {
-      const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
-      await targetSender.sendText(
-        result.targetUid,
-        act === "approve"
-          ? botT(locale, "accessApproved")
-          : botT(locale, "accessRejected"),
-      );
-      if (act === "approve") {
-        const { data: aRow } = await getSupabase().from("agents").select("name").eq("id", result.agentId).single();
-        const agentName = (aRow as { name?: string } | null)?.name || "Agent";
-        const welcomeText = buildWelcomeText(locale, agentName, result.targetPlatform);
-        await targetSender.sendMarkdown(result.targetUid, welcomeText);
+    after(async () => {
+      try {
+        const targetSender = await getSenderForAgent(result.agentId, result.targetPlatform);
+        await targetSender.sendText(
+          result.targetUid,
+          act === "approve"
+            ? botT(locale, "accessApproved")
+            : botT(locale, "accessRejected"),
+        );
+        if (act === "approve") {
+          const { data: aRow } = await getSupabase().from("agents").select("name").eq("id", result.agentId).single();
+          const agentName = (aRow as { name?: string } | null)?.name || "Agent";
+          const welcomeText = buildWelcomeText(locale, agentName, result.targetPlatform);
+          await targetSender.sendMarkdown(result.targetUid, welcomeText);
+        }
+      } catch {
+        /* target unreachable */
       }
-    } catch {
-      /* target unreachable */
-    }
+    });
   }
 
   return {
