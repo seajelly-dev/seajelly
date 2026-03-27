@@ -18,11 +18,24 @@ interface FeishuWebhookBody {
   challenge?: string;
   encrypt?: string;
   token?: string;
+  open_id?: string;
+  schema?: string;
+  action?: {
+    value?: Record<string, unknown>;
+  };
   header?: {
     token?: string;
     event_type?: string;
   };
   event?: {
+    type?: string;
+    open_id?: string;
+    action?: {
+      value?: Record<string, unknown>;
+    };
+    operator?: {
+      open_id?: string;
+    };
     sender?: {
       sender_id?: {
         open_id?: string;
@@ -87,6 +100,29 @@ function extractFeishuVerificationToken(payload: unknown) {
   }
 
   return { source: null, token: null };
+}
+
+function hasFeishuActionValue(
+  action: { value?: Record<string, unknown> } | undefined,
+) {
+  return !!action?.value && Object.keys(action.value).length > 0;
+}
+
+function isLegacyFeishuCardCallback(body: FeishuWebhookBody) {
+  if (body.type === "interactive") {
+    return true;
+  }
+
+  if (body.header?.event_type === "card.action.trigger_v1") {
+    return true;
+  }
+
+  if (body.event?.type === "card.action.trigger" || body.event?.type === "card.action.trigger_v1") {
+    return true;
+  }
+
+  const hasActionPayload = hasFeishuActionValue(body.action) || hasFeishuActionValue(body.event?.action);
+  return !body.schema && typeof body.token === "string" && hasActionPayload;
 }
 
 function buildFeishuActionCard(text: string) {
@@ -204,8 +240,8 @@ export async function POST(
       );
     }
 
-    const callbackEventType = body.header?.event_type ?? null;
-    const isLegacyCardCallback = body.type === "interactive" || callbackEventType === "card.action.trigger_v1";
+    const callbackEventType = body.header?.event_type ?? body.event?.type ?? null;
+    const isLegacyCardCallback = isLegacyFeishuCardCallback(body);
 
     if (body.challenge) {
       return NextResponse.json({ challenge: body.challenge });
