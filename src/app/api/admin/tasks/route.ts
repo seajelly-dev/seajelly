@@ -1,15 +1,10 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { requireAdmin, createAdminClient, authErrorResponse } from "@/lib/supabase/server";
 import { unscheduleCronJob, listCronJobs } from "@/lib/supabase/management";
+import { getPgCronJobName } from "@/lib/agent/scheduled-jobs";
 
 const RECONCILE_COOLDOWN_MS = 60_000;
 let lastReconcileAt = 0;
-
-function getTaskJobName(taskConfig: unknown): string | null {
-  if (!taskConfig || typeof taskConfig !== "object") return null;
-  const raw = (taskConfig as Record<string, unknown>).job_name;
-  return typeof raw === "string" ? raw : null;
-}
 
 async function reconcileLocalStatus(
   db: Awaited<ReturnType<typeof createAdminClient>>
@@ -33,7 +28,7 @@ async function reconcileLocalStatus(
 
   const staleIds = localRows
     .filter((r) => {
-      const jobName = getTaskJobName(r.task_config);
+      const jobName = getPgCronJobName(r.task_config);
       return jobName ? !liveNames.has(jobName) : false;
     })
     .map((r) => r.id as string);
@@ -137,13 +132,14 @@ export async function DELETE(request: Request) {
   }
 
   const config = job.task_config as Record<string, unknown>;
-  const jobName = config?.job_name as string | undefined;
+  const displayJobName = config?.job_name as string | undefined;
+  const pgCronJobName = getPgCronJobName(config);
 
-  if (jobName) {
+  if (pgCronJobName) {
     try {
-      await unscheduleCronJob(jobName);
+      await unscheduleCronJob(pgCronJobName);
     } catch (e) {
-      console.warn(`Failed to unschedule pg_cron job "${jobName}":`, e);
+      console.warn(`Failed to unschedule pg_cron job "${pgCronJobName}":`, e);
     }
   }
 
@@ -153,5 +149,5 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: delErr.message }, { status: 500 });
   }
 
-  return NextResponse.json({ success: true, unscheduled: jobName ?? null });
+  return NextResponse.json({ success: true, unscheduled: displayJobName ?? pgCronJobName ?? null });
 }

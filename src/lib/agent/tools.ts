@@ -4,9 +4,15 @@ import { createClient } from "@supabase/supabase-js";
 import {
   scheduleCronJob,
   unscheduleCronJob,
-  listCronJobs,
   executeSQL,
 } from "@/lib/supabase/management";
+import {
+  buildScopedCronJobName,
+  disableOwnedLocalCronJobs,
+  findOwnedScheduledJobByName,
+  listScheduledJobsForScope,
+  type ScheduledJobScope,
+} from "@/lib/agent/scheduled-jobs";
 import {
   getE2BApiKey,
   runPythonCode,
@@ -65,39 +71,7 @@ interface ToolsOptions {
 
 export function createAgentTools({ agentId, channelId, isOwner, sender, platformChatId, platform, traceId }: ToolsOptions) {
   const supabase = getSupabase();
-
-  function getTaskJobName(taskConfig: unknown): string | null {
-    if (!taskConfig || typeof taskConfig !== "object") return null;
-    const raw = (taskConfig as Record<string, unknown>).job_name;
-    return typeof raw === "string" ? raw : null;
-  }
-
-  async function disableLocalCronJobs(jobName: string): Promise<{ updated: number; error?: string }> {
-    const { data: rows, error: listErr } = await supabase
-      .from("cron_jobs")
-      .select("id, task_config")
-      .eq("agent_id", agentId)
-      .eq("enabled", true);
-    if (listErr) {
-      return { updated: 0, error: listErr.message };
-    }
-
-    const ids = (rows ?? [])
-      .filter((r) => getTaskJobName(r.task_config) === jobName)
-      .map((r) => r.id as string);
-    if (ids.length === 0) {
-      return { updated: 0 };
-    }
-
-    const { error: updateErr } = await supabase
-      .from("cron_jobs")
-      .update({ enabled: false })
-      .in("id", ids);
-    if (updateErr) {
-      return { updated: 0, error: updateErr.message };
-    }
-    return { updated: ids.length };
-  }
+  const scheduledJobScope: ScheduledJobScope = { agentId, platformChatId, platform };
 
   function buildSoulTools(cid: string, ownerFlag: boolean) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -367,7 +341,24 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           .eq("agent_id", agentId)
           .eq("schedule", cron_expression)
           .eq("task_type", task_type)
-          .eq("enabled", true);
+          .eq("enabled", true)
+          .eq("task_config->>chat_id", platformChatId)
+          .eq("task_config->>platform", platform);
+
+        const sameName = await findOwnedScheduledJobByName(
+          supabase,
+          scheduledJobScope,
+          job_name
+        );
+        if (!sameName.success) {
+          return { success: false, error: sameName.error };
+        }
+        if (sameName.job) {
+          return {
+            success: false,
+            error: `A scheduled task named "${job_name}" already exists. Pick a different job_name or cancel the existing task first.`,
+          };
+        }
 
         if (existingJobs && existingJobs.length > 0) {
           const content = task_type === "reminder" ? message : prompt;
@@ -395,6 +386,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         }
 
         const chatId = platformChatId;
+        const pgCronJobName = buildScopedCronJobName(scheduledJobScope, job_name);
 
         const bodyObj: Record<string, unknown> = {
           task_type,
@@ -402,6 +394,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           chat_id: chatId,
           platform,
           job_name,
+          pg_cron_job_name: pgCronJobName,
         };
         if (task_type === "reminder") bodyObj.message = message;
         if (task_type === "agent_invoke") bodyObj.prompt = prompt;
@@ -411,12 +404,17 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
 
         const command = `SELECT net.http_post(url := '${appUrl}/api/worker/cron', headers := '{"Content-Type":"application/json","x-cron-secret":"${cronSecret}"}'::jsonb, body := '${bodyStr}'::jsonb)`;
 
-        const result = await scheduleCronJob(job_name, cron_expression, command);
+        const result = await scheduleCronJob(pgCronJobName, cron_expression, command);
         if (!result.success) {
           return { success: false, error: result.error };
         }
 
-        const taskConfig: Record<string, unknown> = { job_name, chat_id: chatId, platform };
+        const taskConfig: Record<string, unknown> = {
+          job_name,
+          pg_cron_job_name: pgCronJobName,
+          chat_id: chatId,
+          platform,
+        };
         if (message) taskConfig.message = message;
         if (prompt) taskConfig.prompt = prompt;
         if (once) taskConfig.once = true;
@@ -430,7 +428,7 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         if (insertErr) {
           // Avoid "pg_cron exists but local row missing" drift.
           try {
-            await unscheduleCronJob(job_name);
+            await unscheduleCronJob(pgCronJobName);
           } catch {
             // best effort
           }
@@ -448,13 +446,13 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
 
     list_scheduled_jobs: tool({
       description:
-        "List all scheduled cron jobs (reminders, tasks, etc). " +
+        "List scheduled cron jobs owned by the current chat/user only (reminders, tasks, etc). " +
         "Use when the user asks 'what reminders do I have' or 'show my scheduled tasks'.",
       inputSchema: z.object({}),
       execute: async () => {
-        const result = await listCronJobs();
+        const result = await listScheduledJobsForScope(supabase, scheduledJobScope);
         if (!result.success) return { success: false, error: result.error };
-        return { success: true, jobs: result.data };
+        return { success: true, jobs: result.jobs };
       },
     }),
 
@@ -466,11 +464,23 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
         job_name: z.string().describe("The name of the cron job to cancel"),
       }),
       execute: async ({ job_name }: { job_name: string }) => {
+        const owned = await findOwnedScheduledJobByName(
+          supabase,
+          scheduledJobScope,
+          job_name
+        );
+        if (!owned.success) {
+          return { success: false, error: owned.error };
+        }
+        if (!owned.job) {
+          return { success: false, error: `Job "${job_name}" not found or already cancelled` };
+        }
+
         const warnings: string[] = [];
         let pgSucceeded = true;
 
         try {
-          const pgResult = await unscheduleCronJob(job_name);
+          const pgResult = await unscheduleCronJob(owned.job.pgCronJobName);
           if (!pgResult.success) {
             pgSucceeded = false;
             warnings.push(`pg_cron: ${pgResult.error}`);
@@ -480,7 +490,11 @@ export function createAgentTools({ agentId, channelId, isOwner, sender, platform
           warnings.push(`pg_cron: ${e instanceof Error ? e.message : "unknown error"}`);
         }
 
-        const local = await disableLocalCronJobs(job_name);
+        const local = await disableOwnedLocalCronJobs(
+          supabase,
+          scheduledJobScope,
+          job_name
+        );
         if (local.error) warnings.push(`db: ${local.error}`);
         const dbUpdated = local.updated > 0;
 

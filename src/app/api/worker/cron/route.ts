@@ -3,6 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 import { getSenderForAgent } from "@/lib/platform/sender";
 import { runAgentLoop } from "@/lib/agent/loop";
 import { unscheduleCronJob } from "@/lib/supabase/management";
+import {
+  disableOwnedLocalCronJobs,
+  type ScheduledJobScope,
+} from "@/lib/agent/scheduled-jobs";
 import type { AgentEvent } from "@/types/database";
 
 export const maxDuration = 60;
@@ -13,44 +17,6 @@ function getSupabase() {
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
-}
-
-function getTaskJobName(taskConfig: unknown): string | null {
-  if (!taskConfig || typeof taskConfig !== "object") return null;
-  const raw = (taskConfig as Record<string, unknown>).job_name;
-  return typeof raw === "string" ? raw : null;
-}
-
-async function disableLocalCronJobs(agentId: string, jobName: string): Promise<number> {
-  const supabase = getSupabase();
-  const { data: rows, error: listErr } = await supabase
-    .from("cron_jobs")
-    .select("id, task_config")
-    .eq("agent_id", agentId)
-    .eq("enabled", true);
-
-  if (listErr) {
-    console.warn("Once cleanup local-list failed:", listErr.message);
-    return 0;
-  }
-
-  const ids = (rows ?? [])
-    .filter((r) => getTaskJobName(r.task_config) === jobName)
-    .map((r) => r.id as string);
-
-  if (ids.length === 0) return 0;
-
-  const { error: updateErr } = await supabase
-    .from("cron_jobs")
-    .update({ enabled: false, last_run: new Date().toISOString() })
-    .in("id", ids);
-
-  if (updateErr) {
-    console.warn("Once cleanup local-update failed:", updateErr.message);
-    return 0;
-  }
-
-  return ids.length;
 }
 
 export async function POST(request: Request) {
@@ -64,7 +30,8 @@ export async function POST(request: Request) {
   }
 
   let onceJobName: string | null = null;
-  let agentIdForCleanup: string | null = null;
+  let oncePgCronJobName: string | null = null;
+  let cleanupScope: ScheduledJobScope | null = null;
 
   try {
     const body = await request.json();
@@ -78,11 +45,16 @@ export async function POST(request: Request) {
       );
     }
 
-    agentIdForCleanup = agent_id;
-    onceJobName = rest.once && typeof rest.job_name === "string" ? rest.job_name : null;
-
     const type = task_type || "reminder";
     const platform = (rest.platform as string) || "telegram";
+    if (rest.once && typeof rest.job_name === "string") {
+      onceJobName = rest.job_name;
+      oncePgCronJobName =
+        typeof rest.pg_cron_job_name === "string"
+          ? rest.pg_cron_job_name
+          : rest.job_name;
+      cleanupScope = { agentId: agent_id, platformChatId, platform };
+    }
 
     switch (type) {
       case "reminder": {
@@ -153,12 +125,20 @@ export async function POST(request: Request) {
     console.error("Cron worker error:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   } finally {
-    if (onceJobName && agentIdForCleanup) {
-      const localDisabled = await disableLocalCronJobs(agentIdForCleanup, onceJobName);
-      console.log(`Once cleanup: ${onceJobName} disabled ${localDisabled} local rows`);
+    if (onceJobName && oncePgCronJobName && cleanupScope) {
+      const localDisabled = await disableOwnedLocalCronJobs(
+        getSupabase(),
+        cleanupScope,
+        onceJobName,
+        { markLastRun: true }
+      );
+      if (localDisabled.error) {
+        console.warn("Once cleanup local-update failed:", localDisabled.error);
+      }
+      console.log(`Once cleanup: ${onceJobName} disabled ${localDisabled.updated} local rows`);
       after(async () => {
         try {
-          await unscheduleCronJob(onceJobName!);
+          await unscheduleCronJob(oncePgCronJobName!);
         } catch (e) {
           console.warn("One-shot pg_cron cleanup failed:", e);
         }
